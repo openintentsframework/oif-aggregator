@@ -1,0 +1,14 @@
+---
+description: Rules for in-memory storage layer using DashMap
+globs:
+  - "src/storage/**/*.rs"
+alwaysApply: false
+---
+- Use `DashMap` for thread-safe in-memory storage of `Solver`, `Quote`, and `Intent`.
+- Implement TTL for `Quote` entries to limit memory usage (e.g., 5 minutes).
+- Store solvers with `solver_id`, `adapter_id`, `endpoint`, and `timeout_ms`.
+- Support stateless design: avoid persistent state unless explicitly stored.
+- Example: `@src/storage/memory.rs`.
+- Prepare for Redis integration by defining a `Storage` trait.
+
+See @instructions.md for general project design.

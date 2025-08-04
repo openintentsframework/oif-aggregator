@@ -1,0 +1,14 @@
+---
+description: Rules for implementing the AggregatorBuilder pattern
+globs:
+  - "src/lib.rs"
+alwaysApply: false
+---
+- Implement `AggregatorBuilder` with methods: `with_adapter`, `with_solver`, `with_storage`, `start`.
+- Use fluent API pattern for method chaining.
+- Register adapters and solvers dynamically at startup.
+- Support pluggable storage (e.g., `InMemoryStorage`, `RedisStorage`).
+- Example: `@src/lib.rs`.
+- Ensure thread-safe initialization with `Arc` or `Mutex` where needed.
+
+See @instructions.md for general project design.

@@ -1,0 +1,40 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "workers": 4
+  },
+  "solvers": {
+    "lifi-mainnet": {
+      "solver_id": "lifi-mainnet",
+      "adapter_id": "lifi-v1",
+      "endpoint": "https://api.lifi.com/mainnet",
+      "timeout_ms": 3000,
+      "enabled": true,
+      "max_retries": 3,
+      "headers": {
+        "User-Agent": "OIF-Aggregator/0.1.0"
+      }
+    }
+  },
+  "timeouts": {
+    "per_solver_ms": 3000,
+    "global_ms": 5000,
+    "request_ms": 6000
+  },
+  "environment": {
+    "profile": "production",
+    "debug": false,
+    "metrics_enabled": true,
+    "rate_limiting": {
+      "enabled": true,
+      "requests_per_minute": 60,
+      "burst_size": 10
+    }
+  },
+  "logging": {
+    "level": "warn",
+    "format": "json",
+    "structured": true
+  }
+}

@@ -1,0 +1,16 @@
+---
+description: Rules for REST API endpoints using Axum
+globs:
+  - "src/api/**/*.rs"
+alwaysApply: false
+---
+- Use `axum::Router` for defining routes: `/v1/quotes`, `/v1/intents`, `/v1/intents/:id`.
+- Return JSON responses with `axum::Json`.
+- Support stateless intent submission with optional `quoteResponse` in `POST /v1/intents`.
+- Implement IP-based rate limiting using `tower-http::limit::RateLimitLayer`.
+- Use path versioning: `/v1/` for all public endpoints.
+- Add OpenAPI annotations with `utoipa` for `/openapi.json`.
+- Example: `@src/api/routes.rs`.
+- Log requests and responses with `tracing`.
+
+See @instructions.md for general project design.

@@ -1,0 +1,15 @@
+---
+description: Rules for quote aggregation logic in the Aggregator service
+globs:
+  - "src/service/**/*.rs"
+alwaysApply: false
+---
+- Fetch quotes concurrently from solvers using `tokio::spawn` and `futures::future::join_all`.
+- Apply per-solver timeouts (1000–3000 ms) and a global timeout (3000–5000 ms) with `tokio::time::timeout`.
+- Aggregate only successful responses, ignoring timeouts or errors.
+- Return normalized `Quote` structs in a `Vec<Quote>` for JSON serialization.
+- Log aggregation metrics (e.g., successful/failed solvers) using `tracing::info!`.
+- Reference `@src/service/quote.rs` for aggregation logic.
+- Ensure stateless design: no persistent state unless stored in `Storage`.
+
+See @instructions.md for general project design.

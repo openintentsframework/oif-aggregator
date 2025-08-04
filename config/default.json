@@ -1,0 +1,28 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 3000,
+    "workers": null
+  },
+  "solvers": {},
+  "timeouts": {
+    "per_solver_ms": 2000,
+    "global_ms": 4000,
+    "request_ms": 5000
+  },
+  "environment": {
+    "profile": "development",
+    "debug": true,
+    "metrics_enabled": false,
+    "rate_limiting": {
+      "enabled": false,
+      "requests_per_minute": 100,
+      "burst_size": 10
+    }
+  },
+  "logging": {
+    "level": "info",
+    "format": "pretty",
+    "structured": false
+  }
+}

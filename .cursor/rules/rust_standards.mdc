@@ -1,0 +1,16 @@
+---
+description: General Rust and Axum coding standards for the Aggregator project
+globs:
+  - "**/*.rs"
+alwaysApply: true
+---
+- Use functional programming patterns where possible for clarity and safety.
+- Prefer async/await with `tokio` for concurrency, especially for solver requests.
+- Use `axum::Router` for routing and `tower-http` for middleware (e.g., rate limiting).
+- Always use `serde` for JSON serialization/deserialization with `#[derive(Serialize, Deserialize)]`.
+- Avoid unsafe code unless absolutely necessary.
+- Use `tracing` for structured logging, e.g., `tracing::info!` for request and error logs.
+- Follow Rust naming conventions: `snake_case` for functions/variables, `PascalCase` for types.
+- Include error handling with `Result` and custom `Error` types for all async operations.
+- Reference `@src/lib.rs` for core types and `@src/main.rs` for server setup.
+- Prefer header imports over function imports of dependencies.
