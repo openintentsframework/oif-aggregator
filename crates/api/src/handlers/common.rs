@@ -6,9 +6,7 @@ use utoipa::ToSchema;
 #[derive(Debug, Serialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct ErrorResponse {
-    pub error: String,
-    pub message: String,
-    pub timestamp: i64,
+	pub error: String,
+	pub message: String,
+	pub timestamp: i64,
 }
-
-

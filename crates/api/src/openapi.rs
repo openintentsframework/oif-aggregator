@@ -1,10 +1,10 @@
+use crate::handlers::{health, orders, quotes, solvers};
 use utoipa::OpenApi;
-use crate::handlers::{health, orders, quotes};
 
-use oif_types::quotes::request::QuotesRequest;
-use oif_types::quotes::response::{QuoteResponse, QuotesResponse};
 use oif_types::orders::request::OrdersRequest;
 use oif_types::orders::response::{OrderStatusResponse, OrdersResponse};
+use oif_types::quotes::request::QuotesRequest;
+use oif_types::quotes::response::{QuoteResponse, QuotesResponse};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -14,6 +14,8 @@ use oif_types::orders::response::{OrderStatusResponse, OrdersResponse};
         quotes::post_quotes,
         orders::post_orders,
         orders::get_order_status,
+        solvers::get_solvers,
+        solvers::get_solver_by_id,
     ),
     components(schemas(
         QuotesRequest, QuoteResponse, QuotesResponse,
@@ -26,5 +28,3 @@ use oif_types::orders::response::{OrderStatusResponse, OrdersResponse};
     )
 )]
 pub struct ApiDoc;
-
-

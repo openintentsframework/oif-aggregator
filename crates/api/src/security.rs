@@ -1,8 +1,8 @@
 //! Security-related HTTP response headers setup
 
 use axum::{
-    http::header::{HeaderName, HeaderValue},
-    Router,
+	http::header::{HeaderName, HeaderValue},
+	Router,
 };
 use tower::ServiceBuilder;
 use tower_http::set_header::SetResponseHeaderLayer;
@@ -10,7 +10,7 @@ use tower_http::set_header::SetResponseHeaderLayer;
 /// Apply a stack of sensible default security headers to the provided router.
 pub fn add_security_headers<S>(router: Router<S>) -> Router<S>
 where
-    S: Clone + Send + Sync + 'static,
+	S: Clone + Send + Sync + 'static,
 {
 	router.layer(
 		ServiceBuilder::new()
@@ -28,7 +28,7 @@ where
 			))
 			.layer(SetResponseHeaderLayer::if_not_present(
 				HeaderName::from_static("referrer-policy"),
-                HeaderValue::from_static("strict-origin-when-cross-origin"),
+				HeaderValue::from_static("strict-origin-when-cross-origin"),
 			))
 			.layer(SetResponseHeaderLayer::if_not_present(
 				HeaderName::from_static("x-xss-protection"),

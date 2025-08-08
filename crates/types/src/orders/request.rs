@@ -2,9 +2,9 @@
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
-use std::collections::HashMap;
 
 use super::{
 	Order, OrderFees, OrderMetadata, OrderPriority, OrderQuoteData, OrderValidationError,
