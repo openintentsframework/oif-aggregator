@@ -43,8 +43,12 @@ pub use oif_types::{
 
 // Service layer
 pub use oif_service::{
-    AggregatorService, OrderService, OrderServiceError, SolverService, SolverServiceError,
-    // Keep the full module for more advanced usage
+	AggregatorService,
+	OrderService,
+	OrderServiceError,
+	SolverService,
+	SolverServiceError,
+	// Keep the full module for more advanced usage
 };
 
 // Storage layer
@@ -281,12 +285,12 @@ where
 
 		// Create application state
 		let storage_arc: Arc<dyn Storage> = Arc::new(self.storage.clone());
-        let app_state = AppState {
-            aggregator_service: Arc::new(aggregator_service),
-            order_service: Arc::new(OrderService::new(Arc::clone(&storage_arc))),
-            solver_service: Arc::new(SolverService::new(Arc::clone(&storage_arc))),
-            storage: storage_arc,
-        };
+		let app_state = AppState {
+			aggregator_service: Arc::new(aggregator_service),
+			order_service: Arc::new(OrderService::new(Arc::clone(&storage_arc))),
+			solver_service: Arc::new(SolverService::new(Arc::clone(&storage_arc))),
+			storage: storage_arc,
+		};
 
 		// Create router with state
 		let router = create_router().with_state(app_state.clone());

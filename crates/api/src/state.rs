@@ -9,5 +9,5 @@ pub struct AppState {
 	pub aggregator_service: Arc<AggregatorService>,
 	pub storage: Arc<dyn Storage>,
 	pub order_service: Arc<OrderService>,
-    pub solver_service: Arc<SolverService>,
+	pub solver_service: Arc<SolverService>,
 }

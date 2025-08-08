@@ -10,7 +10,9 @@ use tower_http::{
 };
 use tracing::Level;
 
-use crate::handlers::{get_order_status, get_solver_by_id, get_solvers, health, post_orders, post_quotes, ready};
+use crate::handlers::{
+	get_order_status, get_solver_by_id, get_solvers, health, post_orders, post_quotes, ready,
+};
 use crate::security::add_security_headers;
 use crate::state::AppState;
 // State is applied at the application level using `.with_state(...)`.
@@ -50,14 +52,14 @@ pub fn create_router() -> Router<AppState> {
 		.layer(PropagateRequestIdLayer::x_request_id());
 
 	// Base router
-    let base_router = Router::new()
+	let base_router = Router::new()
 		.route("/health", get(health))
 		.route("/ready", get(ready))
 		.route("/v1/quotes", post(post_quotes))
 		.route("/v1/orders", post(post_orders))
-        .route("/v1/orders/{id}", get(get_order_status))
-        .route("/v1/solvers", get(get_solvers))
-        .route("/v1/solvers/{id}", get(get_solver_by_id));
+		.route("/v1/orders/{id}", get(get_order_status))
+		.route("/v1/solvers", get(get_solvers))
+		.route("/v1/solvers/{id}", get(get_solver_by_id));
 
 	// Conditionally add OpenAPI endpoint
 	#[cfg(feature = "openapi")]
