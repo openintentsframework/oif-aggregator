@@ -1,0 +1,28 @@
+[package]
+name = "oif-storage"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+oif-types = { path = "../types" }
+oif-config = { path = "../config" }
+async-trait = "0.1"
+dashmap = "6.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.0", features = ["full"] }
+tracing = "0.1"
+thiserror = "2.0"
+chrono = { version = "0.4", features = ["serde"] }
+
+# Redis support (optional)
+redis = { version = "0.27", optional = true, features = ["tokio-comp"] }
+
+# PostgreSQL support (optional)
+sqlx = { version = "0.8", optional = true, features = ["runtime-tokio-rustls", "postgres", "uuid", "chrono"] }
+
+[features]
+default = ["memory"]
+memory = []
+redis = ["dep:redis"]
+postgres = ["dep:sqlx"]

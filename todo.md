@@ -293,3 +293,20 @@ tracing = "0.1"
 utoipa = { version = "4.0", optional = true }
 
 
+
+
+- X GH flows
+- X formatting
+- X clippy
+- X improve models structure
+- X introduce service start log(like in relayer)
+- X Licence
+- X rename intent to order
+
+- precommit
+- README
+- docker
+- deploy crate
+- option to open solver registration route
+- Solvers crud endpoints
+- check storage traits, optimise

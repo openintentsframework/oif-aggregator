@@ -6,6 +6,6 @@ use oif_aggregator::AggregatorBuilder;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Start the complete server with all defaults and setup handled automatically
-    AggregatorBuilder::new().start_server().await
+	// Start the complete server with all defaults and setup handled automatically
+	AggregatorBuilder::new().start_server().await
 }

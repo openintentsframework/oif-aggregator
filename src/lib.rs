@@ -3,234 +3,410 @@
 //! A high-performance aggregator for Open Intent Framework (OIF) solvers,
 //! providing quote aggregation, intent submission, and solver management.
 
-pub mod adapters;
-pub mod api;
-pub mod auth;
-pub mod config;
-pub mod models;
-pub mod service;
-pub mod storage;
-
-pub use adapters::{
-    AdapterError, AdapterFactory, AdapterResult, SolverAdapter, oif_adapter::OifAdapter,
+// Core domain types - the most commonly used types
+pub use oif_types::{
+	chrono,
+	// External dependencies for convenience
+	serde_json,
+	// Core types
+	Adapter,
+	AdapterConfig,
+	AdapterError,
+	AdapterStatus,
+	AdapterType,
+	AuthContext,
+	AuthRequest,
+	// Auth traits and implementations
+	Authenticator,
+	MemoryRateLimiter,
+	NoAuthenticator,
+	Order,
+	OrderError,
+	OrderResponse,
+	OrderStatus,
+	OrdersRequest,
+	Permission,
+	// Primary domain entities
+	Quote,
+	// Error types
+	QuoteError,
+	QuoteRequest,
+	QuoteResponse,
+	QuoteStatus,
+	RateLimiter,
+	RateLimits,
+	Solver,
+	SolverConfig,
+	SolverError,
+	SolverStatus,
 };
-pub use api::routes::{AppState, create_router};
-pub use config::{Settings, load_config};
-pub use models::{Intent, Quote, QuoteRequest, Solver, SolverConfig, SolverStatus};
-pub use service::aggregator::AggregatorService;
-pub use storage::MemoryStore;
-// TODO: Replace storage::models with new models module gradually
-// pub use models::*;
+
+// Service layer
+pub use oif_service::{
+    AggregatorService, OrderService, OrderServiceError,
+    // Keep the full module for more advanced usage
+};
+
+// Storage layer
+pub use oif_storage::{
+	traits::{
+		OrderStorage, QuoteStorage, SolverStorage, StorageError, StorageResult, StorageStats,
+	},
+	MemoryStore, Storage,
+};
+
+// Storage traits module for advanced usage
+pub mod traits {
+	pub use oif_storage::traits::*;
+}
+
+// Conditional re-exports based on features
+#[cfg(feature = "redis")]
+pub use oif_storage::RedisStore;
+
+// API layer
+pub use oif_api::{create_router, AppState};
+
+// Adapters
+pub use oif_adapters::{AdapterFactory, AdapterResult, SolverAdapter};
+
+// Config
+pub use oif_config::{load_config, log_service_info, log_startup_complete, Settings};
+
+// Module aliases for backward compatibility
+pub mod models {
+	pub use oif_types::*;
+}
+
+pub mod storage {
+	pub use oif_storage::*;
+}
+
+pub mod config {
+	pub use oif_config::*;
+}
+
+pub mod adapters {
+	pub use oif_adapters::*;
+}
+
+pub mod api {
+	pub use oif_api::*;
+}
+
+pub mod service {
+	pub use oif_service::*;
+}
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
+// Re-export external dependencies for examples
+pub use async_trait;
+pub use reqwest;
+
 /// Builder pattern for configuring the aggregator
-pub struct AggregatorBuilder {
-    settings: Option<Settings>,
-    storage: MemoryStore,
+pub struct AggregatorBuilder<S = MemoryStore, A = NoAuthenticator, R = MemoryRateLimiter>
+where
+	S: Storage + 'static,
+	A: Authenticator + 'static,
+	R: RateLimiter + 'static,
+{
+	settings: Option<Settings>,
+	storage: S,
+	authenticator: A,
+	rate_limiter: R,
 }
 
-impl AggregatorBuilder {
-    /// Create a new aggregator builder
-    pub fn new() -> Self {
-        Self {
-            settings: None,
-            storage: MemoryStore::new(),
-        }
-    }
-
-    /// Create aggregator builder from configuration
-    pub fn from_config(settings: Settings) -> Self {
-        let storage = MemoryStore::new();
-
-        // Load solvers from configuration
-        for (_, solver_config) in &settings.enabled_solvers() {
-            let mut solver = Solver::new(
-                solver_config.solver_id.clone(),
-                solver_config.adapter_id.clone(),
-                solver_config.endpoint.clone(),
-                solver_config.timeout_ms,
-            );
-
-            // Update metadata with configuration details
-            solver.metadata.name = Some(solver_config.solver_id.clone());
-            solver.metadata.supported_chains = vec![1]; // Default to Ethereum mainnet
-            solver.metadata.max_retries = solver_config.max_retries;
-            solver.metadata.headers = solver_config.headers.clone();
-            solver.status = SolverStatus::Active; // Set to active once initialized
-            storage.add_solver(solver);
-        }
-
-        Self {
-            settings: Some(settings),
-            storage,
-        }
-    }
-
-    /// Add a solver to the aggregator
-    pub fn with_solver(self, solver: Solver) -> Self {
-        self.storage.add_solver(solver.clone());
-        self
-    }
-
-    /// Get the current settings
-    pub fn settings(&self) -> Option<&Settings> {
-        self.settings.as_ref()
-    }
-
-    /// Add a storage implementation
-    pub fn with_storage(mut self, storage: MemoryStore) -> Self {
-        self.storage = storage;
-        self
-    }
-
-    /// Enable TTL cleanup for quotes (enabled by default)
-    pub fn with_ttl_cleanup(mut self, enabled: bool) -> Self {
-        if enabled {
-            // Create a new storage with TTL enabled and copy existing data
-            let new_storage = MemoryStore::with_ttl_enabled(true);
-            // Copy existing solvers
-            for solver in self.storage.get_all_solvers() {
-                new_storage.add_solver(solver);
-            }
-            self.storage = new_storage;
-        }
-        self
-    }
-
-    /// Start the aggregator and return the configured router with state
-    pub async fn start(self) -> Result<(axum::Router, AppState), Box<dyn std::error::Error>> {
-        // Initialize the aggregator service
-        let settings = self.settings.clone().unwrap_or_default();
-        let solvers = self.storage.get_all_solvers();
-
-        let mut aggregator_service = AggregatorService::new(solvers, settings.timeouts.global_ms);
-
-        // Initialize adapters
-        aggregator_service.initialize_adapters().await?;
-
-        // Create application state
-        let app_state = AppState {
-            aggregator_service: Arc::new(aggregator_service),
-            storage: self.storage.clone(),
-        };
-
-        // Create router with state
-        let router = create_router().with_state(app_state.clone());
-
-        Ok((router, app_state))
-    }
-
-    /// Start the complete server with all defaults and setup
-    /// This method handles everything needed to run the server, including:
-    /// - Loading .env file
-    /// - Loading configuration with defaults
-    /// - Initializing tracing
-    /// - Starting TTL cleanup
-    /// - Binding and serving the application
-    pub async fn start_server(mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // Load .env file if it exists
-        dotenvy::dotenv().ok();
-
-        // Use provided settings or load from config with defaults
-        let settings = if self.settings.is_some() {
-            info!("Using provided configuration");
-            self.settings.take().unwrap()
-        } else {
-            match load_config() {
-                Ok(config) => {
-                    info!("Configuration loaded successfully");
-                    config
-                }
-                Err(e) => {
-                    error!("Failed to load configuration: {}", e);
-                    warn!("Using default configuration");
-                    Settings::default()
-                }
-            }
-        };
-
-        // Initialize tracing based on configuration
-        Self::init_tracing(&settings);
-
-        info!("Starting OIF Aggregator server");
-        info!("Environment: {:?}", settings.environment.profile);
-        info!("Debug mode: {}", settings.is_debug());
-
-        // Log enabled solvers
-        let enabled_solvers = settings.enabled_solvers();
-        info!("Enabled solvers: {}", enabled_solvers.len());
-        for (id, solver) in &enabled_solvers {
-            info!(
-                "  - {}: {} ({}ms timeout)",
-                id, solver.endpoint, solver.timeout_ms
-            );
-        }
-
-        // Parse bind address
-        let bind_addr = settings.bind_address();
-        let addr: SocketAddr = bind_addr
-            .parse()
-            .map_err(|e| format!("Invalid bind address '{}': {}", bind_addr, e))?;
-
-        // Ensure we have proper configuration in the builder
-        if self.settings.is_none() {
-            self = Self::from_config(settings.clone());
-        }
-
-        // Create the router using the builder pattern
-        let (app, app_state) = self.start().await?;
-
-        // Log application startup info
-        let stats = app_state.aggregator_service.get_stats();
-        info!(
-            "Aggregator service initialized with {} solvers, {} adapters",
-            stats.total_solvers, stats.initialized_adapters
-        );
-
-        // Start TTL cleanup for quotes
-        let _cleanup_handle = app_state.storage.start_ttl_cleanup();
-        info!("Started TTL cleanup task for expired quotes");
-
-        // Start the server
-        let listener = tokio::net::TcpListener::bind(addr).await?;
-        info!("Server listening on {}", addr);
-        info!("API endpoints available:");
-        info!("  GET  /health");
-        info!("  POST /v1/quotes");
-        info!("  POST /v1/intents");
-        info!("  GET  /v1/intents/{{id}}");
-
-        axum::serve(listener, app).await?;
-
-        Ok(())
-    }
-
-    /// Initialize tracing based on configuration settings
-    fn init_tracing(settings: &Settings) {
-        use tracing_subscriber::{EnvFilter, fmt};
-
-        let filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new(&settings.logging.level));
-
-        match settings.logging.format {
-            config::settings::LogFormat::Json => {
-                fmt().with_env_filter(filter).json().init();
-            }
-            config::settings::LogFormat::Pretty => {
-                fmt().with_env_filter(filter).pretty().init();
-            }
-            config::settings::LogFormat::Compact => {
-                fmt().with_env_filter(filter).compact().init();
-            }
-        }
-    }
+impl<S> AggregatorBuilder<S, NoAuthenticator, MemoryRateLimiter>
+where
+	S: Storage + Clone + 'static,
+{
+	/// Create a new aggregator builder with the provided storage
+	pub fn with_storage(storage: S) -> Self {
+		Self {
+			settings: None,
+			storage,
+			authenticator: NoAuthenticator,
+			rate_limiter: MemoryRateLimiter::new(),
+		}
+	}
 }
 
-impl Default for AggregatorBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
+// Default constructor using MemoryStore for convenience
+impl AggregatorBuilder<MemoryStore, NoAuthenticator, MemoryRateLimiter> {
+	/// Create a new aggregator builder with default memory storage
+	pub fn new() -> Self {
+		Self::with_storage(MemoryStore::new())
+	}
+
+	/// Create aggregator builder from configuration using default memory storage
+	pub async fn from_config(settings: Settings) -> Self {
+		Self::from_config_with_storage(settings, MemoryStore::new()).await
+	}
+}
+
+impl<S, A, R> AggregatorBuilder<S, A, R>
+where
+	S: Storage + Clone + 'static,
+	A: Authenticator + 'static,
+	R: RateLimiter + 'static,
+{
+	/// Set custom authenticator
+	pub fn with_auth<NewA>(self, authenticator: NewA) -> AggregatorBuilder<S, NewA, R>
+	where
+		NewA: Authenticator + 'static,
+	{
+		AggregatorBuilder {
+			settings: self.settings,
+			storage: self.storage,
+			authenticator,
+			rate_limiter: self.rate_limiter,
+		}
+	}
+
+	/// Set custom rate limiter
+	pub fn with_rate_limiter<NewR>(self, rate_limiter: NewR) -> AggregatorBuilder<S, A, NewR>
+	where
+		NewR: RateLimiter + 'static,
+	{
+		AggregatorBuilder {
+			settings: self.settings,
+			storage: self.storage,
+			authenticator: self.authenticator,
+			rate_limiter,
+		}
+	}
+
+	/// Set both auth and rate limiter
+	pub fn with_auth_and_limiter<NewA, NewR>(
+		self,
+		authenticator: NewA,
+		rate_limiter: NewR,
+	) -> AggregatorBuilder<S, NewA, NewR>
+	where
+		NewA: Authenticator + 'static,
+		NewR: RateLimiter + 'static,
+	{
+		AggregatorBuilder {
+			settings: self.settings,
+			storage: self.storage,
+			authenticator,
+			rate_limiter,
+		}
+	}
+}
+
+impl<S, A, R> AggregatorBuilder<S, A, R>
+where
+	S: Storage + Clone + 'static,
+	A: Authenticator + 'static,
+	R: RateLimiter + 'static,
+{
+	/// Create aggregator builder from configuration with any storage
+	pub async fn from_config_with_storage(
+		settings: Settings,
+		storage: S,
+	) -> AggregatorBuilder<S, NoAuthenticator, MemoryRateLimiter> {
+		// Load solvers from configuration into the provided storage
+		for (_, solver_config) in &settings.enabled_solvers() {
+			let mut solver = Solver::new(
+				solver_config.solver_id.clone(),
+				solver_config.adapter_id.clone(),
+				solver_config.endpoint.clone(),
+				solver_config.timeout_ms,
+			);
+
+			// Update metadata with configuration details
+			solver.metadata.name = Some(solver_config.solver_id.clone());
+			solver.metadata.supported_chains = vec![1]; // Default to Ethereum mainnet
+			solver.metadata.max_retries = solver_config.max_retries;
+			solver.metadata.headers = solver_config.headers.clone();
+			solver.status = SolverStatus::Active; // Set to active once initialized
+			storage
+				.add_solver(solver)
+				.await
+				.expect("Failed to add solver to storage");
+		}
+
+		AggregatorBuilder {
+			settings: Some(settings),
+			storage,
+			authenticator: NoAuthenticator,
+			rate_limiter: MemoryRateLimiter::new(),
+		}
+	}
+	/// Add a solver to the aggregator
+	pub async fn with_solver(self, solver: Solver) -> Self {
+		self.storage
+			.add_solver(solver.clone())
+			.await
+			.expect("Failed to add solver");
+		self
+	}
+
+	/// Get the current settings
+	pub fn settings(&self) -> Option<&Settings> {
+		self.settings.as_ref()
+	}
+
+	/// Replace the storage implementation with a different one
+	pub fn replace_storage<T>(self, storage: T) -> AggregatorBuilder<T, A, R>
+	where
+		T: Storage + Clone + 'static,
+	{
+		AggregatorBuilder {
+			settings: self.settings,
+			storage,
+			authenticator: self.authenticator,
+			rate_limiter: self.rate_limiter,
+		}
+	}
+
+	/// Start the aggregator and return the configured router with state
+	pub async fn start(self) -> Result<(axum::Router, AppState), Box<dyn std::error::Error>> {
+		// Initialize the aggregator service
+		let settings = self.settings.clone().unwrap_or_default();
+		let solvers = self
+			.storage
+			.get_all_solvers()
+			.await
+			.map_err(|e| format!("Failed to get solvers: {}", e))?;
+
+		let mut aggregator_service = AggregatorService::new(solvers, settings.timeouts.global_ms);
+
+		// Initialize adapters
+		aggregator_service.initialize_adapters().await?;
+
+		// Create application state
+		let storage_arc: Arc<dyn Storage> = Arc::new(self.storage.clone());
+		let app_state = AppState {
+			aggregator_service: Arc::new(aggregator_service),
+			order_service: Arc::new(OrderService::new(Arc::clone(&storage_arc))),
+			storage: storage_arc,
+		};
+
+		// Create router with state
+		let router = create_router().with_state(app_state.clone());
+
+		Ok((router, app_state))
+	}
+
+	/// Start the complete server with all defaults and setup
+	/// This method handles everything needed to run the server, including:
+	/// - Loading .env file
+	/// - Loading configuration with defaults
+	/// - Initializing tracing
+	/// - Starting TTL cleanup
+	/// - Binding and serving the application
+	pub async fn start_server(mut self) -> Result<(), Box<dyn std::error::Error>> {
+		// Load .env file if it exists
+		dotenvy::dotenv().ok();
+
+		// Initialize basic tracing early so we can see startup logs
+		// This can be overridden later based on configuration
+		// Use try_init() to avoid panic if already initialized
+		let _ = tracing_subscriber::fmt()
+			.with_env_filter(
+				tracing_subscriber::EnvFilter::try_from_default_env()
+					.unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
+			)
+			.try_init();
+
+		// Log comprehensive service startup information
+		log_service_info();
+
+		// Use provided settings or load from config with defaults
+		let settings = if self.settings.is_some() {
+			info!("Using provided configuration");
+			self.settings.take().unwrap()
+		} else {
+			match load_config() {
+				Ok(config) => {
+					info!("Configuration loaded successfully");
+					config
+				},
+				Err(e) => {
+					error!("Failed to load configuration: {}", e);
+					warn!("Using default configuration");
+					Settings::default()
+				},
+			}
+		};
+
+		// Note: Basic tracing was already initialized above to capture startup logs
+		// Advanced tracing configuration based on settings could be added here if needed
+
+		info!("🔧 Configuring OIF Aggregator server");
+		info!("Environment: {:?}", settings.environment.profile);
+		info!("Debug mode: {}", settings.is_debug());
+
+		// Log enabled solvers
+		let enabled_solvers = settings.enabled_solvers();
+		info!("Enabled solvers: {}", enabled_solvers.len());
+		for (id, solver) in &enabled_solvers {
+			info!(
+				"  - {}: {} ({}ms timeout)",
+				id, solver.endpoint, solver.timeout_ms
+			);
+		}
+
+		// Parse bind address
+		let bind_addr = settings.bind_address();
+		let addr: SocketAddr = bind_addr
+			.parse()
+			.map_err(|e| format!("Invalid bind address '{}': {}", bind_addr, e))?;
+
+		// Ensure we have proper configuration in the builder
+		if self.settings.is_none() {
+			self.settings = Some(settings.clone());
+		}
+
+		// Create the router using the builder pattern
+		let (app, app_state) = self.start().await?;
+
+		// Start storage background tasks (e.g., TTL cleanup) if implemented
+		let _bg = app_state.storage.start_background_tasks();
+
+		// Log application startup info
+		let stats = app_state.aggregator_service.get_stats();
+		info!(
+			"Aggregator service initialized with {} solvers, {} adapters",
+			stats.total_solvers, stats.initialized_adapters
+		);
+
+		// TTL cleanup is storage-specific and should be handled by the storage implementation
+		info!("Storage backend initialized successfully");
+
+		// Start the server
+		let listener = tokio::net::TcpListener::bind(addr).await?;
+
+		// Log startup completion with comprehensive information
+		log_startup_complete(&bind_addr);
+		info!("API endpoints available:");
+		info!("  GET  /health");
+		info!("  POST /v1/quotes");
+		info!("  POST /v1/orders");
+		info!("  GET  /v1/orders/{{id}}");
+
+		// Apply global rate limiting based on settings at the make_service level
+		let rate_cfg = &settings.environment.rate_limiting;
+		if rate_cfg.enabled {
+			use std::time::Duration;
+			use tower::limit::RateLimitLayer;
+			use tower::ServiceBuilder;
+			let make_svc = ServiceBuilder::new()
+				.layer(RateLimitLayer::new(
+					rate_cfg.requests_per_minute as u64,
+					Duration::from_secs(60),
+				))
+				.service(app.into_make_service());
+			axum::serve(listener, make_svc).await?;
+		} else {
+			axum::serve(listener, app).await?;
+		}
+
+		Ok(())
+	}
 }
