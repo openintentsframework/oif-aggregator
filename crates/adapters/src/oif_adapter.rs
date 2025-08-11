@@ -45,8 +45,6 @@ struct OifQuoteResponse {
 struct OifOrderRequest {
 	pub quote_id: Option<String>,
 	pub user_address: String,
-	pub slippage_tolerance: f64,
-	pub deadline: i64,
 	pub signature: Option<String>,
 }
 
@@ -231,8 +229,6 @@ impl SolverAdapter for OifAdapter {
 		let oif_request = OifOrderRequest {
 			quote_id: order.quote_id.clone(),
 			user_address: order.user_address.clone(),
-			slippage_tolerance: order.slippage_tolerance,
-			deadline: order.deadline.timestamp(),
 			signature: order.signature.clone(),
 		};
 

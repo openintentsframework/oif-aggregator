@@ -12,7 +12,6 @@ pub use oif_types::{
 	Adapter,
 	AdapterConfig,
 	AdapterError,
-	AdapterStatus,
 	AdapterType,
 	AuthContext,
 	AuthRequest,
@@ -53,9 +52,7 @@ pub use oif_service::{
 
 // Storage layer
 pub use oif_storage::{
-	traits::{
-		OrderStorage, QuoteStorage, SolverStorage, StorageError, StorageResult, StorageStats,
-	},
+	traits::{OrderStorage, QuoteStorage, SolverStorage, StorageError, StorageResult},
 	MemoryStore, Storage,
 };
 
@@ -96,6 +93,10 @@ pub mod adapters {
 
 pub mod api {
 	pub use oif_api::*;
+	// Back-compat shim for older imports oif_aggregator::api::routes::{create_router, AppState}
+	pub mod routes {
+		pub use oif_api::{create_router, AppState};
+	}
 }
 
 pub mod service {
@@ -228,8 +229,8 @@ where
 			solver.metadata.max_retries = solver_config.max_retries;
 			solver.metadata.headers = solver_config.headers.clone();
 			solver.status = SolverStatus::Active; // Set to active once initialized
-			storage
-				.add_solver(solver)
+			(&storage as &dyn SolverStorage)
+				.create(solver)
 				.await
 				.expect("Failed to add solver to storage");
 		}
@@ -243,8 +244,8 @@ where
 	}
 	/// Add a solver to the aggregator
 	pub async fn with_solver(self, solver: Solver) -> Self {
-		self.storage
-			.add_solver(solver.clone())
+		(&self.storage as &dyn SolverStorage)
+			.create(solver.clone())
 			.await
 			.expect("Failed to add solver");
 		self
@@ -272,9 +273,9 @@ where
 	pub async fn start(self) -> Result<(axum::Router, AppState), Box<dyn std::error::Error>> {
 		// Initialize the aggregator service
 		let settings = self.settings.clone().unwrap_or_default();
-		let solvers = self
-			.storage
-			.get_all_solvers()
+		// Use base repository listing for solvers
+		let solvers = (&self.storage as &dyn oif_types::storage::Repository<oif_types::Solver>)
+			.list_all()
 			.await
 			.map_err(|e| format!("Failed to get solvers: {}", e))?;
 

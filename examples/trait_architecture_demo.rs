@@ -7,6 +7,7 @@
 //! 4. Wire everything together using the AggregatorBuilder
 
 use async_trait::async_trait;
+use oif_aggregator::models::{AuthError, AuthenticationResult};
 use oif_aggregator::*;
 use tokio;
 
@@ -68,23 +69,6 @@ struct CustomPostgresStorage {
 
 #[async_trait]
 impl QuoteStorage for CustomPostgresStorage {
-	async fn add_quote(&self, quote: Quote) -> StorageResult<()> {
-		// In real implementation: INSERT INTO quotes ...
-		println!("Storing quote {} in PostgreSQL", quote.quote_id);
-		Ok(())
-	}
-
-	async fn get_quote(&self, quote_id: &str) -> StorageResult<Option<Quote>> {
-		// In real implementation: SELECT * FROM quotes WHERE id = ?
-		println!("Fetching quote {} from PostgreSQL", quote_id);
-		Ok(None) // Not found for this demo
-	}
-
-	async fn remove_quote(&self, quote_id: &str) -> StorageResult<bool> {
-		println!("Removing quote {} from PostgreSQL", quote_id);
-		Ok(true)
-	}
-
 	async fn get_quotes_by_request(&self, request_id: &str) -> StorageResult<Vec<Quote>> {
 		println!("Fetching quotes for request {} from PostgreSQL", request_id);
 		Ok(vec![])
@@ -99,83 +83,120 @@ impl QuoteStorage for CustomPostgresStorage {
 		println!("Cleaning up expired quotes in PostgreSQL");
 		Ok(0)
 	}
+}
 
-	async fn quote_stats(&self) -> StorageResult<(usize, usize)> {
-		Ok((0, 0))
+#[async_trait]
+impl oif_aggregator::models::storage::Repository<Quote> for CustomPostgresStorage {
+	async fn create(&self, quote: Quote) -> StorageResult<()> {
+		// In real implementation: INSERT INTO quotes ...
+		println!("Storing quote {} in PostgreSQL", quote.quote_id);
+		Ok(())
+	}
+
+	async fn get(&self, quote_id: &str) -> StorageResult<Option<Quote>> {
+		// In real implementation: SELECT * FROM quotes WHERE id = ?
+		println!("Fetching quote {} from PostgreSQL", quote_id);
+		Ok(None) // Not found for this demo
+	}
+
+	async fn delete(&self, quote_id: &str) -> StorageResult<bool> {
+		println!("Removing quote {} from PostgreSQL", quote_id);
+		Ok(true)
+	}
+	async fn update(&self, _quote: Quote) -> StorageResult<()> {
+		Ok(())
+	}
+	async fn count(&self) -> StorageResult<usize> {
+		Ok(0)
+	}
+	async fn list_all(&self) -> StorageResult<Vec<Quote>> {
+		Ok(vec![])
+	}
+	async fn list_paginated(&self, _offset: usize, _limit: usize) -> StorageResult<Vec<Quote>> {
+		Ok(vec![])
 	}
 }
 
 #[async_trait]
 impl OrderStorage for CustomPostgresStorage {
-	async fn add_order(&self, order: Order) -> StorageResult<()> {
-		println!("Storing order {} in PostgreSQL", order.order_id);
-		Ok(())
-	}
-
-	async fn get_order(&self, order_id: &str) -> StorageResult<Option<Order>> {
-		println!("Fetching order {} from PostgreSQL", order_id);
-		Ok(None)
-	}
-
-	async fn update_order(&self, order: Order) -> StorageResult<()> {
-		println!("Updating order {} in PostgreSQL", order.order_id);
-		Ok(())
-	}
-
-	async fn get_orders_by_user(&self, user_address: &str) -> StorageResult<Vec<Order>> {
+	async fn get_by_user(&self, user_address: &str) -> StorageResult<Vec<Order>> {
 		println!("Fetching orders for user {} from PostgreSQL", user_address);
 		Ok(vec![])
 	}
 
-	async fn get_orders_by_status(&self, status: OrderStatus) -> StorageResult<Vec<Order>> {
+	async fn get_by_status(&self, status: OrderStatus) -> StorageResult<Vec<Order>> {
 		println!("Fetching orders with status {:?} from PostgreSQL", status);
 		Ok(vec![])
 	}
+}
 
-	async fn remove_order(&self, order_id: &str) -> StorageResult<bool> {
+#[async_trait]
+impl oif_aggregator::models::storage::Repository<Order> for CustomPostgresStorage {
+	async fn create(&self, order: Order) -> StorageResult<()> {
+		println!("Storing order {} in PostgreSQL", order.order_id);
+		Ok(())
+	}
+
+	async fn get(&self, order_id: &str) -> StorageResult<Option<Order>> {
+		println!("Fetching order {} from PostgreSQL", order_id);
+		Ok(None)
+	}
+
+	async fn update(&self, order: Order) -> StorageResult<()> {
+		println!("Updating order {} in PostgreSQL", order.order_id);
+		Ok(())
+	}
+	async fn delete(&self, order_id: &str) -> StorageResult<bool> {
 		println!("Removing order {} from PostgreSQL", order_id);
 		Ok(true)
 	}
-
-	async fn order_count(&self) -> StorageResult<usize> {
+	async fn count(&self) -> StorageResult<usize> {
 		Ok(0)
+	}
+	async fn list_all(&self) -> StorageResult<Vec<Order>> {
+		Ok(vec![])
+	}
+	async fn list_paginated(&self, _offset: usize, _limit: usize) -> StorageResult<Vec<Order>> {
+		Ok(vec![])
 	}
 }
 
 #[async_trait]
 impl SolverStorage for CustomPostgresStorage {
-	async fn add_solver(&self, solver: Solver) -> StorageResult<()> {
+	async fn get_active(&self) -> StorageResult<Vec<Solver>> {
+		println!("Fetching active solvers from PostgreSQL");
+		Ok(vec![])
+	}
+}
+
+#[async_trait]
+impl oif_aggregator::models::storage::Repository<Solver> for CustomPostgresStorage {
+	async fn create(&self, solver: Solver) -> StorageResult<()> {
 		println!("Storing solver {} in PostgreSQL", solver.solver_id);
 		Ok(())
 	}
 
-	async fn get_solver(&self, solver_id: &str) -> StorageResult<Option<Solver>> {
+	async fn get(&self, solver_id: &str) -> StorageResult<Option<Solver>> {
 		println!("Fetching solver {} from PostgreSQL", solver_id);
 		Ok(None)
 	}
 
-	async fn update_solver(&self, solver: Solver) -> StorageResult<()> {
+	async fn update(&self, solver: Solver) -> StorageResult<()> {
 		println!("Updating solver {} in PostgreSQL", solver.solver_id);
 		Ok(())
 	}
-
-	async fn get_all_solvers(&self) -> StorageResult<Vec<Solver>> {
-		println!("Fetching all solvers from PostgreSQL");
-		Ok(vec![])
-	}
-
-	async fn get_active_solvers(&self) -> StorageResult<Vec<Solver>> {
-		println!("Fetching active solvers from PostgreSQL");
-		Ok(vec![])
-	}
-
-	async fn remove_solver(&self, solver_id: &str) -> StorageResult<bool> {
+	async fn delete(&self, solver_id: &str) -> StorageResult<bool> {
 		println!("Removing solver {} from PostgreSQL", solver_id);
 		Ok(true)
 	}
-
-	async fn solver_count(&self) -> StorageResult<usize> {
+	async fn count(&self) -> StorageResult<usize> {
 		Ok(0)
+	}
+	async fn list_all(&self) -> StorageResult<Vec<Solver>> {
+		Ok(vec![])
+	}
+	async fn list_paginated(&self, _offset: usize, _limit: usize) -> StorageResult<Vec<Solver>> {
+		Ok(vec![])
 	}
 }
 
@@ -184,15 +205,6 @@ impl Storage for CustomPostgresStorage {
 	async fn health_check(&self) -> StorageResult<bool> {
 		println!("PostgreSQL health check passed");
 		Ok(true)
-	}
-
-	async fn stats(&self) -> StorageResult<StorageStats> {
-		Ok(StorageStats {
-			total_quotes: 0,
-			active_quotes: 0,
-			total_orders: 0,
-			total_solvers: 0,
-		})
 	}
 
 	async fn close(&self) -> StorageResult<()> {
@@ -236,10 +248,11 @@ impl SolverAdapter for CustomUniswapAdapter {
 		&self.config
 	}
 
-	async fn get_quote(&self, request: QuoteRequest) -> AdapterResult<Quote> {
+	async fn get_quote(&self, request: &QuoteRequest) -> AdapterResult<Quote> {
 		println!(
 			"Getting quote from Uniswap V3 for {}/{}",
-			request.token_in, request.token_out
+			request.token_in.clone(),
+			request.token_out.clone()
 		);
 
 		// In real implementation:
@@ -250,10 +263,10 @@ impl SolverAdapter for CustomUniswapAdapter {
 
 		let quote = Quote::new(
 			"custom-uniswap".to_string(),
-			request.request_id,
-			request.token_in,
-			request.token_out,
-			request.amount_in,
+			request.request_id.clone(),
+			request.token_in.clone(),
+			request.token_out.clone(),
+			request.amount_in.clone(),
 			"2500000000".to_string(), // Mock output amount
 			request.chain_id,
 		)
@@ -281,7 +294,8 @@ impl SolverAdapter for CustomUniswapAdapter {
 	}
 
 	fn supported_chains(&self) -> &[u64] {
-		&[1, 137, 42161] // Ethereum, Polygon, Arbitrum
+		const CHAINS: &[u64] = &[1, 137, 42161];
+		CHAINS
 	}
 }
 

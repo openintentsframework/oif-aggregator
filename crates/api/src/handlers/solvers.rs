@@ -1,12 +1,14 @@
+//! Solvers handlers
+
 use axum::{
 	extract::{Path, Query, State},
 	http::StatusCode,
 	response::Json,
 };
-use tracing::info;
+use tracing::debug;
 
 use crate::handlers::common::ErrorResponse;
-use crate::pagination::{slice_bounds, PaginationQuery};
+use crate::pagination::PaginationQuery;
 use crate::state::AppState;
 use oif_types::solvers::response::{SolverResponse, SolversResponse};
 
@@ -25,35 +27,25 @@ pub async fn get_solvers(
 	State(state): State<AppState>,
 	Query(pq): Query<PaginationQuery>,
 ) -> Result<Json<SolversResponse>, (StatusCode, Json<ErrorResponse>)> {
-	info!("Listing all solvers");
-	let solvers = state.solver_service.list_solvers().await.map_err(|e| {
-		(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			Json(ErrorResponse {
-				error: "STORAGE_ERROR".to_string(),
-				message: e.to_string(),
-				timestamp: chrono::Utc::now().timestamp(),
-			}),
-		)
-	})?;
-
-	// Compute counts on full set
-	let total = solvers.len();
-	let active_count = solvers.iter().filter(|s| s.is_available()).count();
-	let healthy_count = solvers.iter().filter(|s| s.is_healthy()).count();
-
-	let (start, end, _page, _page_size) = slice_bounds(total, pq.page, pq.page_size);
-	let page_slice = if start < total {
-		&solvers[start..end]
-	} else {
-		&[]
-	};
+	debug!("Listing solvers with pagination");
+	let (page_items, total, _active_count, _healthy_count) = state
+		.solver_service
+		.list_solvers_paginated(pq.page, pq.page_size)
+		.await
+		.map_err(|e| {
+			(
+				StatusCode::INTERNAL_SERVER_ERROR,
+				Json(ErrorResponse {
+					error: "STORAGE_ERROR".to_string(),
+					message: e.to_string(),
+					timestamp: chrono::Utc::now().timestamp(),
+				}),
+			)
+		})?;
 
 	// Build page responses
-	let solver_responses: Result<Vec<_>, _> =
-		page_slice.iter().map(SolverResponse::from_domain).collect();
-
-	let responses = solver_responses.map_err(|e| {
+	let responses: Result<Vec<_>, _> = page_items.iter().map(SolverResponse::from_domain).collect();
+	let responses = responses.map_err(|e| {
 		(
 			StatusCode::INTERNAL_SERVER_ERROR,
 			Json(ErrorResponse {
@@ -67,8 +59,6 @@ pub async fn get_solvers(
 	let response = SolversResponse {
 		solvers: responses,
 		total_solvers: total,
-		active_solvers: active_count,
-		healthy_solvers: healthy_count,
 		timestamp: chrono::Utc::now().timestamp(),
 	};
 	Ok(Json(response))

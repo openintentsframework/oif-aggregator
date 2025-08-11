@@ -1,6 +1,6 @@
-//! OIF API
+//! OIF Aggregator API
 //!
-//! Axum-based API with routes and middleware for the Open Intent Framework Aggregator.
+//! Axum-based API with routes and middleware for the Aggregator.
 
 pub mod auth;
 pub mod handlers;
@@ -14,5 +14,3 @@ pub use state::AppState;
 
 #[cfg(feature = "openapi")]
 pub mod openapi;
-
-// Provide a basic router with common middleware (CORS, timeouts, limits) when needed later

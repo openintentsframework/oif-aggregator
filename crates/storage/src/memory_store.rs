@@ -1,8 +1,6 @@
 //! In-memory storage implementation using DashMap with TTL support
 
-use crate::traits::{
-	OrderStorage, QuoteStorage, SolverStorage, Storage, StorageResult, StorageStats,
-};
+use crate::traits::{OrderStorage, QuoteStorage, SolverStorage, Storage, StorageResult};
 use async_trait::async_trait;
 use chrono::Utc;
 use dashmap::DashMap;
@@ -193,17 +191,6 @@ impl MemoryStore {
 			})
 			.collect()
 	}
-
-	/// Get comprehensive storage statistics (backward compatibility - use Storage::get_storage_stats instead)
-	pub async fn get_stats(&self) -> StorageStats {
-		// Use the trait implementation for consistency
-		self.stats().await.unwrap_or_else(|_| StorageStats {
-			total_quotes: 0,
-			active_quotes: 0,
-			total_orders: 0,
-			total_solvers: 0,
-		})
-	}
 }
 
 /// Storage statistics
@@ -216,13 +203,13 @@ impl Default for MemoryStore {
 // Trait implementations for pluggable storage
 
 #[async_trait]
-impl QuoteStorage for MemoryStore {
-	async fn add_quote(&self, quote: Quote) -> StorageResult<()> {
+impl oif_types::storage::Repository<Quote> for MemoryStore {
+	async fn create(&self, quote: Quote) -> StorageResult<()> {
 		self.quotes.insert(quote.quote_id.clone(), quote);
 		Ok(())
 	}
 
-	async fn get_quote(&self, quote_id: &str) -> StorageResult<Option<Quote>> {
+	async fn get(&self, quote_id: &str) -> StorageResult<Option<Quote>> {
 		if self.quote_ttl_enabled {
 			if let Some(quote) = self.quotes.get(quote_id) {
 				if quote.is_expired() {
@@ -235,10 +222,46 @@ impl QuoteStorage for MemoryStore {
 		Ok(self.quotes.get(quote_id).map(|q| q.clone()))
 	}
 
-	async fn remove_quote(&self, quote_id: &str) -> StorageResult<bool> {
+	async fn delete(&self, quote_id: &str) -> StorageResult<bool> {
 		Ok(self.quotes.remove(quote_id).is_some())
 	}
+	async fn update(&self, quote: Quote) -> StorageResult<()> {
+		self.quotes.insert(quote.quote_id.clone(), quote);
+		Ok(())
+	}
 
+	async fn count(&self) -> StorageResult<usize> {
+		Ok(self.quotes.len())
+	}
+
+	async fn list_all(&self) -> StorageResult<Vec<Quote>> {
+		if self.quote_ttl_enabled {
+			Ok(self
+				.quotes
+				.iter()
+				.filter_map(|e| {
+					if e.value().is_expired() {
+						None
+					} else {
+						Some(e.value().clone())
+					}
+				})
+				.collect())
+		} else {
+			Ok(self.quotes.iter().map(|e| e.value().clone()).collect())
+		}
+	}
+
+	async fn list_paginated(&self, offset: usize, limit: usize) -> StorageResult<Vec<Quote>> {
+		let all = self.list_all().await?;
+		let start = offset.min(all.len());
+		let end = (start + limit).min(all.len());
+		Ok(all[start..end].to_vec())
+	}
+}
+
+#[async_trait]
+impl QuoteStorage for MemoryStore {
 	async fn get_quotes_by_request(&self, request_id: &str) -> StorageResult<Vec<Quote>> {
 		let quotes: Vec<Quote> = self
 			.quotes
@@ -298,47 +321,47 @@ impl QuoteStorage for MemoryStore {
 
 		Ok(removed_count)
 	}
+}
 
-	async fn quote_stats(&self) -> StorageResult<(usize, usize)> {
-		let total = self.quotes.len();
-		let mut active = 0;
+#[async_trait]
+impl oif_types::storage::Repository<Order> for MemoryStore {
+	async fn create(&self, order: Order) -> StorageResult<()> {
+		self.intents.insert(order.order_id.clone(), order);
+		Ok(())
+	}
 
-		if self.quote_ttl_enabled {
-			let now = Utc::now();
-			for entry in self.quotes.iter() {
-				if entry.value().expires_at > now {
-					active += 1;
-				}
-			}
-		} else {
-			active = total;
-		}
+	async fn get(&self, order_id: &str) -> StorageResult<Option<Order>> {
+		Ok(self.intents.get(order_id).map(|i| i.clone()))
+	}
 
-		Ok((total, active))
+	async fn update(&self, order: Order) -> StorageResult<()> {
+		self.intents.insert(order.order_id.clone(), order);
+		Ok(())
+	}
+
+	async fn delete(&self, order_id: &str) -> StorageResult<bool> {
+		Ok(self.intents.remove(order_id).is_some())
+	}
+
+	async fn count(&self) -> StorageResult<usize> {
+		Ok(self.intents.len())
+	}
+
+	async fn list_all(&self) -> StorageResult<Vec<Order>> {
+		Ok(self.intents.iter().map(|e| e.value().clone()).collect())
+	}
+
+	async fn list_paginated(&self, offset: usize, limit: usize) -> StorageResult<Vec<Order>> {
+		let all = self.list_all().await?;
+		let start = offset.min(all.len());
+		let end = (start + limit).min(all.len());
+		Ok(all[start..end].to_vec())
 	}
 }
 
 #[async_trait]
 impl OrderStorage for MemoryStore {
-	async fn add_order(&self, order: Order) -> StorageResult<()> {
-		self.intents.insert(order.order_id.clone(), order);
-		Ok(())
-	}
-
-	async fn get_order(&self, order_id: &str) -> StorageResult<Option<Order>> {
-		Ok(self.intents.get(order_id).map(|i| i.clone()))
-	}
-
-	async fn update_order(&self, order: Order) -> StorageResult<()> {
-		self.intents.insert(order.order_id.clone(), order);
-		Ok(())
-	}
-
-	async fn remove_order(&self, order_id: &str) -> StorageResult<bool> {
-		Ok(self.intents.remove(order_id).is_some())
-	}
-
-	async fn get_orders_by_user(&self, user_address: &str) -> StorageResult<Vec<Order>> {
+	async fn get_by_user(&self, user_address: &str) -> StorageResult<Vec<Order>> {
 		let orders: Vec<Order> = self
 			.intents
 			.iter()
@@ -354,10 +377,7 @@ impl OrderStorage for MemoryStore {
 		Ok(orders)
 	}
 
-	async fn get_orders_by_status(
-		&self,
-		status: oif_types::OrderStatus,
-	) -> StorageResult<Vec<Order>> {
+	async fn get_by_status(&self, status: oif_types::OrderStatus) -> StorageResult<Vec<Order>> {
 		let orders: Vec<Order> = self
 			.intents
 			.iter()
@@ -372,41 +392,47 @@ impl OrderStorage for MemoryStore {
 			.collect();
 		Ok(orders)
 	}
+}
 
-	async fn order_count(&self) -> StorageResult<usize> {
-		Ok(self.intents.len())
+#[async_trait]
+impl oif_types::storage::Repository<Solver> for MemoryStore {
+	async fn create(&self, solver: Solver) -> StorageResult<()> {
+		self.solvers.insert(solver.solver_id.clone(), solver);
+		Ok(())
+	}
+
+	async fn get(&self, solver_id: &str) -> StorageResult<Option<Solver>> {
+		Ok(self.solvers.get(solver_id).map(|s| s.clone()))
+	}
+
+	async fn update(&self, solver: Solver) -> StorageResult<()> {
+		self.solvers.insert(solver.solver_id.clone(), solver);
+		Ok(())
+	}
+
+	async fn delete(&self, solver_id: &str) -> StorageResult<bool> {
+		Ok(self.solvers.remove(solver_id).is_some())
+	}
+
+	async fn count(&self) -> StorageResult<usize> {
+		Ok(self.solvers.len())
+	}
+
+	async fn list_all(&self) -> StorageResult<Vec<Solver>> {
+		Ok(self.solvers.iter().map(|e| e.value().clone()).collect())
+	}
+
+	async fn list_paginated(&self, offset: usize, limit: usize) -> StorageResult<Vec<Solver>> {
+		let all = self.list_all().await?;
+		let start = offset.min(all.len());
+		let end = (start + limit).min(all.len());
+		Ok(all[start..end].to_vec())
 	}
 }
 
 #[async_trait]
 impl SolverStorage for MemoryStore {
-	async fn add_solver(&self, solver: Solver) -> StorageResult<()> {
-		self.solvers.insert(solver.solver_id.clone(), solver);
-		Ok(())
-	}
-
-	async fn get_solver(&self, solver_id: &str) -> StorageResult<Option<Solver>> {
-		Ok(self.solvers.get(solver_id).map(|s| s.clone()))
-	}
-
-	async fn update_solver(&self, solver: Solver) -> StorageResult<()> {
-		self.solvers.insert(solver.solver_id.clone(), solver);
-		Ok(())
-	}
-
-	async fn remove_solver(&self, solver_id: &str) -> StorageResult<bool> {
-		Ok(self.solvers.remove(solver_id).is_some())
-	}
-
-	async fn get_all_solvers(&self) -> StorageResult<Vec<Solver>> {
-		Ok(self
-			.solvers
-			.iter()
-			.map(|entry| entry.value().clone())
-			.collect())
-	}
-
-	async fn get_active_solvers(&self) -> StorageResult<Vec<Solver>> {
+	async fn get_active(&self) -> StorageResult<Vec<Solver>> {
 		use oif_types::SolverStatus;
 		let solvers: Vec<Solver> = self
 			.solvers
@@ -422,10 +448,6 @@ impl SolverStorage for MemoryStore {
 			.collect();
 		Ok(solvers)
 	}
-
-	async fn solver_count(&self) -> StorageResult<usize> {
-		Ok(self.solvers.len())
-	}
 }
 
 #[async_trait]
@@ -433,19 +455,6 @@ impl Storage for MemoryStore {
 	async fn health_check(&self) -> StorageResult<bool> {
 		// For in-memory storage, just check if the maps are accessible
 		Ok(true)
-	}
-
-	async fn stats(&self) -> StorageResult<StorageStats> {
-		let (total_quotes, active_quotes) = self.quote_stats().await?;
-		let total_orders = self.order_count().await?;
-		let total_solvers = self.solver_count().await?;
-
-		Ok(StorageStats {
-			total_quotes,
-			active_quotes,
-			total_orders,
-			total_solvers,
-		})
 	}
 
 	async fn close(&self) -> StorageResult<()> {

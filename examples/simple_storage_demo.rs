@@ -41,14 +41,14 @@ async fn test_storage<S: Storage>(
 	storage: &S,
 	solver: Solver,
 ) -> Result<(), Box<dyn std::error::Error>> {
-	println!("   Storage type: {}", storage.storage_type());
+	println!("   Storage health available");
 
 	// Add solver
-	storage.add_solver(solver).await?;
+	(&*storage as &dyn oif_aggregator::traits::SolverStorage)
+		.create(solver)
+		.await?;
 
 	// Get stats
-	let stats = storage.get_storage_stats().await?;
-	println!("   Solvers: {}", stats.total_solvers);
 	println!("   Health: {}", storage.health_check().await?);
 
 	Ok(())

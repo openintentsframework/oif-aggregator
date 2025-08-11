@@ -1,7 +1,9 @@
 //! API request/response fixtures for e2e and integration tests
 
 use oif_aggregator::{
-	api::routes::AppState, service::aggregator::AggregatorService, storage::MemoryStore,
+	api::routes::AppState,
+	service::{aggregator::AggregatorService, OrderService, SolverService},
+	storage::MemoryStore,
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -168,9 +170,12 @@ impl AppStateBuilder {
 	/// Create minimal test app state (no solvers)
 	pub fn minimal() -> AppState {
 		let aggregator_service = AggregatorService::new(vec![], 5000);
+		let storage = Arc::new(MemoryStore::new());
 		AppState {
 			aggregator_service: Arc::new(aggregator_service),
-			storage: Arc::new(MemoryStore::new()),
+			storage: storage.clone(),
+			order_service: Arc::new(OrderService::new(storage.clone())),
+			solver_service: Arc::new(SolverService::new(storage.clone())),
 		}
 	}
 
@@ -178,27 +183,36 @@ impl AppStateBuilder {
 	pub fn with_solvers(solver_count: usize) -> AppState {
 		let solvers = MockEntities::multiple_solvers(solver_count);
 		let aggregator_service = AggregatorService::new(solvers, 5000);
+		let storage = Arc::new(MemoryStore::new());
 		AppState {
 			aggregator_service: Arc::new(aggregator_service),
-			storage: Arc::new(MemoryStore::new()),
+			storage: storage.clone(),
+			order_service: Arc::new(OrderService::new(storage.clone())),
+			solver_service: Arc::new(SolverService::new(storage.clone())),
 		}
 	}
 
 	/// Create app state with custom timeout
 	pub fn with_timeout(timeout_ms: u64) -> AppState {
 		let aggregator_service = AggregatorService::new(vec![], timeout_ms);
+		let storage = Arc::new(MemoryStore::new());
 		AppState {
 			aggregator_service: Arc::new(aggregator_service),
-			storage: Arc::new(MemoryStore::new()),
+			storage: storage.clone(),
+			order_service: Arc::new(OrderService::new(storage.clone())),
+			solver_service: Arc::new(SolverService::new(storage.clone())),
 		}
 	}
 
 	/// Create app state with TTL-enabled storage
 	pub fn with_ttl_storage() -> AppState {
 		let aggregator_service = AggregatorService::new(vec![], 5000);
+		let storage = Arc::new(MemoryStore::with_ttl_enabled(true));
 		AppState {
 			aggregator_service: Arc::new(aggregator_service),
-			storage: Arc::new(MemoryStore::with_ttl_enabled(true)),
+			storage: storage.clone(),
+			order_service: Arc::new(OrderService::new(storage.clone())),
+			solver_service: Arc::new(SolverService::new(storage.clone())),
 		}
 	}
 }

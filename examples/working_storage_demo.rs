@@ -3,8 +3,8 @@
 use oif_aggregator::chrono::Utc;
 use oif_aggregator::models::solvers::SolverStatus;
 use oif_aggregator::models::{Order, Quote, Solver};
-use oif_aggregator::storage::memory_store::MemoryStore;
-use oif_aggregator::storage::traits::Storage;
+use oif_aggregator::storage::MemoryStore;
+use oif_aggregator::storage::Storage;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 async fn demonstrate_storage_interface<S: Storage>(
 	storage: &S,
 ) -> Result<(), Box<dyn std::error::Error>> {
-	println!("   Storage type: {}", storage.storage_type());
+	println!("   Storage health available");
 
 	// Create test data
 	let solver = create_test_solver();
@@ -41,14 +41,26 @@ async fn demonstrate_storage_interface<S: Storage>(
 	let order = create_test_order();
 
 	// Test all storage operations
-	storage.add_solver(solver.clone()).await?;
-	storage.add_quote(quote.clone()).await?;
-	storage.add_order(order.clone()).await?;
+	(&*storage as &dyn oif_aggregator::traits::SolverStorage)
+		.create(solver.clone())
+		.await?;
+	(&*storage as &dyn oif_aggregator::traits::QuoteStorage)
+		.create(quote.clone())
+		.await?;
+	(&*storage as &dyn oif_aggregator::traits::OrderStorage)
+		.create(order.clone())
+		.await?;
 
 	// Verify data was stored
-	let stored_solver = storage.get_solver(&solver.solver_id).await?;
-	let stored_quote = storage.get_quote(&quote.quote_id).await?;
-	let stored_order = storage.get_order(&order.order_id).await?;
+	let stored_solver = (&*storage as &dyn oif_aggregator::traits::SolverStorage)
+		.get(&solver.solver_id)
+		.await?;
+	let stored_quote = (&*storage as &dyn oif_aggregator::traits::QuoteStorage)
+		.get(&quote.quote_id)
+		.await?;
+	let stored_order = (&*storage as &dyn oif_aggregator::traits::OrderStorage)
+		.get(&order.order_id)
+		.await?;
 
 	assert!(stored_solver.is_some());
 	assert!(stored_quote.is_some());
@@ -57,11 +69,7 @@ async fn demonstrate_storage_interface<S: Storage>(
 	println!("   ✓ All CRUD operations work through traits");
 
 	// Test statistics
-	let stats = storage.get_storage_stats().await?;
-	println!(
-		"   ✓ Stats: {} solvers, {} quotes, {} intents",
-		stats.total_solvers, stats.total_quotes, stats.total_orders
-	);
+	println!("   ✓ Stats: (omitted in demo)");
 
 	// Test health check
 	let health = storage.health_check().await?;
@@ -80,16 +88,13 @@ async fn demonstrate_trait_objects() -> Result<(), Box<dyn std::error::Error>> {
 
 	// Store some data
 	let solver = create_test_solver();
-	storage.add_solver(solver.clone()).await?;
+	(&*storage as &dyn oif_aggregator::traits::SolverStorage)
+		.create(solver.clone())
+		.await?;
 
 	// Function that accepts any storage implementation
-	async fn count_items(storage: &dyn Storage) -> Result<(), Box<dyn std::error::Error>> {
-		let stats = storage.get_storage_stats().await?;
-		println!(
-			"   📊 Storage ({}) contains {} items total",
-			storage.storage_type(),
-			stats.total_solvers + stats.total_quotes + stats.total_orders
-		);
+	async fn count_items(_storage: &dyn Storage) -> Result<(), Box<dyn std::error::Error>> {
+		println!("   📊 Storage demo counts omitted");
 		Ok(())
 	}
 

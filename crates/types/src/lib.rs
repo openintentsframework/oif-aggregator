@@ -26,16 +26,14 @@ pub use solvers::{
 };
 
 pub use adapters::{
-	Adapter, AdapterCapability, AdapterConfig, AdapterError, AdapterFactoryError,
-	AdapterFactoryResult, AdapterHealthResult, AdapterPerformanceMetrics, AdapterResponse,
-	AdapterResult, AdapterStatus, AdapterStorage, AdapterType, AdapterValidationError,
+	Adapter, AdapterConfig, AdapterError, AdapterFactoryError, AdapterFactoryResult,
+	AdapterResponse, AdapterResult, AdapterStorage, AdapterType, AdapterValidationError,
 	AdapterValidationResult, SolverAdapter,
 };
 
 pub use orders::{
-	Order, OrderError, OrderExecutionDetail, OrderExecutionResult, OrderPriority, OrderResponse,
-	OrderStatus, OrderStorage, OrderSystemHealth, OrderValidationError, OrderValidationResult,
-	OrdersRequest, OrdersResponse,
+	Order, OrderError, OrderResponse, OrderStatus, OrderStorage, OrderValidationError,
+	OrderValidationResult, OrdersRequest, OrdersResponse,
 };
 
 pub use auth::{
@@ -46,5 +44,5 @@ pub use auth::{
 
 pub use storage::{
 	OrderStorageTrait, QuoteStorageTrait, SolverStorageTrait, StorageError, StorageResult,
-	StorageStats, StorageTrait,
+	StorageTrait,
 };

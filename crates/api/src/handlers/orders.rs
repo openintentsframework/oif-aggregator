@@ -1,13 +1,12 @@
 use axum::{
 	extract::{Path, State},
 	http::StatusCode,
-	response::Json,
+	response::{Json, NoContent},
 };
 use tracing::{debug, info};
 
 use crate::handlers::common::ErrorResponse;
 use crate::state::AppState;
-use oif_types::orders::response::OrderStatusResponse;
 use oif_types::{OrdersRequest, OrdersResponse};
 
 /// Submit a new order
@@ -111,42 +110,7 @@ pub async fn post_orders(
 pub async fn get_order_status(
 	State(state): State<AppState>,
 	Path(order_id): Path<String>,
-) -> Result<Json<OrderStatusResponse>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<NoContent, (StatusCode, Json<ErrorResponse>)> {
 	debug!("Querying status for order {}", order_id);
-
-	match state.storage.get_order(&order_id).await.map_err(|e| {
-		(
-			StatusCode::INTERNAL_SERVER_ERROR,
-			Json(ErrorResponse {
-				error: "STORAGE_ERROR".to_string(),
-				message: format!("Failed to retrieve order: {}", e),
-				timestamp: chrono::Utc::now().timestamp(),
-			}),
-		)
-	})? {
-		Some(intent) => {
-			let response = match OrderStatusResponse::from_domain(&intent) {
-				Ok(resp) => resp,
-				Err(e) => {
-					return Err((
-						StatusCode::INTERNAL_SERVER_ERROR,
-						Json(ErrorResponse {
-							error: "CONVERSION_ERROR".to_string(),
-							message: format!("Failed to convert intent status: {}", e),
-							timestamp: chrono::Utc::now().timestamp(),
-						}),
-					));
-				},
-			};
-			Ok(Json(response))
-		},
-		None => Err((
-			StatusCode::NOT_FOUND,
-			Json(ErrorResponse {
-				error: "ORDER_NOT_FOUND".to_string(),
-				message: format!("Order {} not found", order_id),
-				timestamp: chrono::Utc::now().timestamp(),
-			}),
-		)),
-	}
+	unimplemented!()
 }

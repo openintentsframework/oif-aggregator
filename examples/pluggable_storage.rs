@@ -2,7 +2,6 @@
 
 use oif_aggregator::{
 	storage::{MemoryStore, RedisStore, Storage},
-	traits::SolverStorage,
 	AggregatorBuilder, Solver, SolverStatus,
 };
 
@@ -67,15 +66,7 @@ where
 
 	// Get storage statistics
 	let (_, app_state) = builder.start().await?;
-	let stats = app_state.storage.get_storage_stats().await?;
-
-	println!("  ✓ Storage type: {}", app_state.storage.storage_type());
-	println!("  ✓ Solvers: {}", stats.total_solvers);
-	println!(
-		"  ✓ Quotes: {} (active: {})",
-		stats.total_quotes, stats.active_quotes
-	);
-	println!("  ✓ Orders: {}", stats.total_orders);
+	println!("  ✓ Storage health check and types available");
 
 	// Health check
 	let health = app_state.storage.health_check().await?;
@@ -103,24 +94,18 @@ async fn demonstrate_storage_switching() -> Result<(), Box<dyn std::error::Error
 		3000,
 	);
 
-	memory_store.add_solver(solver.clone()).await?;
-	let memory_stats = memory_store.get_storage_stats().await?;
-	println!(
-		"     Memory storage has {} solvers",
-		memory_stats.total_solvers
-	);
+	(&memory_store as &dyn oif_aggregator::traits::SolverStorage)
+		.create(solver.clone())
+		.await?;
 
 	// Switch to Redis storage
 	let redis_store = RedisStore::with_defaults();
 	println!("  🔄 Switching to Redis storage");
 
 	// Migrate data (in real apps, you'd have proper migration logic)
-	redis_store.add_solver(solver).await?;
-	let redis_stats = redis_store.get_storage_stats().await?;
-	println!(
-		"     Redis storage has {} solvers",
-		redis_stats.total_solvers
-	);
+	(&redis_store as &dyn oif_aggregator::traits::SolverStorage)
+		.create(solver)
+		.await?;
 
 	println!("  ✅ Successfully switched storage backends!");
 

@@ -37,24 +37,28 @@ async fn test_memory_store_ttl() {
 	let quote_id = quote.quote_id.clone();
 
 	// Add quote to store
-	store.add_quote(quote).await.expect("Failed to add quote");
+	<MemoryStore as oif_types::storage::Repository<Quote>>::create(&store, quote)
+		.await
+		.expect("Failed to add quote");
 
 	// Quote should be available immediately
-	assert!(store
-		.get_quote(&quote_id)
-		.await
-		.expect("Failed to get quote")
-		.is_some());
+	assert!(
+		<dyn oif_storage::traits::QuoteStorage>::get(&store, &quote_id)
+			.await
+			.expect("Failed to get quote")
+			.is_some()
+	);
 
 	// Wait for expiry
 	tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
 
 	// Quote should be automatically removed when accessed
-	assert!(store
-		.get_quote(&quote_id)
-		.await
-		.expect("Failed to get quote")
-		.is_none());
+	assert!(
+		<dyn oif_storage::traits::QuoteStorage>::get(&store, &quote_id)
+			.await
+			.expect("Failed to get quote")
+			.is_none()
+	);
 }
 
 #[test]
@@ -118,42 +122,4 @@ fn test_solver_configuration() {
 	assert_eq!(solver.status, SolverStatus::Active);
 	assert_eq!(solver.metadata.supported_chains.len(), 2);
 	assert_eq!(solver.metadata.max_retries, 3);
-}
-
-#[tokio::test]
-async fn test_storage_stats() {
-	let store = MemoryStore::new();
-
-	// Add test data
-	let mut solver = Solver::new(
-		"test-solver".to_string(),
-		"test-adapter".to_string(),
-		"https://example.com".to_string(),
-		1000,
-	);
-	solver.status = SolverStatus::Active;
-	store
-		.add_solver(solver)
-		.await
-		.expect("Failed to add solver");
-
-	let quote = Quote::new(
-		"test-solver".to_string(),
-		"test-request".to_string(),
-		"0xToken1".to_string(),
-		"0xToken2".to_string(),
-		"1000".to_string(),
-		"2000".to_string(),
-		1,
-	);
-	store.add_quote(quote).await.expect("Failed to add quote");
-
-	let order = Order::new("0x123".to_string(), 0.005, Utc::now() + Duration::hours(1));
-	store.add_order(order).await.expect("Failed to add intent");
-
-	let stats = store.get_stats().await;
-	assert_eq!(stats.total_solvers, 1);
-	assert_eq!(stats.total_quotes, 1);
-	assert_eq!(stats.total_orders, 1);
-	assert_eq!(stats.active_quotes, 1);
 }

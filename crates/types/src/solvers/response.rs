@@ -63,8 +63,6 @@ pub struct HealthCheckResponse {
 pub struct SolversResponse {
 	pub solvers: Vec<SolverResponse>,
 	pub total_solvers: usize,
-	pub active_solvers: usize,
-	pub healthy_solvers: usize,
 	pub timestamp: i64,
 }
 
@@ -82,19 +80,6 @@ pub struct SolverStatsResponse {
 	pub last_24h_failures: u64,
 	pub peak_response_time_ms: u64,
 	pub min_response_time_ms: u64,
-}
-
-/// Health status summary for monitoring
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SystemHealthResponse {
-	pub overall_status: String,
-	pub total_solvers: usize,
-	pub healthy_solvers: usize,
-	pub unhealthy_solvers: usize,
-	pub maintenance_solvers: usize,
-	pub avg_response_time_ms: f64,
-	pub system_success_rate: f64,
-	pub last_check: i64,
 }
 
 impl SolverResponse {
@@ -202,14 +187,9 @@ impl SolversResponse {
 			solvers.iter().map(SolverResponse::from_domain).collect();
 
 		let responses = solver_responses?;
-		let active_count = solvers.iter().filter(|s| s.is_available()).count();
-		let healthy_count = solvers.iter().filter(|s| s.is_healthy()).count();
-
 		Ok(Self {
 			solvers: responses,
 			total_solvers: solvers.len(),
-			active_solvers: active_count,
-			healthy_solvers: healthy_count,
 			timestamp: Utc::now().timestamp(),
 		})
 	}
@@ -222,13 +202,9 @@ impl SolversResponse {
 			.collect();
 
 		let responses = solver_responses?;
-		let active_count = solvers.iter().filter(|s| s.is_available()).count();
-
 		Ok(Self {
 			solvers: responses,
 			total_solvers: solvers.len(),
-			active_solvers: active_count,
-			healthy_solvers: 0, // Hide in public API
 			timestamp: Utc::now().timestamp(),
 		})
 	}
@@ -239,13 +215,6 @@ impl SolversResponse {
 			std::mem::discriminant(&solver.status) == std::mem::discriminant(&status)
 		});
 		self.total_solvers = self.solvers.len();
-		// Recalculate counts
-		self.active_solvers = self
-			.solvers
-			.iter()
-			.filter(|s| matches!(s.status, SolverStatusResponse::Active))
-			.count();
-		self.healthy_solvers = self.solvers.iter().filter(|s| s.metrics.is_healthy).count();
 	}
 
 	/// Sort solvers by priority score
@@ -263,69 +232,10 @@ impl SolversResponse {
 		self.solvers
 			.retain(|solver| solver.supported_chains.contains(&chain_id));
 		self.total_solvers = self.solvers.len();
-		// Recalculate counts
-		self.active_solvers = self
-			.solvers
-			.iter()
-			.filter(|s| matches!(s.status, SolverStatusResponse::Active))
-			.count();
-		self.healthy_solvers = self.solvers.iter().filter(|s| s.metrics.is_healthy).count();
 	}
 }
 
-impl SystemHealthResponse {
-	/// Create system health response from solvers
-	pub fn from_domain_solvers(solvers: &[Solver]) -> Self {
-		let total = solvers.len();
-		let healthy = solvers.iter().filter(|s| s.is_healthy()).count();
-		let unhealthy = solvers
-			.iter()
-			.filter(|s| !s.is_healthy() && s.is_available())
-			.count();
-		let maintenance = solvers
-			.iter()
-			.filter(|s| matches!(s.status, SolverStatus::Maintenance))
-			.count();
-
-		let avg_response_time = if total > 0 {
-			solvers
-				.iter()
-				.map(|s| s.metrics.avg_response_time_ms)
-				.sum::<f64>()
-				/ total as f64
-		} else {
-			0.0
-		};
-
-		let total_requests: u64 = solvers.iter().map(|s| s.metrics.total_requests).sum();
-		let successful_requests: u64 = solvers.iter().map(|s| s.metrics.successful_requests).sum();
-
-		let success_rate = if total_requests > 0 {
-			successful_requests as f64 / total_requests as f64
-		} else {
-			0.0
-		};
-
-		let overall_status = if healthy as f64 / total as f64 > 0.8 {
-			"healthy".to_string()
-		} else if healthy as f64 / total as f64 > 0.5 {
-			"degraded".to_string()
-		} else {
-			"unhealthy".to_string()
-		};
-
-		Self {
-			overall_status,
-			total_solvers: total,
-			healthy_solvers: healthy,
-			unhealthy_solvers: unhealthy,
-			maintenance_solvers: maintenance,
-			avg_response_time_ms: avg_response_time,
-			system_success_rate: success_rate,
-			last_check: Utc::now().timestamp(),
-		}
-	}
-}
+// (removed legacy impl)
 
 /// Convert from domain Solver to API SolverResponse
 impl TryFrom<Solver> for SolverResponse {
@@ -398,7 +308,6 @@ mod tests {
 		let response = SolversResponse::from_domain_solvers(solvers).unwrap();
 
 		assert_eq!(response.total_solvers, 2);
-		assert_eq!(response.active_solvers, 1);
 		assert!(response.timestamp > 0);
 	}
 
@@ -433,23 +342,7 @@ mod tests {
 		assert_eq!(response.solvers[0].supported_chains, vec![1, 137]);
 	}
 
-	#[test]
-	fn test_system_health_response() {
-		let mut solver1 = create_test_solver();
-		solver1.update_status(SolverStatus::Active);
-		solver1.record_success(100);
-
-		let mut solver2 = create_test_solver();
-		solver2.solver_id = "solver-2".to_string();
-		solver2.update_status(SolverStatus::Error);
-
-		let solvers = vec![solver1, solver2];
-		let health = SystemHealthResponse::from_domain_solvers(&solvers);
-
-		assert_eq!(health.total_solvers, 2);
-		assert_eq!(health.unhealthy_solvers, 1);
-		assert!(health.avg_response_time_ms >= 0.0);
-	}
+	// (removed legacy SystemHealthResponse test)
 
 	#[test]
 	fn test_sort_by_priority() {

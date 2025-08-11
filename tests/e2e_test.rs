@@ -2,7 +2,7 @@
 
 use axum::Router;
 use oif_aggregator::api::routes::{create_router, AppState};
-use oif_aggregator::service::AggregatorService;
+use oif_aggregator::service::{AggregatorService, OrderService, SolverService};
 use oif_aggregator::storage::MemoryStore;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
@@ -10,9 +10,12 @@ use tokio::task::JoinHandle;
 async fn spawn_server() -> (String, JoinHandle<()>) {
 	// Minimal app state (no solvers)
 	let aggregator_service = AggregatorService::new(vec![], 5_000);
+	let storage = Arc::new(MemoryStore::new());
 	let state = AppState {
 		aggregator_service: Arc::new(aggregator_service),
-		storage: Arc::new(MemoryStore::new()),
+		storage: storage.clone(),
+		order_service: Arc::new(OrderService::new(storage.clone())),
+		solver_service: Arc::new(SolverService::new(storage.clone())),
 	};
 
 	let app: Router = create_router().with_state(state);

@@ -32,43 +32,13 @@ impl OrderService {
 		request: &OrdersRequest,
 		ip_address: Option<String>,
 	) -> Result<Order, OrderServiceError> {
-		// Validate and convert to domain order
-		let order = request
-			.to_domain(ip_address)
-			.map_err(|e| OrderServiceError::Validation(e.to_string()))?;
-
-		// If quote_id is provided, verify existence and expiry
-		if let Some(ref quote_id) = order.quote_id {
-			match self
-				.storage
-				.get_quote(quote_id)
-				.await
-				.map_err(|e| OrderServiceError::Storage(e.to_string()))?
-			{
-				Some(quote) => {
-					if quote.is_expired() {
-						return Err(OrderServiceError::QuoteExpired(quote_id.clone()));
-					}
-				},
-				None => {
-					return Err(OrderServiceError::QuoteNotFound(quote_id.clone()));
-				},
-			}
-		}
-
-		// Persist order
-		self.storage
-			.add_order(order.clone())
-			.await
-			.map_err(|e| OrderServiceError::Storage(e.to_string()))?;
-
-		Ok(order)
+		unimplemented!()
 	}
 
 	/// Retrieve an existing order by id
 	pub async fn get_order(&self, order_id: &str) -> Result<Option<Order>, OrderServiceError> {
-		self.storage
-			.get_order(order_id)
+		let os = self.storage.as_ref() as &dyn oif_storage::traits::OrderStorage;
+		os.get(order_id)
 			.await
 			.map_err(|e| OrderServiceError::Storage(e.to_string()))
 	}
