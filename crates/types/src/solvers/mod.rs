@@ -4,6 +4,8 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::models::{Asset, Network};
+
 pub mod config;
 pub mod errors;
 pub mod response;
@@ -80,10 +82,10 @@ pub struct SolverMetadata {
 	pub version: Option<String>,
 
 	/// Supported blockchain networks
-	pub supported_chains: Vec<u64>,
+	pub supported_networks: Vec<Network>,
 
-	/// Supported protocols/DEXs
-	pub supported_protocols: Vec<String>,
+	/// Supported assets/tokens
+	pub supported_assets: Vec<Asset>,
 
 	/// Maximum retry attempts for failed requests
 	pub max_retries: u32,
@@ -231,15 +233,33 @@ impl Solver {
 
 	/// Check if solver supports a specific chain
 	pub fn supports_chain(&self, chain_id: u64) -> bool {
-		self.metadata.supported_chains.contains(&chain_id)
+		self.metadata.supported_networks.iter().any(|n| n.chain_id == chain_id)
 	}
 
-	/// Check if solver supports a specific protocol
-	pub fn supports_protocol(&self, protocol: &str) -> bool {
+	/// Check if solver supports a specific network
+	pub fn supports_network(&self, network: &Network) -> bool {
+		self.metadata.supported_networks.contains(network)
+	}
+
+	/// Check if solver supports a specific asset by symbol
+	pub fn supports_asset_symbol(&self, symbol: &str) -> bool {
 		self.metadata
-			.supported_protocols
+			.supported_assets
 			.iter()
-			.any(|p| p.eq_ignore_ascii_case(protocol))
+			.any(|a| a.symbol.eq_ignore_ascii_case(symbol))
+	}
+
+	/// Check if solver supports a specific asset by address
+	pub fn supports_asset_address(&self, address: &str) -> bool {
+		self.metadata
+			.supported_assets
+			.iter()
+			.any(|a| a.address.eq_ignore_ascii_case(address))
+	}
+
+	/// Check if solver supports a specific asset
+	pub fn supports_asset(&self, asset: &Asset) -> bool {
+		self.metadata.supported_assets.contains(asset)
 	}
 
 	/// Get solver priority score (higher is better)
@@ -281,13 +301,38 @@ impl Solver {
 		self
 	}
 
-	pub fn with_chains(mut self, chains: Vec<u64>) -> Self {
-		self.metadata.supported_chains = chains;
+	pub fn with_networks(mut self, networks: Vec<Network>) -> Self {
+		self.metadata.supported_networks = networks;
 		self
 	}
 
-	pub fn with_protocols(mut self, protocols: Vec<String>) -> Self {
-		self.metadata.supported_protocols = protocols;
+	pub fn with_assets(mut self, assets: Vec<Asset>) -> Self {
+		self.metadata.supported_assets = assets;
+		self
+	}
+
+	/// Helper method for backward compatibility
+	pub fn with_chain_ids(mut self, chain_ids: Vec<u64>) -> Self {
+		self.metadata.supported_networks = chain_ids
+			.into_iter()
+			.map(|id| Network::new(id, format!("Chain {}", id), false))
+			.collect();
+		self
+	}
+
+	/// Helper method for backward compatibility  
+	pub fn with_asset_symbols(mut self, symbols: Vec<String>) -> Self {
+		self.metadata.supported_assets = symbols
+			.into_iter()
+			.enumerate()
+			.map(|(i, symbol)| Asset::new(
+				format!("0x{:040x}", i), // Generate dummy address
+				symbol.clone(),
+				symbol,
+				18, // Default decimals
+				1,  // Default to Ethereum
+			))
+			.collect();
 		self
 	}
 
@@ -313,8 +358,8 @@ impl Default for SolverMetadata {
 			name: None,
 			description: None,
 			version: None,
-			supported_chains: Vec::new(),
-			supported_protocols: Vec::new(),
+			supported_networks: Vec::new(),
+			supported_assets: Vec::new(),
 			max_retries: 3,
 			headers: None,
 			config: HashMap::new(),
@@ -443,7 +488,7 @@ mod tests {
 
 	#[test]
 	fn test_chain_support() {
-		let solver = create_test_solver().with_chains(vec![1, 137, 42161]);
+		let solver = create_test_solver().with_chain_ids(vec![1, 137, 42161]);
 
 		assert!(solver.supports_chain(1));
 		assert!(solver.supports_chain(137));
@@ -496,13 +541,15 @@ mod tests {
 		let solver = create_test_solver()
 			.with_name("Test Solver".to_string())
 			.with_version("1.0.0".to_string())
-			.with_chains(vec![1, 137])
-			.with_protocols(vec!["uniswap-v3".to_string()])
+			.with_chain_ids(vec![1, 137])
+			.with_asset_symbols(vec!["uniswap-v3".to_string()])
 			.with_max_retries(5);
 
 		assert_eq!(solver.metadata.name, Some("Test Solver".to_string()));
 		assert_eq!(solver.metadata.version, Some("1.0.0".to_string()));
-		assert_eq!(solver.metadata.supported_chains, vec![1, 137]);
+		assert_eq!(solver.metadata.supported_networks.len(), 2);
+		assert!(solver.supports_chain(1));
+		assert!(solver.supports_chain(137));
 		assert_eq!(solver.metadata.max_retries, 5);
 	}
 }

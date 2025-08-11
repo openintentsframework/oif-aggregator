@@ -5,6 +5,7 @@
 
 pub mod adapters;
 pub mod auth;
+pub mod models;
 pub mod orders;
 pub mod quotes;
 pub mod solvers;
@@ -27,12 +28,17 @@ pub use solvers::{
 
 pub use adapters::{
 	Adapter, AdapterConfig, AdapterError, AdapterFactoryError, AdapterFactoryResult,
-	AdapterResponse, AdapterResult, AdapterStorage, AdapterType, AdapterValidationError,
-	AdapterValidationResult, SolverAdapter,
+	AdapterResponse, AdapterDetailResponse, AdapterConfigResponse, AdapterNetworksResponse,
+	AdapterAssetsResponse, AdapterResult, AdapterStorage, AdapterMetadataStorage, AdapterType, 
+	AdapterValidationError, AdapterValidationResult, AssetResponse, AssetStorage, 
+	NetworkResponse, NetworkStorage, SolverAdapter,
 };
 
+// Re-export shared domain models
+pub use models::{Asset, Network};
+
 // Re-export adapter-specific types
-pub use adapters::{Asset, Network, OrderDetails};
+pub use adapters::OrderDetails;
 
 pub use orders::{
 	Order, OrderError, OrderResponse, OrderStatus, OrderStorage, OrderValidationError,

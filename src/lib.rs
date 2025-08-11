@@ -225,7 +225,7 @@ where
 
 			// Update metadata with configuration details
 			solver.metadata.name = Some(solver_config.solver_id.clone());
-			solver.metadata.supported_chains = vec![1]; // Default to Ethereum mainnet
+			solver.metadata.supported_networks = vec![]; // Default to Ethereum mainnet
 			solver.metadata.max_retries = solver_config.max_retries;
 			solver.metadata.headers = solver_config.headers.clone();
 			solver.status = SolverStatus::Active; // Set to active once initialized

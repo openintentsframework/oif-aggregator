@@ -2,7 +2,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{Adapter, AdapterValidationError, AdapterValidationResult, Asset, Network};
+use super::{Adapter, AdapterValidationError, AdapterValidationResult};
+use crate::models::{Asset, Network};
 
 /// Adapter configuration from external sources (config files, API)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -471,13 +472,26 @@ mod tests {
 	}
 
 	#[test]
-	fn test_default_networks_and_assets() {
+	fn test_explicit_networks_and_assets() {
+		use crate::models::{Asset, Network};
+		
 		let config = AdapterConfig::new(
 			"test-adapter".to_string(),
 			AdapterType::LifiV1,
 			"Test LiFi Adapter".to_string(),
 			"1.0.0".to_string(),
-		);
+		)
+		.with_networks(vec![
+			Network::ethereum(),
+			Network::polygon(),
+			Network::bsc(),
+		])
+		.with_assets(vec![
+			Asset::eth(),
+			Asset::usdc_ethereum(),
+			Asset::matic(),
+			Asset::usdc_polygon(),
+		]);
 
 		let networks = config.get_supported_networks();
 		assert_eq!(networks.len(), 3); // Ethereum, Polygon, BSC
@@ -488,15 +502,29 @@ mod tests {
 		let assets = config.get_supported_assets();
 		assert!(!assets.is_empty());
 
-		// Check that assets exist for each supported network
-		for network in &networks {
-			let network_assets = config.get_assets_for_network(network);
-			assert!(
-				!network_assets.is_empty(),
-				"No assets found for network {}",
-				network.name
-			);
-		}
+		// Check that assets exist for supported networks
+		let ethereum_assets = config.get_assets_for_network(&Network::ethereum());
+		assert_eq!(ethereum_assets.len(), 2); // ETH and USDC
+		
+		let polygon_assets = config.get_assets_for_network(&Network::polygon());
+		assert_eq!(polygon_assets.len(), 2); // MATIC and USDC
+	}
+
+	#[test]
+	fn test_empty_networks_and_assets_by_default() {
+		let config = AdapterConfig::new(
+			"test-adapter".to_string(),
+			AdapterType::LifiV1,
+			"Test LiFi Adapter".to_string(),
+			"1.0.0".to_string(),
+		);
+
+		// Should be empty by default (no implicit defaults)
+		let networks = config.get_supported_networks();
+		assert_eq!(networks.len(), 0);
+
+		let assets = config.get_supported_assets();
+		assert_eq!(assets.len(), 0);
 	}
 
 	#[test]

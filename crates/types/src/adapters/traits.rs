@@ -1,6 +1,7 @@
 //! Core adapter traits for user implementations
 
-use super::{AdapterConfig, AdapterResult, Asset, Network, OrderDetails};
+use super::{AdapterConfig, AdapterResult, OrderDetails};
+use crate::models::{Asset, Network};
 use crate::{Order, Quote, QuoteRequest};
 use async_trait::async_trait;
 use std::fmt::Debug;

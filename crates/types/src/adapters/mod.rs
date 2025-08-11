@@ -4,6 +4,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+
+
 pub mod config;
 pub mod errors;
 pub mod response;
@@ -15,8 +17,11 @@ pub use errors::{
 	AdapterError, AdapterFactoryError, AdapterFactoryResult, AdapterResult, AdapterValidationError,
 	AdapterValidationResult,
 };
-pub use response::AdapterResponse;
-pub use storage::AdapterStorage;
+pub use response::{
+	AdapterResponse, AdapterDetailResponse, AdapterConfigResponse, AdapterNetworksResponse,
+	AdapterAssetsResponse, NetworkResponse, AssetResponse,
+};
+pub use storage::{AdapterStorage, AdapterMetadataStorage, NetworkStorage, AssetStorage};
 pub use traits::SolverAdapter;
 
 /// Core Adapter domain model
@@ -28,7 +33,7 @@ pub struct Adapter {
 	/// Unique identifier for the adapter
 	pub adapter_id: String,
 
-	/// Type of adapter (OIF, Uniswap, etc.)
+	/// Type of adapter (OIF, LiFi, etc.)
 	pub adapter_type: AdapterType,
 
 	/// Human-readable name
@@ -53,53 +58,7 @@ pub struct Adapter {
 	pub updated_at: DateTime<Utc>,
 }
 
-/// Supported blockchain network
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct Network {
-	/// Chain ID (e.g., 1 for Ethereum mainnet, 137 for Polygon)
-	pub chain_id: u64,
-	/// Human-readable name (e.g., "Ethereum", "Polygon", "Base")
-	pub name: String,
-	/// Whether the network is a testnet
-	pub is_testnet: bool,
-}
 
-impl Network {
-	pub fn new(chain_id: u64, name: String, is_testnet: bool) -> Self {
-		Self {
-			chain_id,
-			name,
-			is_testnet,
-		}
-	}
-}
-
-/// Supported asset on a blockchain network
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct Asset {
-	/// Contract address (0x0 for native token)
-	pub address: String,
-	/// Token symbol (e.g., "USDC", "ETH", "USDT")
-	pub symbol: String,
-	/// Token name (e.g., "USD Coin", "Ethereum", "Tether USD")
-	pub name: String,
-	/// Number of decimal places
-	pub decimals: u8,
-	/// Chain ID this asset exists on
-	pub chain_id: u64,
-}
-
-impl Asset {
-	pub fn new(address: String, symbol: String, name: String, decimals: u8, chain_id: u64) -> Self {
-		Self {
-			address,
-			symbol,
-			name,
-			decimals,
-			chain_id,
-		}
-	}
-}
 
 /// Detailed order information from an adapter
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,17 +67,17 @@ pub struct OrderDetails {
 	pub order_id: String,
 	/// Current status of the order
 	pub status: String,
-	/// Transaction hash if available
+	/// Transaction hash when available
 	pub transaction_hash: Option<String>,
-	/// Gas used for the transaction
+	/// Gas used in the transaction
 	pub gas_used: Option<u64>,
-	/// Gas price in wei
+	/// Gas price used
 	pub gas_price: Option<String>,
-	/// Transaction fee in wei
+	/// Transaction fee
 	pub transaction_fee: Option<String>,
-	/// Block number where transaction was included
+	/// Block number when mined
 	pub block_number: Option<u64>,
-	/// Additional metadata from the solver
+	/// Additional metadata
 	pub metadata: HashMap<String, serde_json::Value>,
 	/// When the order was last updated
 	pub updated_at: DateTime<Utc>,

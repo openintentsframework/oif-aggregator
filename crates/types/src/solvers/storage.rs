@@ -8,6 +8,7 @@ use super::{
 	HealthCheckResult, Solver, SolverError, SolverMetadata, SolverMetrics, SolverResult,
 	SolverStatus,
 };
+use crate::adapters::{AssetStorage, NetworkStorage};
 
 /// Storage representation of a solver
 ///
@@ -21,15 +22,13 @@ pub struct SolverStorage {
 	pub timeout_ms: u64,
 	pub status: SolverStatusStorage,
 	pub metadata: SolverMetadataStorage,
-	pub created_at: DateTime<Utc>,
-	pub last_seen: Option<DateTime<Utc>>,
 	pub metrics: SolverMetricsStorage,
 
 	// Storage-specific metadata
 	pub version: u32,
 	pub last_updated: DateTime<Utc>,
-	pub access_count: u64,
-	pub storage_size_bytes: u64,
+	pub created_at: DateTime<Utc>,
+	pub last_seen: Option<DateTime<Utc>>,
 }
 
 /// Storage-compatible solver status
@@ -49,8 +48,8 @@ pub struct SolverMetadataStorage {
 	pub name: Option<String>,
 	pub description: Option<String>,
 	pub version: Option<String>,
-	pub supported_chains: Vec<u64>,
-	pub supported_protocols: Vec<String>,
+	pub supported_networks: Vec<NetworkStorage>,
+	pub supported_assets: Vec<AssetStorage>,
 	pub max_retries: u32,
 	pub headers: Option<HashMap<String, String>>,
 	pub config: HashMap<String, serde_json::Value>,
@@ -93,8 +92,6 @@ pub struct HealthCheckStorage {
 impl SolverStorage {
 	/// Create storage solver from domain solver
 	pub fn from_domain(solver: Solver) -> Self {
-		let storage_size = estimate_storage_size(&solver);
-
 		Self {
 			solver_id: solver.solver_id,
 			adapter_id: solver.adapter_id,
@@ -107,8 +104,6 @@ impl SolverStorage {
 			metrics: SolverMetricsStorage::from_domain(solver.metrics),
 			version: 1,
 			last_updated: Utc::now(),
-			access_count: 0,
-			storage_size_bytes: storage_size,
 		}
 	}
 
@@ -129,7 +124,6 @@ impl SolverStorage {
 
 	/// Mark as accessed for analytics
 	pub fn mark_accessed(&mut self) {
-		self.access_count += 1;
 		self.last_updated = Utc::now();
 	}
 
@@ -159,8 +153,6 @@ impl SolverStorage {
 		SolverStorageStats {
 			solver_id: self.solver_id.clone(),
 			version: self.version,
-			storage_size_bytes: self.storage_size_bytes,
-			access_count: self.access_count,
 			created_at: self.created_at,
 			last_updated: self.last_updated,
 			is_stale: self.is_stale(24), // 24 hours
@@ -181,9 +173,6 @@ impl SolverStorage {
 				self.metrics.last_error_timestamp = None;
 			}
 		}
-
-		// Update storage size
-		self.storage_size_bytes = estimate_storage_size_from_storage(self);
 		self.last_updated = Utc::now();
 	}
 }
@@ -216,8 +205,14 @@ impl SolverMetadataStorage {
 			name: metadata.name,
 			description: metadata.description,
 			version: metadata.version,
-			supported_chains: metadata.supported_chains,
-			supported_protocols: metadata.supported_protocols,
+			supported_networks: metadata.supported_networks
+				.into_iter()
+				.map(NetworkStorage::from_domain)
+				.collect(),
+			supported_assets: metadata.supported_assets
+				.into_iter()
+				.map(AssetStorage::from_domain)
+				.collect(),
 			max_retries: metadata.max_retries,
 			headers: metadata.headers,
 			config: metadata.config,
@@ -229,8 +224,14 @@ impl SolverMetadataStorage {
 			name: self.name,
 			description: self.description,
 			version: self.version,
-			supported_chains: self.supported_chains,
-			supported_protocols: self.supported_protocols,
+			supported_networks: self.supported_networks
+				.into_iter()
+				.map(|n| n.to_domain())
+				.collect(),
+			supported_assets: self.supported_assets
+				.into_iter()
+				.map(|a| a.to_domain())
+				.collect(),
 			max_retries: self.max_retries,
 			headers: self.headers,
 			config: self.config,
@@ -324,10 +325,8 @@ impl HealthCheckStorage {
 /// Storage statistics for a solver
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SolverStorageStats {
-	pub solver_id: String,
-	pub version: u32,
-	pub storage_size_bytes: u64,
-	pub access_count: u64,
+		pub solver_id: String,
+		pub version: u32,
 	pub created_at: DateTime<Utc>,
 	pub last_updated: DateTime<Utc>,
 	pub is_stale: bool,
@@ -433,7 +432,7 @@ impl SolverStorageFilter {
 		}
 
 		if let Some(chain_id) = self.supported_chain {
-			if !solver.metadata.supported_chains.contains(&chain_id) {
+			if !solver.metadata.supported_networks.iter().any(|n| n.chain_id == chain_id) {
 				return false;
 			}
 		}
@@ -514,12 +513,12 @@ fn estimate_storage_size(solver: &Solver) -> u64 {
 		+ solver.metadata.name.as_ref().map_or(0, |s| s.len())
 		+ solver.metadata.description.as_ref().map_or(0, |s| s.len())
 		+ solver.metadata.version.as_ref().map_or(0, |s| s.len());
-	let chains_size = solver.metadata.supported_chains.len() * 8;
-	let protocols_size = solver
+	let networks_size = solver.metadata.supported_networks.len() * 64; // Approximate size per network
+	let assets_size = solver
 		.metadata
-		.supported_protocols
+		.supported_assets
 		.iter()
-		.map(|s| s.len())
+		.map(|a| a.address.len() + a.symbol.len() + a.name.len() + 24) // address + symbol + name + other fields
 		.sum::<usize>();
 	let headers_size = solver.metadata.headers.as_ref().map_or(0, |h| {
 		h.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>()
@@ -531,7 +530,7 @@ fn estimate_storage_size(solver: &Solver) -> u64 {
 		.map(|(k, v)| k.len() + v.to_string().len())
 		.sum::<usize>();
 
-	(base_size + strings_size + chains_size + protocols_size + headers_size + config_size) as u64
+	(base_size + strings_size + networks_size + assets_size + headers_size + config_size) as u64
 }
 
 /// Estimate storage size from storage model
@@ -566,7 +565,7 @@ mod tests {
 			2000,
 		)
 		.with_name("Test Solver".to_string())
-		.with_chains(vec![1, 137])
+		.with_chain_ids(vec![1, 137])
 	}
 
 	#[test]
@@ -578,26 +577,10 @@ mod tests {
 		let storage = SolverStorage::from_domain(solver);
 		assert_eq!(storage.solver_id, solver_id);
 		assert_eq!(storage.version, 1);
-		assert_eq!(storage.access_count, 0);
-		assert!(storage.storage_size_bytes > 0);
 
 		// Convert back to domain
 		let domain_solver = storage.to_domain().unwrap();
 		assert_eq!(domain_solver.solver_id, solver_id);
-	}
-
-	#[test]
-	fn test_access_tracking() {
-		let solver = create_test_solver();
-		let mut storage = SolverStorage::from_domain(solver);
-
-		assert_eq!(storage.access_count, 0);
-
-		storage.mark_accessed();
-		assert_eq!(storage.access_count, 1);
-
-		storage.mark_accessed();
-		assert_eq!(storage.access_count, 2);
 	}
 
 	#[test]
@@ -645,9 +628,7 @@ mod tests {
 
 		let stats = storage.storage_stats();
 		assert_eq!(stats.solver_id, "test-solver");
-		assert_eq!(stats.access_count, 2);
 		assert_eq!(stats.version, 1);
-		assert!(stats.storage_size_bytes > 0);
 		assert!(!stats.is_stale); // Recently created
 	}
 
@@ -660,7 +641,6 @@ mod tests {
 		storage.metrics.last_error_message = Some("Old error".to_string());
 		storage.metrics.last_error_timestamp = Some(Utc::now() - chrono::Duration::days(10));
 
-		let _size_before = storage.storage_size_bytes;
 		storage.compact();
 
 		// Error message should be cleared for old errors

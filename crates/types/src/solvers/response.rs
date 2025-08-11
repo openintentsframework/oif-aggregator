@@ -4,6 +4,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use super::{HealthCheckResult, Solver, SolverResult, SolverStatus};
+use crate::adapters::{NetworkResponse, AssetResponse};
 
 /// Response format for individual solvers in API
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,8 +15,8 @@ pub struct SolverResponse {
 	pub description: Option<String>,
 	pub endpoint: String,
 	pub status: SolverStatusResponse,
-	pub supported_chains: Vec<u64>,
-	pub supported_protocols: Vec<String>,
+	pub supported_networks: Vec<NetworkResponse>,
+	pub supported_assets: Vec<AssetResponse>,
 	pub metrics: SolverMetricsResponse,
 	pub created_at: i64,
 	pub last_seen: Option<i64>,
@@ -92,8 +93,14 @@ impl SolverResponse {
 			description: solver.metadata.description.clone(),
 			endpoint: solver.endpoint.clone(),
 			status: SolverStatusResponse::from_domain(&solver.status),
-			supported_chains: solver.metadata.supported_chains.clone(),
-			supported_protocols: solver.metadata.supported_protocols.clone(),
+			supported_networks: solver.metadata.supported_networks
+				.iter()
+				.map(NetworkResponse::from_domain)
+				.collect(),
+			supported_assets: solver.metadata.supported_assets
+				.iter()
+				.map(AssetResponse::from_domain)
+				.collect(),
 			metrics: SolverMetricsResponse::from_domain(solver),
 			created_at: solver.created_at.timestamp(),
 			last_seen: solver.last_seen.map(|dt| dt.timestamp()),
@@ -109,8 +116,14 @@ impl SolverResponse {
 			description: solver.metadata.description.clone(),
 			endpoint: "".to_string(), // Hide endpoint in public API
 			status: SolverStatusResponse::from_domain(&solver.status),
-			supported_chains: solver.metadata.supported_chains.clone(),
-			supported_protocols: solver.metadata.supported_protocols.clone(),
+			supported_networks: solver.metadata.supported_networks
+				.iter()
+				.map(NetworkResponse::from_domain)
+				.collect(),
+			supported_assets: solver.metadata.supported_assets
+				.iter()
+				.map(AssetResponse::from_domain)
+				.collect(),
 			metrics: SolverMetricsResponse::minimal_from_domain(solver),
 			created_at: solver.created_at.timestamp(),
 			last_seen: None, // Hide last_seen in public API
@@ -230,7 +243,7 @@ impl SolversResponse {
 	/// Filter solvers by supported chain
 	pub fn filter_by_chain(&mut self, chain_id: u64) {
 		self.solvers
-			.retain(|solver| solver.supported_chains.contains(&chain_id));
+			.retain(|solver| solver.supported_networks.iter().any(|n| n.chain_id == chain_id));
 		self.total_solvers = self.solvers.len();
 	}
 }
@@ -268,7 +281,7 @@ mod tests {
 			2000,
 		)
 		.with_name("Test Solver".to_string())
-		.with_chains(vec![1, 137])
+		.with_chain_ids(vec![1, 137])
 	}
 
 	#[test]
@@ -281,7 +294,9 @@ mod tests {
 		assert_eq!(response.solver_id, "test-solver");
 		assert_eq!(response.name, Some("Test Solver".to_string()));
 		assert!(matches!(response.status, SolverStatusResponse::Active));
-		assert_eq!(response.supported_chains, vec![1, 137]);
+		assert_eq!(response.supported_networks.len(), 2);
+		assert!(response.supported_networks.iter().any(|n| n.chain_id == 1));
+		assert!(response.supported_networks.iter().any(|n| n.chain_id == 137));
 	}
 
 	#[test]
@@ -332,14 +347,16 @@ mod tests {
 	fn test_filter_by_chain() {
 		let solver1 = create_test_solver(); // Supports chains [1, 137]
 
-		let solver2 = create_test_solver().with_chains(vec![56, 250]); // Different chains
+		let solver2 = create_test_solver().with_chain_ids(vec![56, 250]); // Different networks
 
 		let solvers = vec![solver1, solver2];
 		let mut response = SolversResponse::from_domain_solvers(solvers).unwrap();
 
 		response.filter_by_chain(1);
 		assert_eq!(response.total_solvers, 1);
-		assert_eq!(response.solvers[0].supported_chains, vec![1, 137]);
+		assert_eq!(response.solvers[0].supported_networks.len(), 2);
+		assert!(response.solvers[0].supported_networks.iter().any(|n| n.chain_id == 1));
+		assert!(response.solvers[0].supported_networks.iter().any(|n| n.chain_id == 137));
 	}
 
 	// (removed legacy SystemHealthResponse test)

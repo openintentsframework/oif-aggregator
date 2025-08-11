@@ -41,10 +41,10 @@ pub struct SolverConfig {
 	pub version: Option<String>,
 
 	/// Supported blockchain networks
-	pub supported_chains: Option<Vec<u64>>,
+	pub supported_networks: Option<Vec<u64>>,
 
-	/// Supported protocols/DEXs
-	pub supported_protocols: Option<Vec<String>>,
+	/// Supported assets/tokens
+	pub supported_assets: Option<Vec<String>>,
 
 	/// Solver-specific configuration
 	pub config: Option<HashMap<String, serde_json::Value>>,
@@ -69,7 +69,7 @@ pub struct AdapterConfig {
 	pub version: String,
 
 	/// Supported blockchain networks
-	pub supported_chains: Vec<u64>,
+	pub supported_networks: Vec<u64>,
 
 	/// Adapter-specific configuration
 	pub configuration: serde_json::Value,
@@ -119,8 +119,8 @@ impl SolverConfig {
 			name: None,
 			description: None,
 			version: None,
-			supported_chains: None,
-			supported_protocols: None,
+			supported_networks: None,
+			supported_assets: None,
 			config: None,
 		}
 	}
@@ -203,8 +203,8 @@ impl SolverConfig {
 		}
 
 		// Validate supported chains (if provided)
-		if let Some(ref chains) = self.supported_chains {
-			for &chain_id in chains {
+		if let Some(ref networks) = self.supported_networks {
+			for &chain_id in networks {
 				if !is_valid_chain_id(chain_id) {
 					return Err(SolverValidationError::InvalidChainId { chain_id });
 				}
@@ -239,12 +239,12 @@ impl SolverConfig {
 			solver = solver.with_version(version.clone());
 		}
 
-		if let Some(ref chains) = self.supported_chains {
-			solver = solver.with_chains(chains.clone());
+		if let Some(ref networks) = self.supported_networks {
+			solver = solver.with_chain_ids(networks.clone());
 		}
 
-		if let Some(ref protocols) = self.supported_protocols {
-			solver = solver.with_protocols(protocols.clone());
+		if let Some(ref assets) = self.supported_assets {
+			solver = solver.with_asset_symbols(assets.clone());
 		}
 
 		solver = solver.with_max_retries(self.max_retries);
@@ -278,13 +278,13 @@ impl SolverConfig {
 		self
 	}
 
-	pub fn with_chains(mut self, chains: Vec<u64>) -> Self {
-		self.supported_chains = Some(chains);
+	pub fn with_networks(mut self, networks: Vec<u64>) -> Self {
+		self.supported_networks = Some(networks);
 		self
 	}
 
-	pub fn with_protocols(mut self, protocols: Vec<String>) -> Self {
-		self.supported_protocols = Some(protocols);
+	pub fn with_assets(mut self, assets: Vec<String>) -> Self {
+		self.supported_assets = Some(assets);
 		self
 	}
 
@@ -313,7 +313,7 @@ impl AdapterConfig {
 			name,
 			description: None,
 			version,
-			supported_chains: Vec::new(),
+			supported_networks: Vec::new(),
 			configuration: serde_json::Value::Object(serde_json::Map::new()),
 			enabled: true,
 			created_at: Utc::now(),
@@ -341,7 +341,7 @@ impl AdapterConfig {
 		}
 
 		// Validate supported chains
-		for &chain_id in &self.supported_chains {
+		for &chain_id in &self.supported_networks {
 			if !is_valid_chain_id(chain_id) {
 				return Err(SolverValidationError::InvalidChainId { chain_id });
 			}
@@ -452,8 +452,8 @@ impl From<oif_config::settings::SolverConfig> for SolverConfig {
 			name: None,
 			description: None,
 			version: None,
-			supported_chains: None,
-			supported_protocols: None,
+			supported_networks: None,
+			supported_assets: None,
 			config: None,
 		}
 	}
@@ -522,13 +522,15 @@ mod tests {
 			"https://api.example.com".to_string(),
 		)
 		.with_name("Test Solver".to_string())
-		.with_chains(vec![1, 137]);
+		.with_networks(vec![1, 137]);
 
 		let solver = config.to_domain().unwrap();
 
 		assert_eq!(solver.solver_id, "test-solver");
 		assert_eq!(solver.metadata.name, Some("Test Solver".to_string()));
-		assert_eq!(solver.metadata.supported_chains, vec![1, 137]);
+		assert_eq!(solver.metadata.supported_networks.len(), 2);
+		assert!(solver.supports_chain(1));
+		assert!(solver.supports_chain(137));
 	}
 
 	#[test]
