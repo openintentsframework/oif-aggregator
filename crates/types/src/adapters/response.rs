@@ -91,21 +91,10 @@ pub struct AdapterAssetsResponse {
 	pub timestamp: i64,
 }
 
-impl AdapterResponse {
-	/// Create adapter response from domain adapter
-	pub fn from_domain(adapter: &Adapter) -> AdapterResult<Self> {
-		Ok(Self {
-			adapter_id: adapter.adapter_id.clone(),
-			adapter_type: adapter.adapter_type.to_string(),
-			name: adapter.name.clone(),
-			description: adapter.description.clone(),
-			version: adapter.version.clone(),
-			created_at: adapter.created_at.timestamp(),
-		})
-	}
+impl TryFrom<&Adapter> for AdapterResponse {
+	type Error = super::AdapterError;
 
-	/// Create minimal adapter response (for public API)
-	pub fn minimal_from_domain(adapter: &Adapter) -> AdapterResult<Self> {
+	fn try_from(adapter: &Adapter) -> Result<Self, Self::Error> {
 		Ok(Self {
 			adapter_id: adapter.adapter_id.clone(),
 			adapter_type: adapter.adapter_type.to_string(),
@@ -117,26 +106,52 @@ impl AdapterResponse {
 	}
 }
 
-impl AdaptersResponse {
-	/// Create adapters response from domain adapters
-	pub fn from_domain_adapters(adapters: Vec<Adapter>) -> AdapterResult<Self> {
+impl TryFrom<Adapter> for AdapterResponse {
+	type Error = super::AdapterError;
+
+	fn try_from(adapter: Adapter) -> Result<Self, Self::Error> {
+		Self::try_from(&adapter)
+	}
+}
+
+impl AdapterResponse {
+	/// Create minimal adapter response (for public API)
+	pub fn minimal_from_adapter(adapter: &Adapter) -> AdapterResult<Self> {
+		Ok(Self {
+			adapter_id: adapter.adapter_id.clone(),
+			adapter_type: adapter.adapter_type.to_string(),
+			name: adapter.name.clone(),
+			description: adapter.description.clone(),
+			version: adapter.version.clone(),
+			created_at: adapter.created_at.timestamp(),
+		})
+	}
+}
+
+impl TryFrom<Vec<Adapter>> for AdaptersResponse {
+	type Error = super::AdapterError;
+
+	fn try_from(adapters: Vec<Adapter>) -> Result<Self, Self::Error> {
+		let total_adapters = adapters.len();
 		let adapter_responses: Result<Vec<_>, _> =
-			adapters.iter().map(AdapterResponse::from_domain).collect();
+			adapters.iter().map(AdapterResponse::try_from).collect();
 
 		let responses = adapter_responses?;
 
 		Ok(Self {
 			adapters: responses,
-			total_adapters: adapters.len(),
+			total_adapters,
 			timestamp: Utc::now().timestamp(),
 		})
 	}
+}
 
+impl AdaptersResponse {
 	/// Create minimal adapters response (for public API)
-	pub fn minimal_from_domain_adapters(adapters: Vec<Adapter>) -> AdapterResult<Self> {
+	pub fn minimal_from_adapters(adapters: &[Adapter]) -> AdapterResult<Self> {
 		let adapter_responses: Result<Vec<_>, _> = adapters
 			.iter()
-			.map(AdapterResponse::minimal_from_domain)
+			.map(AdapterResponse::minimal_from_adapter)
 			.collect();
 
 		let responses = adapter_responses?;
@@ -149,9 +164,10 @@ impl AdaptersResponse {
 	}
 }
 
-impl AdapterDetailResponse {
-	/// Create detailed response from domain adapter (requires storage for operational params)
-	pub fn from_domain(adapter: &Adapter) -> AdapterResult<Self> {
+impl TryFrom<&Adapter> for AdapterDetailResponse {
+	type Error = super::AdapterError;
+
+	fn try_from(adapter: &Adapter) -> Result<Self, Self::Error> {
 		Ok(Self {
 			adapter_id: adapter.adapter_id.clone(),
 			adapter_type: adapter.adapter_type.to_string(),
@@ -167,12 +183,15 @@ impl AdapterDetailResponse {
 			updated_at: adapter.updated_at.timestamp(),
 		})
 	}
+}
 
-	/// Create detailed response from storage (includes operational parameters)
-	pub fn from_storage(storage: &AdapterStorage) -> AdapterResult<Self> {
+impl TryFrom<&AdapterStorage> for AdapterDetailResponse {
+	type Error = super::AdapterError;
+
+	fn try_from(storage: &AdapterStorage) -> Result<Self, Self::Error> {
 		Ok(Self {
 			adapter_id: storage.adapter_id.clone(),
-			adapter_type: storage.adapter_type.to_domain().to_string(),
+			adapter_type: AdapterType::from(&storage.adapter_type).to_string(),
 			name: storage.name.clone(),
 			description: storage.metadata.description.clone(),
 			version: storage.version.clone(),
@@ -181,13 +200,13 @@ impl AdapterDetailResponse {
 				.metadata
 				.get_networks()
 				.iter()
-				.map(NetworkResponse::from_domain)
+				.map(NetworkResponse::from)
 				.collect(),
 			supported_assets: storage
 				.metadata
 				.get_assets()
 				.iter()
-				.map(AssetResponse::from_domain)
+				.map(AssetResponse::from)
 				.collect(),
 			endpoint: Some(storage.endpoint.clone()),
 			timeout_ms: Some(storage.timeout_ms),
@@ -197,9 +216,8 @@ impl AdapterDetailResponse {
 	}
 }
 
-impl AdapterConfigResponse {
-	/// Create config response from domain adapter
-	pub fn from_domain(adapter: &Adapter) -> Self {
+impl From<&Adapter> for AdapterConfigResponse {
+	fn from(adapter: &Adapter) -> Self {
 		// Convert configuration back to JSON
 		let configuration = serde_json::to_value(&adapter.configuration)
 			.unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
@@ -216,29 +234,50 @@ impl AdapterConfigResponse {
 	}
 }
 
-impl NetworkResponse {
-	/// Create from domain network
-	pub fn from_domain(network: &Network) -> Self {
+impl From<Adapter> for AdapterConfigResponse {
+	fn from(adapter: Adapter) -> Self {
+		Self::from(&adapter)
+	}
+}
+
+impl From<&Network> for NetworkResponse {
+	fn from(network: &Network) -> Self {
 		Self {
 			chain_id: network.chain_id,
 			name: network.name.clone(),
 			is_testnet: network.is_testnet,
 		}
 	}
+}
 
-	/// Convert to domain network
-	pub fn to_domain(&self) -> Network {
-		Network {
-			chain_id: self.chain_id,
-			name: self.name.clone(),
-			is_testnet: self.is_testnet,
+impl From<Network> for NetworkResponse {
+	fn from(network: Network) -> Self {
+		Self::from(&network)
+	}
+}
+
+impl From<NetworkResponse> for Network {
+	fn from(response: NetworkResponse) -> Self {
+		Self {
+			chain_id: response.chain_id,
+			name: response.name,
+			is_testnet: response.is_testnet,
 		}
 	}
 }
 
-impl AssetResponse {
-	/// Create from domain asset
-	pub fn from_domain(asset: &Asset) -> Self {
+impl From<&NetworkResponse> for Network {
+	fn from(response: &NetworkResponse) -> Self {
+		Self {
+			chain_id: response.chain_id,
+			name: response.name.clone(),
+			is_testnet: response.is_testnet,
+		}
+	}
+}
+
+impl From<&Asset> for AssetResponse {
+	fn from(asset: &Asset) -> Self {
 		Self {
 			address: asset.address.clone(),
 			symbol: asset.symbol.clone(),
@@ -247,15 +286,34 @@ impl AssetResponse {
 			chain_id: asset.chain_id,
 		}
 	}
+}
 
-	/// Convert to domain asset
-	pub fn to_domain(&self) -> Asset {
-		Asset {
-			address: self.address.clone(),
-			symbol: self.symbol.clone(),
-			name: self.name.clone(),
-			decimals: self.decimals,
-			chain_id: self.chain_id,
+impl From<Asset> for AssetResponse {
+	fn from(asset: Asset) -> Self {
+		Self::from(&asset)
+	}
+}
+
+impl From<AssetResponse> for Asset {
+	fn from(response: AssetResponse) -> Self {
+		Self {
+			address: response.address,
+			symbol: response.symbol,
+			name: response.name,
+			decimals: response.decimals,
+			chain_id: response.chain_id,
+		}
+	}
+}
+
+impl From<&AssetResponse> for Asset {
+	fn from(response: &AssetResponse) -> Self {
+		Self {
+			address: response.address.clone(),
+			symbol: response.symbol.clone(),
+			name: response.name.clone(),
+			decimals: response.decimals,
+			chain_id: response.chain_id,
 		}
 	}
 }
@@ -264,7 +322,7 @@ impl AdapterNetworksResponse {
 	/// Create networks response for adapter
 	pub fn from_networks(adapter_id: String, networks: Vec<Network>) -> Self {
 		let network_responses: Vec<NetworkResponse> =
-			networks.iter().map(NetworkResponse::from_domain).collect();
+			networks.iter().map(NetworkResponse::from).collect();
 
 		Self {
 			adapter_id,
@@ -278,8 +336,7 @@ impl AdapterNetworksResponse {
 impl AdapterAssetsResponse {
 	/// Create assets response for adapter
 	pub fn from_assets(adapter_id: String, assets: Vec<Asset>, chain_id: Option<u64>) -> Self {
-		let asset_responses: Vec<AssetResponse> =
-			assets.iter().map(AssetResponse::from_domain).collect();
+		let asset_responses: Vec<AssetResponse> = assets.iter().map(AssetResponse::from).collect();
 
 		Self {
 			adapter_id,
@@ -311,24 +368,6 @@ impl std::fmt::Display for AdapterType {
 	}
 }
 
-/// Convert domain Adapter to API AdapterResponse
-impl TryFrom<Adapter> for AdapterResponse {
-	type Error = crate::adapters::AdapterError;
-
-	fn try_from(adapter: Adapter) -> Result<Self, Self::Error> {
-		AdapterResponse::from_domain(&adapter)
-	}
-}
-
-/// Convert domain collection to API response
-impl TryFrom<Vec<Adapter>> for AdaptersResponse {
-	type Error = crate::adapters::AdapterError;
-
-	fn try_from(adapters: Vec<Adapter>) -> Result<Self, Self::Error> {
-		AdaptersResponse::from_domain_adapters(adapters)
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -348,7 +387,7 @@ mod tests {
 	fn test_adapter_response_from_domain() {
 		let adapter = create_test_adapter();
 
-		let response = AdapterResponse::from_domain(&adapter).unwrap();
+		let response = AdapterResponse::try_from(&adapter).unwrap();
 
 		assert_eq!(response.adapter_id, "test-adapter");
 		assert_eq!(response.name, "Test Adapter");
@@ -357,7 +396,7 @@ mod tests {
 	#[test]
 	fn test_minimal_adapter_response() {
 		let adapter = create_test_adapter();
-		let response = AdapterResponse::minimal_from_domain(&adapter).unwrap();
+		let response = AdapterResponse::minimal_from_adapter(&adapter).unwrap();
 
 		assert_eq!(response.adapter_id, "test-adapter");
 	}
@@ -370,7 +409,7 @@ mod tests {
 		adapter2.adapter_id = "adapter-2".to_string();
 
 		let adapters = vec![adapter1, adapter2];
-		let response = AdaptersResponse::from_domain_adapters(adapters).unwrap();
+		let response = AdaptersResponse::try_from(adapters).unwrap();
 
 		assert_eq!(response.total_adapters, 2);
 		assert!(response.timestamp > 0);
@@ -385,7 +424,7 @@ mod tests {
 	#[test]
 	fn test_adapter_detail_response() {
 		let adapter = create_test_adapter();
-		let response = AdapterDetailResponse::from_domain(&adapter).unwrap();
+		let response = AdapterDetailResponse::try_from(&adapter).unwrap();
 
 		assert_eq!(response.adapter_id, "test-adapter");
 		assert_eq!(response.name, "Test Adapter");
@@ -406,7 +445,7 @@ mod tests {
 			15000,
 		);
 
-		let response = AdapterDetailResponse::from_storage(&storage).unwrap();
+		let response = AdapterDetailResponse::try_from(&storage).unwrap();
 
 		assert_eq!(response.adapter_id, "test-adapter");
 		assert_eq!(response.name, "Test Adapter");
@@ -423,8 +462,8 @@ mod tests {
 	#[test]
 	fn test_network_response_conversion() {
 		let domain_network = Network::new(1, "Ethereum".to_string(), false);
-		let response = NetworkResponse::from_domain(&domain_network);
-		let converted_back = response.to_domain();
+		let response = NetworkResponse::from(&domain_network);
+		let converted_back = Network::from(response);
 
 		assert_eq!(domain_network.chain_id, converted_back.chain_id);
 		assert_eq!(domain_network.name, converted_back.name);
@@ -440,8 +479,8 @@ mod tests {
 			18,
 			1,
 		);
-		let response = AssetResponse::from_domain(&domain_asset);
-		let converted_back = response.to_domain();
+		let response = AssetResponse::from(&domain_asset);
+		let converted_back = Asset::from(response);
 
 		assert_eq!(domain_asset.address, converted_back.address);
 		assert_eq!(domain_asset.symbol, converted_back.symbol);

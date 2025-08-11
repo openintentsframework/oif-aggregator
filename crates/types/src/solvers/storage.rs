@@ -4,11 +4,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::{
-	HealthCheckResult, Solver, SolverError, SolverMetadata, SolverMetrics, SolverResult,
-	SolverStatus,
-};
-use crate::adapters::{AssetStorage, NetworkStorage};
+use super::{HealthCheckResult, Solver, SolverError, SolverMetadata, SolverMetrics, SolverStatus};
+use crate::adapters::storage::{AssetStorage, NetworkStorage};
 
 /// Storage representation of a solver
 ///
@@ -20,7 +17,7 @@ pub struct SolverStorage {
 	pub adapter_id: String,
 	pub endpoint: String,
 	pub timeout_ms: u64,
-	pub status: SolverStatusStorage,
+	pub status: SolverStatus,
 	pub metadata: SolverMetadataStorage,
 	pub metrics: SolverMetricsStorage,
 
@@ -29,17 +26,6 @@ pub struct SolverStorage {
 	pub last_updated: DateTime<Utc>,
 	pub created_at: DateTime<Utc>,
 	pub last_seen: Option<DateTime<Utc>>,
-}
-
-/// Storage-compatible solver status
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum SolverStatusStorage {
-	Active,
-	Inactive,
-	Error,
-	Maintenance,
-	Initializing,
 }
 
 /// Storage-compatible solver metadata
@@ -89,46 +75,50 @@ pub struct HealthCheckStorage {
 	pub check_id: String,
 }
 
-impl SolverStorage {
-	/// Create storage solver from domain solver
-	pub fn from_domain(solver: Solver) -> Self {
+impl From<Solver> for SolverStorage {
+	fn from(solver: Solver) -> Self {
 		Self {
 			solver_id: solver.solver_id,
 			adapter_id: solver.adapter_id,
 			endpoint: solver.endpoint,
 			timeout_ms: solver.timeout_ms,
-			status: SolverStatusStorage::from(&solver.status),
-			metadata: SolverMetadataStorage::from_domain(solver.metadata),
+			status: solver.status,
+			metadata: SolverMetadataStorage::from(solver.metadata),
 			created_at: solver.created_at,
 			last_seen: solver.last_seen,
-			metrics: SolverMetricsStorage::from_domain(solver.metrics),
+			metrics: SolverMetricsStorage::from(solver.metrics),
 			version: 1,
 			last_updated: Utc::now(),
 		}
 	}
+}
 
-	/// Convert storage solver to domain solver
-	pub fn to_domain(self) -> SolverResult<Solver> {
+impl TryFrom<SolverStorage> for Solver {
+	type Error = SolverError;
+
+	fn try_from(storage: SolverStorage) -> Result<Self, Self::Error> {
 		Ok(Solver {
-			solver_id: self.solver_id,
-			adapter_id: self.adapter_id,
-			endpoint: self.endpoint,
-			timeout_ms: self.timeout_ms,
-			status: self.status.to_domain(),
-			metadata: self.metadata.to_domain(),
-			created_at: self.created_at,
-			last_seen: self.last_seen,
-			metrics: self.metrics.to_domain()?,
+			solver_id: storage.solver_id,
+			adapter_id: storage.adapter_id,
+			endpoint: storage.endpoint,
+			timeout_ms: storage.timeout_ms,
+			status: storage.status,
+			metadata: storage.metadata.into(),
+			created_at: storage.created_at,
+			last_seen: storage.last_seen,
+			metrics: storage.metrics.try_into()?,
 		})
 	}
+}
 
+impl SolverStorage {
 	/// Mark as accessed for analytics
 	pub fn mark_accessed(&mut self) {
 		self.last_updated = Utc::now();
 	}
 
 	/// Update status and timestamp
-	pub fn update_status(&mut self, status: SolverStatusStorage) {
+	pub fn update_status(&mut self, status: SolverStatus) {
 		self.status = status;
 		self.last_seen = Some(Utc::now());
 		self.last_updated = Utc::now();
@@ -137,7 +127,7 @@ impl SolverStorage {
 
 	/// Update metrics from domain metrics
 	pub fn update_metrics(&mut self, metrics: SolverMetrics) {
-		self.metrics = SolverMetricsStorage::from_domain(metrics);
+		self.metrics = SolverMetricsStorage::from(metrics);
 		self.last_updated = Utc::now();
 		self.mark_accessed();
 	}
@@ -146,17 +136,6 @@ impl SolverStorage {
 	pub fn is_stale(&self, max_age_hours: i64) -> bool {
 		let stale_threshold = Utc::now() - chrono::Duration::hours(max_age_hours);
 		self.last_updated < stale_threshold
-	}
-
-	/// Get storage statistics
-	pub fn storage_stats(&self) -> SolverStorageStats {
-		SolverStorageStats {
-			solver_id: self.solver_id.clone(),
-			version: self.version,
-			created_at: self.created_at,
-			last_updated: self.last_updated,
-			is_stale: self.is_stale(24), // 24 hours
-		}
 	}
 
 	/// Compact the storage (remove old data, optimize size)
@@ -177,36 +156,8 @@ impl SolverStorage {
 	}
 }
 
-impl SolverStatusStorage {
-	fn from_domain(status: &SolverStatus) -> Self {
-		Self::from(status)
-	}
-
-	fn to_domain(&self) -> SolverStatus {
-		match self {
-			Self::Active => SolverStatus::Active,
-			Self::Inactive => SolverStatus::Inactive,
-			Self::Error => SolverStatus::Error,
-			Self::Maintenance => SolverStatus::Maintenance,
-			Self::Initializing => SolverStatus::Initializing,
-		}
-	}
-}
-
-impl From<&SolverStatus> for SolverStatusStorage {
-	fn from(status: &SolverStatus) -> Self {
-		match status {
-			SolverStatus::Active => Self::Active,
-			SolverStatus::Inactive => Self::Inactive,
-			SolverStatus::Error => Self::Error,
-			SolverStatus::Maintenance => Self::Maintenance,
-			SolverStatus::Initializing => Self::Initializing,
-		}
-	}
-}
-
-impl SolverMetadataStorage {
-	fn from_domain(metadata: SolverMetadata) -> Self {
+impl From<SolverMetadata> for SolverMetadataStorage {
+	fn from(metadata: SolverMetadata) -> Self {
 		Self {
 			name: metadata.name,
 			description: metadata.description,
@@ -214,43 +165,45 @@ impl SolverMetadataStorage {
 			supported_networks: metadata
 				.supported_networks
 				.into_iter()
-				.map(NetworkStorage::from_domain)
+				.map(NetworkStorage::from)
 				.collect(),
 			supported_assets: metadata
 				.supported_assets
 				.into_iter()
-				.map(AssetStorage::from_domain)
+				.map(AssetStorage::from)
 				.collect(),
 			max_retries: metadata.max_retries,
 			headers: metadata.headers,
 			config: metadata.config,
 		}
 	}
+}
 
-	fn to_domain(self) -> SolverMetadata {
-		SolverMetadata {
-			name: self.name,
-			description: self.description,
-			version: self.version,
-			supported_networks: self
+impl From<SolverMetadataStorage> for SolverMetadata {
+	fn from(storage: SolverMetadataStorage) -> Self {
+		Self {
+			name: storage.name,
+			description: storage.description,
+			version: storage.version,
+			supported_networks: storage
 				.supported_networks
 				.into_iter()
-				.map(|n| n.to_domain())
+				.map(|n| n.into())
 				.collect(),
-			supported_assets: self
+			supported_assets: storage
 				.supported_assets
 				.into_iter()
-				.map(|a| a.to_domain())
+				.map(|a| a.into())
 				.collect(),
-			max_retries: self.max_retries,
-			headers: self.headers,
-			config: self.config,
+			max_retries: storage.max_retries,
+			headers: storage.headers,
+			config: storage.config,
 		}
 	}
 }
 
-impl SolverMetricsStorage {
-	fn from_domain(metrics: SolverMetrics) -> Self {
+impl From<SolverMetrics> for SolverMetricsStorage {
+	fn from(metrics: SolverMetrics) -> Self {
 		Self {
 			avg_response_time_ms: metrics.avg_response_time_ms,
 			success_rate: metrics.success_rate,
@@ -258,9 +211,7 @@ impl SolverMetricsStorage {
 			successful_requests: metrics.successful_requests,
 			failed_requests: metrics.failed_requests,
 			timeout_requests: metrics.timeout_requests,
-			last_health_check: metrics
-				.last_health_check
-				.map(HealthCheckStorage::from_domain),
+			last_health_check: metrics.last_health_check.map(HealthCheckStorage::from),
 			consecutive_failures: metrics.consecutive_failures,
 			last_updated: metrics.last_updated,
 
@@ -290,27 +241,31 @@ impl SolverMetricsStorage {
 			last_error_timestamp: None,
 		}
 	}
+}
 
-	fn to_domain(self) -> SolverResult<SolverMetrics> {
+impl TryFrom<SolverMetricsStorage> for SolverMetrics {
+	type Error = SolverError;
+
+	fn try_from(storage: SolverMetricsStorage) -> Result<Self, Self::Error> {
 		Ok(SolverMetrics {
-			avg_response_time_ms: self.avg_response_time_ms,
-			success_rate: self.success_rate,
-			total_requests: self.total_requests,
-			successful_requests: self.successful_requests,
-			failed_requests: self.failed_requests,
-			timeout_requests: self.timeout_requests,
-			last_health_check: self
+			avg_response_time_ms: storage.avg_response_time_ms,
+			success_rate: storage.success_rate,
+			total_requests: storage.total_requests,
+			successful_requests: storage.successful_requests,
+			failed_requests: storage.failed_requests,
+			timeout_requests: storage.timeout_requests,
+			last_health_check: storage
 				.last_health_check
-				.map(|hc| hc.to_domain())
+				.map(|hc| hc.try_into())
 				.transpose()?,
-			consecutive_failures: self.consecutive_failures,
-			last_updated: self.last_updated,
+			consecutive_failures: storage.consecutive_failures,
+			last_updated: storage.last_updated,
 		})
 	}
 }
 
-impl HealthCheckStorage {
-	fn from_domain(health_check: HealthCheckResult) -> Self {
+impl From<HealthCheckResult> for HealthCheckStorage {
+	fn from(health_check: HealthCheckResult) -> Self {
 		Self {
 			is_healthy: health_check.is_healthy,
 			response_time_ms: health_check.response_time_ms,
@@ -320,202 +275,19 @@ impl HealthCheckStorage {
 			check_id: uuid::Uuid::new_v4().to_string(),
 		}
 	}
-
-	fn to_domain(self) -> SolverResult<HealthCheckResult> {
-		Ok(HealthCheckResult {
-			is_healthy: self.is_healthy,
-			response_time_ms: self.response_time_ms,
-			error_message: self.error_message,
-			last_check: self.last_check,
-			consecutive_failures: self.consecutive_failures,
-		})
-	}
 }
 
-/// Storage statistics for a solver
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SolverStorageStats {
-	pub solver_id: String,
-	pub version: u32,
-	pub created_at: DateTime<Utc>,
-	pub last_updated: DateTime<Utc>,
-	pub is_stale: bool,
-}
-
-/// Storage query filters for solvers
-#[derive(Debug, Clone)]
-pub struct SolverStorageFilter {
-	pub solver_id: Option<String>,
-	pub adapter_id: Option<String>,
-	pub status: Option<SolverStatusStorage>,
-	pub supported_chain: Option<u64>,
-	pub enabled_only: bool,
-	pub healthy_only: bool,
-	pub created_after: Option<DateTime<Utc>>,
-	pub created_before: Option<DateTime<Utc>>,
-	pub last_seen_after: Option<DateTime<Utc>>,
-	pub min_success_rate: Option<f64>,
-	pub max_response_time_ms: Option<f64>,
-}
-
-impl Default for SolverStorageFilter {
-	fn default() -> Self {
-		Self {
-			solver_id: None,
-			adapter_id: None,
-			status: None,
-			supported_chain: None,
-			enabled_only: false,
-			healthy_only: false,
-			created_after: None,
-			created_before: None,
-			last_seen_after: None,
-			min_success_rate: None,
-			max_response_time_ms: None,
-		}
-	}
-}
-
-impl SolverStorageFilter {
-	pub fn new() -> Self {
-		Self::default()
-	}
-
-	pub fn with_solver_id(mut self, solver_id: String) -> Self {
-		self.solver_id = Some(solver_id);
-		self
-	}
-
-	pub fn with_adapter_id(mut self, adapter_id: String) -> Self {
-		self.adapter_id = Some(adapter_id);
-		self
-	}
-
-	pub fn with_status(mut self, status: SolverStatusStorage) -> Self {
-		self.status = Some(status);
-		self
-	}
-
-	pub fn with_chain_support(mut self, chain_id: u64) -> Self {
-		self.supported_chain = Some(chain_id);
-		self
-	}
-
-	pub fn enabled_only(mut self) -> Self {
-		self.enabled_only = true;
-		self
-	}
-
-	pub fn healthy_only(mut self) -> Self {
-		self.healthy_only = true;
-		self
-	}
-
-	pub fn with_min_success_rate(mut self, rate: f64) -> Self {
-		self.min_success_rate = Some(rate);
-		self
-	}
-
-	pub fn with_max_response_time(mut self, ms: f64) -> Self {
-		self.max_response_time_ms = Some(ms);
-		self
-	}
-
-	/// Check if a solver matches this filter
-	pub fn matches(&self, solver: &SolverStorage) -> bool {
-		if let Some(ref solver_id) = self.solver_id {
-			if solver.solver_id != *solver_id {
-				return false;
-			}
-		}
-
-		if let Some(ref adapter_id) = self.adapter_id {
-			if solver.adapter_id != *adapter_id {
-				return false;
-			}
-		}
-
-		if let Some(ref status) = self.status {
-			if solver.status != *status {
-				return false;
-			}
-		}
-
-		if let Some(chain_id) = self.supported_chain {
-			if !solver
-				.metadata
-				.supported_networks
-				.iter()
-				.any(|n| n.chain_id == chain_id)
-			{
-				return false;
-			}
-		}
-
-		if self.enabled_only && !matches!(solver.status, SolverStatusStorage::Active) {
-			return false;
-		}
-
-		if self.healthy_only {
-			if let Some(ref health) = solver.metrics.last_health_check {
-				if !health.is_healthy {
-					return false;
-				}
-			} else {
-				return false;
-			}
-		}
-
-		if let Some(created_after) = self.created_after {
-			if solver.created_at <= created_after {
-				return false;
-			}
-		}
-
-		if let Some(created_before) = self.created_before {
-			if solver.created_at >= created_before {
-				return false;
-			}
-		}
-
-		if let Some(last_seen_after) = self.last_seen_after {
-			if let Some(last_seen) = solver.last_seen {
-				if last_seen <= last_seen_after {
-					return false;
-				}
-			} else {
-				return false;
-			}
-		}
-
-		if let Some(min_rate) = self.min_success_rate {
-			if solver.metrics.success_rate < min_rate {
-				return false;
-			}
-		}
-
-		if let Some(max_time) = self.max_response_time_ms {
-			if solver.metrics.avg_response_time_ms > max_time {
-				return false;
-			}
-		}
-
-		true
-	}
-}
-
-/// Conversion traits
-impl From<Solver> for SolverStorage {
-	fn from(solver: Solver) -> Self {
-		Self::from_domain(solver)
-	}
-}
-
-impl TryFrom<SolverStorage> for Solver {
+impl TryFrom<HealthCheckStorage> for HealthCheckResult {
 	type Error = SolverError;
 
-	fn try_from(storage: SolverStorage) -> Result<Self, Self::Error> {
-		storage.to_domain()
+	fn try_from(storage: HealthCheckStorage) -> Result<Self, Self::Error> {
+		Ok(HealthCheckResult {
+			is_healthy: storage.is_healthy,
+			response_time_ms: storage.response_time_ms,
+			error_message: storage.error_message,
+			last_check: storage.last_check,
+			consecutive_failures: storage.consecutive_failures,
+		})
 	}
 }
 
@@ -546,57 +318,8 @@ mod tests {
 		assert_eq!(storage.version, 1);
 
 		// Convert back to domain
-		let domain_solver = storage.to_domain().unwrap();
+		let domain_solver = Solver::try_from(storage).unwrap();
 		assert_eq!(domain_solver.solver_id, solver_id);
-	}
-
-	#[test]
-	fn test_status_conversion() {
-		assert_eq!(
-			SolverStatusStorage::from_domain(&SolverStatus::Active),
-			SolverStatusStorage::Active
-		);
-		assert_eq!(
-			SolverStatusStorage::Active.to_domain(),
-			SolverStatus::Active
-		);
-	}
-
-	#[test]
-	fn test_storage_filter() {
-		let solver = create_test_solver();
-		let storage = SolverStorage::from(solver);
-
-		// Test basic filter
-		let filter = SolverStorageFilter::new()
-			.with_solver_id("test-solver".to_string())
-			.with_adapter_id("oif-v1".to_string());
-		assert!(filter.matches(&storage));
-
-		// Test non-matching filter
-		let filter = SolverStorageFilter::new().with_solver_id("different-solver".to_string());
-		assert!(!filter.matches(&storage));
-
-		// Test chain support filter
-		let filter = SolverStorageFilter::new().with_chain_support(1);
-		assert!(filter.matches(&storage));
-
-		let filter = SolverStorageFilter::new().with_chain_support(56); // Not supported
-		assert!(!filter.matches(&storage));
-	}
-
-	#[test]
-	fn test_storage_stats() {
-		let solver = create_test_solver();
-		let mut storage = SolverStorage::from(solver);
-
-		storage.mark_accessed();
-		storage.mark_accessed();
-
-		let stats = storage.storage_stats();
-		assert_eq!(stats.solver_id, "test-solver");
-		assert_eq!(stats.version, 1);
-		assert!(!stats.is_stale); // Recently created
 	}
 
 	#[test]

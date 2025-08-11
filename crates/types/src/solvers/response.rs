@@ -53,13 +53,13 @@ impl TryFrom<&Solver> for SolverResponse {
 				.metadata
 				.supported_networks
 				.iter()
-				.map(NetworkResponse::from_domain)
+				.map(NetworkResponse::from)
 				.collect(),
 			supported_assets: solver
 				.metadata
 				.supported_assets
 				.iter()
-				.map(AssetResponse::from_domain)
+				.map(AssetResponse::from)
 				.collect(),
 			created_at: solver.created_at.timestamp(),
 			last_seen: solver.last_seen.map(|dt| dt.timestamp()),

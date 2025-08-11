@@ -86,7 +86,7 @@ impl AdapterStorage {
 
 		Self {
 			adapter_id: adapter.adapter_id,
-			adapter_type: AdapterTypeStorage::from_domain(&adapter.adapter_type),
+			adapter_type: AdapterTypeStorage::from(&adapter.adapter_type),
 			name: adapter.name,
 			version: adapter.version,
 			enabled: adapter.enabled,
@@ -98,18 +98,11 @@ impl AdapterStorage {
 		}
 	}
 
-	/// Create storage adapter from domain adapter (uses default operational parameters)
-	pub fn from_domain(adapter: Adapter) -> Self {
-		// Use default values for operational parameters
-		let (endpoint, timeout_ms) = Self::default_operational_params(&adapter.adapter_type);
-		Self::from_domain_with_params(adapter, endpoint, timeout_ms)
-	}
-
 	/// Convert storage adapter to domain adapter
-	pub fn to_domain(self) -> AdapterResult<Adapter> {
+	fn to_domain_internal(self) -> AdapterResult<Adapter> {
 		Ok(Adapter {
 			adapter_id: self.adapter_id,
-			adapter_type: self.adapter_type.to_domain(),
+			adapter_type: AdapterType::from(self.adapter_type),
 			name: self.name,
 			description: self.metadata.description,
 			version: self.version,
@@ -142,25 +135,20 @@ impl AdapterMetadataStorage {
 
 	/// Add supported networks
 	pub fn with_networks(mut self, networks: Vec<Network>) -> Self {
-		self.supported_networks = Some(
-			networks
-				.into_iter()
-				.map(NetworkStorage::from_domain)
-				.collect(),
-		);
+		self.supported_networks = Some(networks.into_iter().map(NetworkStorage::from).collect());
 		self
 	}
 
 	/// Add supported assets
 	pub fn with_assets(mut self, assets: Vec<Asset>) -> Self {
-		self.supported_assets = Some(assets.into_iter().map(AssetStorage::from_domain).collect());
+		self.supported_assets = Some(assets.into_iter().map(AssetStorage::from).collect());
 		self
 	}
 
 	/// Convert to domain networks
 	pub fn get_networks(&self) -> Vec<Network> {
 		match &self.supported_networks {
-			Some(networks) => networks.iter().map(|n| n.to_domain()).collect(),
+			Some(networks) => networks.iter().map(Network::from).collect(),
 			None => vec![],
 		}
 	}
@@ -168,52 +156,8 @@ impl AdapterMetadataStorage {
 	/// Convert to domain assets
 	pub fn get_assets(&self) -> Vec<Asset> {
 		match &self.supported_assets {
-			Some(assets) => assets.iter().map(|a| a.to_domain()).collect(),
+			Some(assets) => assets.iter().map(Asset::from).collect(),
 			None => vec![],
-		}
-	}
-}
-
-impl NetworkStorage {
-	/// Create from domain network
-	pub fn from_domain(network: Network) -> Self {
-		Self {
-			chain_id: network.chain_id,
-			name: network.name,
-			is_testnet: network.is_testnet,
-		}
-	}
-
-	/// Convert to domain network
-	pub fn to_domain(&self) -> Network {
-		Network {
-			chain_id: self.chain_id,
-			name: self.name.clone(),
-			is_testnet: self.is_testnet,
-		}
-	}
-}
-
-impl AssetStorage {
-	/// Create from domain asset
-	pub fn from_domain(asset: Asset) -> Self {
-		Self {
-			address: asset.address,
-			symbol: asset.symbol,
-			name: asset.name,
-			decimals: asset.decimals,
-			chain_id: asset.chain_id,
-		}
-	}
-
-	/// Convert to domain asset
-	pub fn to_domain(&self) -> Asset {
-		Asset {
-			address: self.address.clone(),
-			symbol: self.symbol.clone(),
-			name: self.name.clone(),
-			decimals: self.decimals,
-			chain_id: self.chain_id,
 		}
 	}
 }
@@ -224,26 +168,44 @@ impl Default for AdapterMetadataStorage {
 	}
 }
 
-impl AdapterTypeStorage {
-	pub fn from_domain(adapter_type: &AdapterType) -> Self {
+impl From<&AdapterType> for AdapterTypeStorage {
+	fn from(adapter_type: &AdapterType) -> Self {
 		match adapter_type {
 			AdapterType::OifV1 => Self::OifV1,
 			AdapterType::LifiV1 => Self::LifiV1,
 		}
 	}
+}
 
-	pub fn to_domain(&self) -> AdapterType {
-		match self {
-			Self::OifV1 => AdapterType::OifV1,
-			Self::LifiV1 => AdapterType::LifiV1,
+impl From<AdapterType> for AdapterTypeStorage {
+	fn from(adapter_type: AdapterType) -> Self {
+		Self::from(&adapter_type)
+	}
+}
+
+impl From<AdapterTypeStorage> for AdapterType {
+	fn from(storage: AdapterTypeStorage) -> Self {
+		match storage {
+			AdapterTypeStorage::OifV1 => Self::OifV1,
+			AdapterTypeStorage::LifiV1 => Self::LifiV1,
 		}
 	}
 }
 
-/// Conversion traits
+impl From<&AdapterTypeStorage> for AdapterType {
+	fn from(storage: &AdapterTypeStorage) -> Self {
+		match storage {
+			AdapterTypeStorage::OifV1 => Self::OifV1,
+			AdapterTypeStorage::LifiV1 => Self::LifiV1,
+		}
+	}
+}
+
 impl From<Adapter> for AdapterStorage {
 	fn from(adapter: Adapter) -> Self {
-		Self::from_domain(adapter)
+		// Use default values for operational parameters
+		let (endpoint, timeout_ms) = Self::default_operational_params(&adapter.adapter_type);
+		Self::from_domain_with_params(adapter, endpoint, timeout_ms)
 	}
 }
 
@@ -251,7 +213,7 @@ impl TryFrom<AdapterStorage> for Adapter {
 	type Error = AdapterError;
 
 	fn try_from(storage: AdapterStorage) -> Result<Self, Self::Error> {
-		storage.to_domain()
+		storage.to_domain_internal()
 	}
 }
 
@@ -275,13 +237,13 @@ mod tests {
 		let adapter_id = adapter.adapter_id.clone();
 
 		// Convert to storage (with defaults)
-		let storage = AdapterStorage::from_domain(adapter);
+		let storage = AdapterStorage::from(adapter);
 		assert_eq!(storage.adapter_id, adapter_id);
 		assert!(!storage.endpoint.is_empty());
 		assert!(storage.timeout_ms > 0);
 
 		// Convert back to domain
-		let domain_adapter = storage.to_domain().unwrap();
+		let domain_adapter = Adapter::try_from(storage).unwrap();
 		assert_eq!(domain_adapter.adapter_id, adapter_id);
 	}
 
@@ -300,17 +262,20 @@ mod tests {
 		assert_eq!(storage.timeout_ms, timeout_ms);
 
 		// Convert back to domain
-		let domain_adapter = storage.to_domain().unwrap();
+		let domain_adapter = Adapter::try_from(storage).unwrap();
 		assert_eq!(domain_adapter.adapter_id, adapter_id);
 	}
 
 	#[test]
 	fn test_adapter_type_conversion() {
 		assert_eq!(
-			AdapterTypeStorage::from_domain(&AdapterType::OifV1),
+			AdapterTypeStorage::from(&AdapterType::OifV1),
 			AdapterTypeStorage::OifV1
 		);
-		assert_eq!(AdapterTypeStorage::OifV1.to_domain(), AdapterType::OifV1);
+		assert_eq!(
+			AdapterType::from(AdapterTypeStorage::OifV1),
+			AdapterType::OifV1
+		);
 	}
 
 	#[test]
@@ -334,8 +299,8 @@ mod tests {
 	#[test]
 	fn test_network_storage_conversion() {
 		let domain_network = Network::new(1, "Ethereum".to_string(), false);
-		let storage_network = NetworkStorage::from_domain(domain_network.clone());
-		let converted_back = storage_network.to_domain();
+		let storage_network = NetworkStorage::from(domain_network.clone());
+		let converted_back = Network::from(storage_network);
 
 		assert_eq!(domain_network.chain_id, converted_back.chain_id);
 		assert_eq!(domain_network.name, converted_back.name);
@@ -351,13 +316,80 @@ mod tests {
 			18,
 			1,
 		);
-		let storage_asset = AssetStorage::from_domain(domain_asset.clone());
-		let converted_back = storage_asset.to_domain();
+		let storage_asset = AssetStorage::from(domain_asset.clone());
+		let converted_back = Asset::from(storage_asset);
 
 		assert_eq!(domain_asset.address, converted_back.address);
 		assert_eq!(domain_asset.symbol, converted_back.symbol);
 		assert_eq!(domain_asset.name, converted_back.name);
 		assert_eq!(domain_asset.decimals, converted_back.decimals);
 		assert_eq!(domain_asset.chain_id, converted_back.chain_id);
+	}
+}
+
+/// From trait implementations for conversion to/from domain models
+impl From<crate::models::Network> for NetworkStorage {
+	fn from(network: crate::models::Network) -> Self {
+		Self {
+			chain_id: network.chain_id,
+			name: network.name,
+			is_testnet: network.is_testnet,
+		}
+	}
+}
+
+impl From<NetworkStorage> for crate::models::Network {
+	fn from(storage: NetworkStorage) -> Self {
+		Self {
+			chain_id: storage.chain_id,
+			name: storage.name,
+			is_testnet: storage.is_testnet,
+		}
+	}
+}
+
+impl From<crate::models::Asset> for AssetStorage {
+	fn from(asset: crate::models::Asset) -> Self {
+		Self {
+			address: asset.address,
+			symbol: asset.symbol,
+			name: asset.name,
+			decimals: asset.decimals,
+			chain_id: asset.chain_id,
+		}
+	}
+}
+
+impl From<AssetStorage> for crate::models::Asset {
+	fn from(storage: AssetStorage) -> Self {
+		Self {
+			address: storage.address,
+			symbol: storage.symbol,
+			name: storage.name,
+			decimals: storage.decimals,
+			chain_id: storage.chain_id,
+		}
+	}
+}
+
+impl From<&NetworkStorage> for crate::models::Network {
+	fn from(storage: &NetworkStorage) -> Self {
+		Self {
+			chain_id: storage.chain_id,
+			name: storage.name.clone(),
+			is_testnet: storage.is_testnet,
+		}
+	}
+}
+
+impl From<&AssetStorage> for crate::models::Asset {
+	fn from(storage: &AssetStorage) -> Self {
+		Self {
+			address: storage.address.clone(),
+			symbol: storage.symbol.clone(),
+			name: storage.name.clone(),
+			decimals: storage.decimals,
+			chain_id: storage.chain_id,
+		}
 	}
 }
