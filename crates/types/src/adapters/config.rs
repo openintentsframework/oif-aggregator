@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::{Adapter, AdapterValidationError, AdapterValidationResult};
+use super::{Adapter, AdapterValidationError};
 use crate::models::{Asset, Network};
 
 /// Adapter configuration from external sources (config files, API)
@@ -202,152 +202,6 @@ impl AdapterConfig {
 			AdapterType::LifiV1 => "https://li.quest/v1".to_string(),
 		}
 	}
-
-	/// Validate the adapter configuration
-	pub fn validate(&self) -> AdapterValidationResult<()> {
-		// Validate adapter ID
-		if self.adapter_id.is_empty() {
-			return Err(AdapterValidationError::MissingRequiredField {
-				field: "adapter_id".to_string(),
-			});
-		}
-
-		if !self
-			.adapter_id
-			.chars()
-			.all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-		{
-			return Err(AdapterValidationError::InvalidAdapterId {
-				adapter_id: self.adapter_id.clone(),
-			});
-		}
-
-		// Validate name
-		if self.name.is_empty() {
-			return Err(AdapterValidationError::MissingRequiredField {
-				field: "name".to_string(),
-			});
-		}
-
-		if self.name.len() > 100 {
-			return Err(AdapterValidationError::InvalidAdapterName {
-				name: self.name.clone(),
-			});
-		}
-
-		// Validate version
-		if self.version.is_empty() {
-			return Err(AdapterValidationError::MissingRequiredField {
-				field: "version".to_string(),
-			});
-		}
-
-		if !is_valid_semver(&self.version) {
-			return Err(AdapterValidationError::InvalidVersion {
-				version: self.version.clone(),
-			});
-		}
-
-		// Validate networks if provided
-		if let Some(networks) = &self.supported_networks {
-			if networks.is_empty() {
-				return Err(AdapterValidationError::InvalidConfiguration {
-					reason: "supported_networks cannot be empty if provided".to_string(),
-				});
-			}
-
-			// Check for duplicate chain IDs
-			let mut chain_ids = std::collections::HashSet::new();
-			for network in networks {
-				if !chain_ids.insert(network.chain_id) {
-					return Err(AdapterValidationError::InvalidConfiguration {
-						reason: format!(
-							"Duplicate chain ID {} in supported networks",
-							network.chain_id
-						),
-					});
-				}
-			}
-		}
-
-		// Validate assets if provided
-		if let Some(assets) = &self.supported_assets {
-			if assets.is_empty() {
-				return Err(AdapterValidationError::InvalidConfiguration {
-					reason: "supported_assets cannot be empty if provided".to_string(),
-				});
-			}
-
-			// Check that all assets have valid chain IDs from supported networks
-			let supported_chain_ids: std::collections::HashSet<u64> = self
-				.get_supported_networks()
-				.iter()
-				.map(|n| n.chain_id)
-				.collect();
-
-			for asset in assets {
-				if !supported_chain_ids.contains(&asset.chain_id) {
-					return Err(AdapterValidationError::InvalidConfiguration {
-						reason: format!(
-							"Asset {} has chain ID {} which is not in supported networks",
-							asset.symbol, asset.chain_id
-						),
-					});
-				}
-			}
-		}
-
-		// Validate endpoint if provided
-		if let Some(endpoint) = &self.endpoint {
-			if endpoint.is_empty() {
-				return Err(AdapterValidationError::InvalidConfiguration {
-					reason: "endpoint cannot be empty if provided".to_string(),
-				});
-			}
-
-			// Basic URL validation
-			if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
-				return Err(AdapterValidationError::InvalidConfiguration {
-					reason: "endpoint must be a valid URL starting with http:// or https://"
-						.to_string(),
-				});
-			}
-		}
-
-		// Validate timeout if provided
-		if let Some(timeout_ms) = self.timeout_ms {
-			if timeout_ms == 0 {
-				return Err(AdapterValidationError::InvalidConfiguration {
-					reason: "timeout_ms must be greater than 0".to_string(),
-				});
-			}
-
-			if timeout_ms > 300_000 {
-				return Err(AdapterValidationError::InvalidConfiguration {
-					reason: "timeout_ms cannot exceed 5 minutes (300,000ms)".to_string(),
-				});
-			}
-		}
-
-		Ok(())
-	}
-
-	/// Convert configuration to domain adapter
-	pub fn to_domain(&self) -> AdapterValidationResult<Adapter> {
-		// Validate first
-		self.validate()?;
-
-		let mut adapter = Adapter::new(
-			self.adapter_id.clone(),
-			self.adapter_type.clone(),
-			self.name.clone(),
-			self.version.clone(),
-		);
-
-		adapter.description = self.description.clone();
-
-		Ok(adapter)
-	}
 }
 
 impl Default for AdapterConfig {
@@ -364,6 +218,50 @@ impl Default for AdapterConfig {
 			timeout_ms: None,
 			enabled: None,
 		}
+	}
+}
+
+impl TryFrom<AdapterConfig> for Adapter {
+	type Error = AdapterValidationError;
+
+	fn try_from(config: AdapterConfig) -> Result<Self, Self::Error> {
+		let mut adapter = Adapter::new(
+			config.adapter_id.clone(),
+			config.adapter_type.clone(),
+			config.name.clone(),
+			config.version.clone(),
+		);
+
+		adapter.description = config.description.clone();
+		adapter.supported_networks = config.get_supported_networks();
+		adapter.supported_assets = config.get_supported_assets();
+		adapter.endpoint = config.endpoint.clone();
+		adapter.timeout_ms = config.timeout_ms;
+		adapter.enabled = config.enabled.unwrap_or(true);
+
+		// Additional config-specific validation
+		// If networks were explicitly set (not None), they can't be empty
+		if let Some(ref networks) = config.supported_networks {
+			if networks.is_empty() {
+				return Err(AdapterValidationError::InvalidConfiguration {
+					reason: "supported_networks cannot be empty if provided".to_string(),
+				});
+			}
+		}
+
+		// If assets were explicitly set (not None), they can't be empty
+		if let Some(ref assets) = config.supported_assets {
+			if assets.is_empty() {
+				return Err(AdapterValidationError::InvalidConfiguration {
+					reason: "supported_assets cannot be empty if provided".to_string(),
+				});
+			}
+		}
+
+		// Validate using domain model validation
+		adapter.validate()?;
+
+		Ok(adapter)
 	}
 }
 
@@ -385,7 +283,7 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn test_adapter_config_validation() {
+	fn test_adapter_config_conversion() {
 		let config = AdapterConfig::new(
 			"test-adapter".to_string(),
 			AdapterType::OifV1,
@@ -393,7 +291,7 @@ mod tests {
 			"1.0.0".to_string(),
 		);
 
-		assert!(config.validate().is_ok());
+		assert!(Adapter::try_from(config).is_ok());
 	}
 
 	#[test]
@@ -405,7 +303,7 @@ mod tests {
 			"1.0.0".to_string(),
 		);
 
-		assert!(config.validate().is_err());
+		assert!(Adapter::try_from(config).is_err());
 	}
 
 	#[test]
@@ -417,11 +315,11 @@ mod tests {
 			"invalid".to_string(),
 		);
 
-		assert!(config.validate().is_err());
+		assert!(Adapter::try_from(config).is_err());
 	}
 
 	#[test]
-	fn test_to_domain() {
+	fn test_try_from_config() {
 		let config = AdapterConfig::new(
 			"test-adapter".to_string(),
 			AdapterType::OifV1,
@@ -429,7 +327,7 @@ mod tests {
 			"1.0.0".to_string(),
 		);
 
-		let adapter = config.to_domain().unwrap();
+		let adapter = Adapter::try_from(config).unwrap();
 		assert_eq!(adapter.adapter_id, "test-adapter");
 		assert_eq!(adapter.name, "Test Adapter");
 		assert_eq!(adapter.version, "1.0.0");
@@ -468,7 +366,7 @@ mod tests {
 		);
 		assert_eq!(config.timeout_ms, Some(5000));
 		assert_eq!(config.enabled, Some(true));
-		assert!(config.validate().is_ok());
+		assert!(Adapter::try_from(config).is_ok());
 	}
 
 	#[test]
@@ -538,7 +436,7 @@ mod tests {
 		)
 		.with_networks(vec![]); // Empty networks
 
-		assert!(config.validate().is_err());
+		assert!(Adapter::try_from(config).is_err());
 
 		// Test duplicate chain IDs
 		let network1 = Network::new(1, "Ethereum".to_string(), false);
@@ -552,7 +450,7 @@ mod tests {
 		)
 		.with_networks(vec![network1, network2]);
 
-		assert!(config.validate().is_err());
+		assert!(Adapter::try_from(config).is_err());
 	}
 
 	#[test]
@@ -576,7 +474,7 @@ mod tests {
 		.with_network(ethereum)
 		.with_asset(polygon_asset);
 
-		assert!(config.validate().is_err());
+		assert!(Adapter::try_from(config).is_err());
 	}
 
 	#[test]
@@ -589,7 +487,7 @@ mod tests {
 		)
 		.with_endpoint("invalid-url".to_string());
 
-		assert!(config.validate().is_err());
+		assert!(Adapter::try_from(config).is_err());
 	}
 
 	#[test]
@@ -602,7 +500,7 @@ mod tests {
 		)
 		.with_timeout_ms(0); // Invalid timeout
 
-		assert!(config.validate().is_err());
+		assert!(Adapter::try_from(config).is_err());
 
 		let config = AdapterConfig::new(
 			"test-adapter".to_string(),
@@ -612,6 +510,6 @@ mod tests {
 		)
 		.with_timeout_ms(400_000); // Too large timeout
 
-		assert!(config.validate().is_err());
+		assert!(Adapter::try_from(config).is_err());
 	}
 }

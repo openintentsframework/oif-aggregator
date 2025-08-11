@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::{Adapter, AdapterError, AdapterResult, AdapterType};
+use super::{Adapter, AdapterError, AdapterType};
 use crate::models::{Asset, Network};
 
 /// Storage representation of an adapter
@@ -96,21 +96,6 @@ impl AdapterStorage {
 			updated_at: adapter.updated_at,
 			metadata,
 		}
-	}
-
-	/// Convert storage adapter to domain adapter
-	fn to_domain_internal(self) -> AdapterResult<Adapter> {
-		Ok(Adapter {
-			adapter_id: self.adapter_id,
-			adapter_type: AdapterType::from(self.adapter_type),
-			name: self.name,
-			description: self.metadata.description,
-			version: self.version,
-			configuration: self.metadata.configuration,
-			enabled: self.enabled,
-			created_at: self.created_at,
-			updated_at: self.updated_at,
-		})
 	}
 
 	/// Get default operational parameters for adapter type
@@ -213,7 +198,26 @@ impl TryFrom<AdapterStorage> for Adapter {
 	type Error = AdapterError;
 
 	fn try_from(storage: AdapterStorage) -> Result<Self, Self::Error> {
-		storage.to_domain_internal()
+		let adapter = Adapter {
+			adapter_id: storage.adapter_id,
+			adapter_type: AdapterType::from(storage.adapter_type),
+			name: storage.name,
+			description: storage.metadata.description.clone(),
+			version: storage.version,
+			configuration: storage.metadata.configuration.clone(),
+			enabled: storage.enabled,
+			supported_networks: storage.metadata.get_networks(),
+			supported_assets: storage.metadata.get_assets(),
+			endpoint: Some(storage.endpoint),
+			timeout_ms: Some(storage.timeout_ms),
+			created_at: storage.created_at,
+			updated_at: storage.updated_at,
+		};
+
+		// Validate the converted adapter
+		adapter.validate()?;
+
+		Ok(adapter)
 	}
 }
 

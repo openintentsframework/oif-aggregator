@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use super::{Quote, QuoteError, QuoteResult, QuoteStatus};
+use super::{Quote, QuoteError, QuoteStatus};
 
 /// Storage representation of a quote
 ///
@@ -45,53 +45,6 @@ pub enum QuoteStatusStorage {
 }
 
 impl QuoteStorage {
-	/// Create a new storage quote from domain quote
-	pub fn from_domain(quote: Quote) -> Self {
-		Self {
-			quote_id: quote.quote_id,
-			solver_id: quote.solver_id,
-			request_id: quote.request_id,
-			token_in: quote.token_in,
-			token_out: quote.token_out,
-			amount_in: quote.amount_in,
-			amount_out: quote.amount_out,
-			chain_id: quote.chain_id,
-			estimated_gas: quote.estimated_gas,
-			price_impact: quote.price_impact,
-			response_time_ms: quote.response_time_ms,
-			confidence_score: quote.confidence_score,
-			status: QuoteStatusStorage::from_domain(quote.status),
-			created_at: quote.created_at,
-			expires_at: quote.expires_at,
-			raw_response: quote.raw_response,
-			version: 1,
-			last_accessed: None,
-			access_count: 0,
-		}
-	}
-
-	/// Convert storage quote to domain quote
-	pub fn to_domain(self) -> QuoteResult<Quote> {
-		Ok(Quote {
-			quote_id: self.quote_id,
-			solver_id: self.solver_id,
-			request_id: self.request_id,
-			token_in: self.token_in,
-			token_out: self.token_out,
-			amount_in: self.amount_in,
-			amount_out: self.amount_out,
-			chain_id: self.chain_id,
-			estimated_gas: self.estimated_gas,
-			price_impact: self.price_impact,
-			response_time_ms: self.response_time_ms,
-			confidence_score: self.confidence_score,
-			status: self.status.to_domain(),
-			created_at: self.created_at,
-			expires_at: self.expires_at,
-			raw_response: self.raw_response,
-		})
-	}
-
 	/// Mark as accessed for analytics
 	pub fn mark_accessed(&mut self) {
 		self.last_accessed = Some(Utc::now());
@@ -114,9 +67,8 @@ impl QuoteStorage {
 	}
 }
 
-impl QuoteStatusStorage {
-	/// Convert from domain status
-	pub fn from_domain(status: QuoteStatus) -> Self {
+impl From<QuoteStatus> for QuoteStatusStorage {
+	fn from(status: QuoteStatus) -> Self {
 		match status {
 			QuoteStatus::Valid => Self::Valid,
 			QuoteStatus::Expired => Self::Expired,
@@ -124,14 +76,15 @@ impl QuoteStatusStorage {
 			QuoteStatus::Processing => Self::Processing,
 		}
 	}
+}
 
-	/// Convert to domain status
-	pub fn to_domain(self) -> QuoteStatus {
-		match self {
-			Self::Valid => QuoteStatus::Valid,
-			Self::Expired => QuoteStatus::Expired,
-			Self::Failed => QuoteStatus::Failed,
-			Self::Processing => QuoteStatus::Processing,
+impl From<QuoteStatusStorage> for QuoteStatus {
+	fn from(storage: QuoteStatusStorage) -> Self {
+		match storage {
+			QuoteStatusStorage::Valid => Self::Valid,
+			QuoteStatusStorage::Expired => Self::Expired,
+			QuoteStatusStorage::Failed => Self::Failed,
+			QuoteStatusStorage::Processing => Self::Processing,
 		}
 	}
 }
@@ -139,7 +92,27 @@ impl QuoteStatusStorage {
 /// Conversion traits for easy integration
 impl From<Quote> for QuoteStorage {
 	fn from(quote: Quote) -> Self {
-		Self::from_domain(quote)
+		Self {
+			quote_id: quote.quote_id,
+			solver_id: quote.solver_id,
+			request_id: quote.request_id,
+			token_in: quote.token_in,
+			token_out: quote.token_out,
+			amount_in: quote.amount_in,
+			amount_out: quote.amount_out,
+			chain_id: quote.chain_id,
+			estimated_gas: quote.estimated_gas,
+			price_impact: quote.price_impact,
+			response_time_ms: quote.response_time_ms,
+			confidence_score: quote.confidence_score,
+			status: QuoteStatusStorage::from(quote.status),
+			created_at: quote.created_at,
+			expires_at: quote.expires_at,
+			raw_response: quote.raw_response,
+			version: 1,
+			last_accessed: None,
+			access_count: 0,
+		}
 	}
 }
 
@@ -147,7 +120,24 @@ impl TryFrom<QuoteStorage> for Quote {
 	type Error = QuoteError;
 
 	fn try_from(storage: QuoteStorage) -> Result<Self, Self::Error> {
-		storage.to_domain()
+		Ok(Quote {
+			quote_id: storage.quote_id,
+			solver_id: storage.solver_id,
+			request_id: storage.request_id,
+			token_in: storage.token_in,
+			token_out: storage.token_out,
+			amount_in: storage.amount_in,
+			amount_out: storage.amount_out,
+			chain_id: storage.chain_id,
+			estimated_gas: storage.estimated_gas,
+			price_impact: storage.price_impact,
+			response_time_ms: storage.response_time_ms,
+			confidence_score: storage.confidence_score,
+			status: QuoteStatus::from(storage.status),
+			created_at: storage.created_at,
+			expires_at: storage.expires_at,
+			raw_response: storage.raw_response,
+		})
 	}
 }
 #[cfg(test)]
@@ -174,21 +164,21 @@ mod tests {
 		let quote_id = quote.quote_id.clone();
 
 		// Convert to storage
-		let storage = QuoteStorage::from_domain(quote);
+		let storage = QuoteStorage::from(quote);
 		assert_eq!(storage.quote_id, quote_id);
 		assert_eq!(storage.version, 1);
 		assert_eq!(storage.access_count, 0);
 		assert!(storage.last_accessed.is_none());
 
 		// Convert back to domain
-		let domain_quote = storage.to_domain().unwrap();
+		let domain_quote = Quote::try_from(storage).unwrap();
 		assert_eq!(domain_quote.quote_id, quote_id);
 	}
 
 	#[test]
 	fn test_access_tracking() {
 		let quote = create_test_quote();
-		let mut storage = QuoteStorage::from_domain(quote);
+		let mut storage = QuoteStorage::from(quote);
 
 		assert_eq!(storage.access_count, 0);
 		assert!(storage.last_accessed.is_none());
@@ -204,9 +194,12 @@ mod tests {
 	#[test]
 	fn test_status_conversion() {
 		assert_eq!(
-			QuoteStatusStorage::from_domain(QuoteStatus::Valid),
+			QuoteStatusStorage::from(QuoteStatus::Valid),
 			QuoteStatusStorage::Valid
 		);
-		assert_eq!(QuoteStatusStorage::Valid.to_domain(), QuoteStatus::Valid);
+		assert_eq!(
+			QuoteStatus::from(QuoteStatusStorage::Valid),
+			QuoteStatus::Valid
+		);
 	}
 }
