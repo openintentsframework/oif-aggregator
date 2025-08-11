@@ -3,7 +3,7 @@
 // Direct module access to avoid lib.rs compilation issues
 use oif_aggregator::models::solvers::SolverStatus;
 use oif_aggregator::models::{Order, Quote, Solver};
-use oif_aggregator::storage::{MemoryStore, RedisStore, Storage};
+use oif_aggregator::storage::{MemoryStore, Storage};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,16 +21,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	println!("\n📦 Testing Memory Storage Implementation:");
 	test_storage_implementation(
 		Box::new(MemoryStore::new()),
-		solver.clone(),
-		quote.clone(),
-		order.clone(),
-	)
-	.await?;
-
-	// Demo 2: Redis Storage
-	println!("\n📦 Testing Redis Storage Implementation:");
-	test_storage_implementation(
-		Box::new(RedisStore::with_defaults()),
 		solver.clone(),
 		quote.clone(),
 		order.clone(),
@@ -116,9 +106,6 @@ async fn demonstrate_polymorphism() -> Result<(), Box<dyn std::error::Error>> {
 	// Same function, different storage backends
 	let memory_store = MemoryStore::new();
 	store_data(&memory_store, "test").await?;
-
-	let redis_store = RedisStore::with_defaults();
-	store_data(&redis_store, "test").await?;
 
 	println!("   💡 Same code works with any storage backend!");
 	Ok(())

@@ -1,7 +1,10 @@
 //! Configuration mocks and builders for tests
 
 use oif_config::settings::*;
-use oif_types::adapters::{AdapterConfig, AdapterType};
+use oif_types::{
+	adapters::{AdapterConfig, AdapterType},
+	Asset, Network,
+};
 use std::collections::HashMap;
 
 /// Configuration builders for tests
@@ -70,6 +73,17 @@ impl MockConfigs {
 			name: "Test OIF Adapter".to_string(),
 			description: Some("Test adapter for unit testing".to_string()),
 			version: "1.0.0".to_string(),
+			supported_networks: Some(vec![Network::new(1, "Ethereum".to_string(), false)]),
+			supported_assets: Some(vec![Asset::new(
+				"0x0000000000000000000000000000000000000000".to_string(),
+				"ETH".to_string(),
+				"Ethereum".to_string(),
+				18,
+				1,
+			)]),
+			endpoint: Some("http://localhost:8080".to_string()),
+			timeout_ms: Some(1000),
+			enabled: Some(true),
 		}
 	}
 
@@ -81,6 +95,17 @@ impl MockConfigs {
 			name: "Test LiFi Adapter".to_string(),
 			description: Some("Test LiFi adapter for unit testing".to_string()),
 			version: "1.0.0".to_string(),
+			supported_networks: Some(vec![Network::new(1, "Ethereum".to_string(), false)]),
+			supported_assets: Some(vec![Asset::new(
+				"0x0000000000000000000000000000000000000000".to_string(),
+				"ETH".to_string(),
+				"Ethereum".to_string(),
+				18,
+				1,
+			)]),
+			endpoint: Some("http://localhost:8080".to_string()),
+			timeout_ms: Some(1000),
+			enabled: Some(true),
 		}
 	}
 
@@ -104,6 +129,17 @@ impl AdapterConfigBuilder {
 				name: "Test Adapter".to_string(),
 				description: Some("Test adapter".to_string()),
 				version: "1.0.0".to_string(),
+				supported_networks: Some(vec![Network::new(1, "Ethereum".to_string(), false)]),
+				supported_assets: Some(vec![Asset::new(
+					"0x0000000000000000000000000000000000000000".to_string(),
+					"ETH".to_string(),
+					"Ethereum".to_string(),
+					18,
+					1,
+				)]),
+				endpoint: Some("http://localhost:8080".to_string()),
+				timeout_ms: Some(1000),
+				enabled: Some(true),
 			},
 		}
 	}

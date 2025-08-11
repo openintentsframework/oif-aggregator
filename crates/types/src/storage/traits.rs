@@ -1,21 +1,8 @@
 //! Storage traits for pluggable storage implementations
 
+use crate::storage::errors::StorageError;
 use crate::{Order, Quote, Solver};
 use async_trait::async_trait;
-use thiserror::Error;
-
-/// Storage error type
-#[derive(Debug, Error)]
-pub enum StorageError {
-	#[error("Item not found: {id}")]
-	NotFound { id: String },
-	#[error("Connection error: {message}")]
-	Connection { message: String },
-	#[error("Serialization error: {message}")]
-	Serialization { message: String },
-	#[error("Storage operation failed: {message}")]
-	Operation { message: String },
-}
 
 pub type StorageResult<T> = Result<T, StorageError>;
 

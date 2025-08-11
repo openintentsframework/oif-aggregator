@@ -2,11 +2,8 @@
 
 mod mocks;
 
-use mocks::{MockEntities, TestConstants};
-use oif_storage::{
-	traits::{OrderStorage, QuoteStorage, SolverStorage},
-	MemoryStore,
-};
+use mocks::MockEntities;
+use oif_storage::MemoryStore;
 use oif_types::chrono::{Duration, Utc};
 use oif_types::{
 	orders::{Order, OrderStatus},
@@ -87,11 +84,7 @@ fn test_quote_request_creation() {
 
 #[test]
 fn test_order_creation() {
-	let order = Order::new(
-		"0x1234567890123456789012345678901234567890".to_string(),
-		0.005,                           // 0.5% slippage tolerance
-		Utc::now() + Duration::hours(1), // 1 hour deadline
-	);
+	let order = Order::new("0x1234567890123456789012345678901234567890".to_string());
 
 	assert!(!order.order_id.is_empty());
 	assert_eq!(
@@ -100,7 +93,6 @@ fn test_order_creation() {
 	);
 	assert_eq!(order.quote_id, None); // New intent constructor doesn't set quote_id
 	assert_eq!(order.status, OrderStatus::Pending);
-	assert_eq!(order.slippage_tolerance, 0.005);
 }
 
 #[test]
@@ -115,11 +107,10 @@ fn test_solver_configuration() {
 	solver.metadata.name = Some("LiFi Mainnet".to_string());
 	solver.metadata.description = Some("LiFi cross-chain solver".to_string());
 	solver.metadata.version = Some("1.0.0".to_string());
-	solver.metadata.supported_chains = vec![1, 137]; // Now u64 instead of String
 	solver.metadata.max_retries = 3;
 
 	assert_eq!(solver.solver_id, "lifi-mainnet");
 	assert_eq!(solver.status, SolverStatus::Active);
-	assert_eq!(solver.metadata.supported_chains.len(), 2);
+	assert_eq!(solver.metadata.supported_networks.len(), 2);
 	assert_eq!(solver.metadata.max_retries, 3);
 }

@@ -4,7 +4,9 @@ use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::constants::{MAX_SOLVER_RETRIES, MAX_SOLVER_TIMEOUT_MS, MIN_SOLVER_TIMEOUT_MS};
 use crate::models::{Asset, Network};
+use url::Url;
 
 pub mod config;
 pub mod errors;
@@ -12,12 +14,45 @@ pub mod response;
 pub mod storage;
 
 pub use config::{AdapterConfig, AdapterType, SolverConfig};
-pub use errors::{
-	AdapterError, AdapterResult, HealthCheckResult, SolverError, SolverResult,
-	SolverValidationError, SolverValidationResult,
-};
+pub use errors::{SolverError, SolverValidationError};
 pub use response::SolverResponse;
 pub use storage::SolverStorage;
+
+/// Result types for solver operations
+pub type SolverResult<T> = Result<T, SolverError>;
+pub type SolverValidationResult<T> = Result<T, SolverValidationError>;
+
+/// Health check result with detailed information
+#[derive(Debug, Clone, PartialEq)]
+pub struct HealthCheckResult {
+	pub is_healthy: bool,
+	pub response_time_ms: u64,
+	pub error_message: Option<String>,
+	pub last_check: chrono::DateTime<chrono::Utc>,
+	pub consecutive_failures: u32,
+}
+
+impl HealthCheckResult {
+	pub fn healthy(response_time_ms: u64) -> Self {
+		Self {
+			is_healthy: true,
+			response_time_ms,
+			error_message: None,
+			last_check: chrono::Utc::now(),
+			consecutive_failures: 0,
+		}
+	}
+
+	pub fn unhealthy(error_message: String, consecutive_failures: u32) -> Self {
+		Self {
+			is_healthy: false,
+			response_time_ms: 0,
+			error_message: Some(error_message),
+			last_check: chrono::Utc::now(),
+			consecutive_failures,
+		}
+	}
+}
 
 /// Core Solver domain model
 ///
@@ -186,6 +221,82 @@ impl Solver {
 		self.last_seen = Some(Utc::now());
 	}
 
+	/// Validate solver parameters
+	pub fn validate(&self) -> SolverValidationResult<()> {
+		// Validate solver ID
+		if self.solver_id.is_empty() {
+			return Err(SolverValidationError::MissingRequiredField {
+				field: "solver_id".to_string(),
+			});
+		}
+
+		if !self
+			.solver_id
+			.chars()
+			.all(|c| c.is_alphanumeric() || c == '-' || c == '_')
+		{
+			return Err(SolverValidationError::InvalidSolverId {
+				solver_id: self.solver_id.clone(),
+			});
+		}
+
+		// Validate adapter ID
+		if self.adapter_id.is_empty() {
+			return Err(SolverValidationError::MissingRequiredField {
+				field: "adapter_id".to_string(),
+			});
+		}
+
+		// Validate endpoint URL
+		if self.endpoint.is_empty() {
+			return Err(SolverValidationError::MissingRequiredField {
+				field: "endpoint".to_string(),
+			});
+		}
+
+		match Url::parse(&self.endpoint) {
+			Ok(url) => {
+				if !matches!(url.scheme(), "http" | "https") {
+					return Err(SolverValidationError::InvalidEndpoint {
+						endpoint: self.endpoint.clone(),
+						reason: "Only HTTP and HTTPS schemes are supported".to_string(),
+					});
+				}
+				if url.host().is_none() {
+					return Err(SolverValidationError::InvalidEndpoint {
+						endpoint: self.endpoint.clone(),
+						reason: "URL must have a valid host".to_string(),
+					});
+				}
+			},
+			Err(e) => {
+				return Err(SolverValidationError::InvalidEndpoint {
+					endpoint: self.endpoint.clone(),
+					reason: e.to_string(),
+				});
+			},
+		}
+
+		// Validate timeout
+		if self.timeout_ms < MIN_SOLVER_TIMEOUT_MS || self.timeout_ms > MAX_SOLVER_TIMEOUT_MS {
+			return Err(SolverValidationError::InvalidTimeout {
+				timeout_ms: self.timeout_ms,
+				min: MIN_SOLVER_TIMEOUT_MS,
+				max: MAX_SOLVER_TIMEOUT_MS,
+			});
+		}
+
+		// Validate retry count
+		if self.metadata.max_retries > MAX_SOLVER_RETRIES {
+			return Err(SolverValidationError::InvalidRetryCount {
+				retries: self.metadata.max_retries,
+				max: MAX_SOLVER_RETRIES,
+			});
+		}
+
+		Ok(())
+	}
+
 	/// Record a successful request
 	pub fn record_success(&mut self, response_time_ms: u64) {
 		self.metrics.record_success(response_time_ms);
@@ -266,6 +377,7 @@ impl Solver {
 	}
 
 	/// Get solver priority score (higher is better)
+	/// TODO improve
 	pub fn priority_score(&self) -> f64 {
 		if !self.is_available() {
 			return 0.0;
@@ -314,33 +426,6 @@ impl Solver {
 		self
 	}
 
-	/// Helper method for backward compatibility
-	pub fn with_chain_ids(mut self, chain_ids: Vec<u64>) -> Self {
-		self.metadata.supported_networks = chain_ids
-			.into_iter()
-			.map(|id| Network::new(id, format!("Chain {}", id), false))
-			.collect();
-		self
-	}
-
-	/// Helper method for backward compatibility  
-	pub fn with_asset_symbols(mut self, symbols: Vec<String>) -> Self {
-		self.metadata.supported_assets = symbols
-			.into_iter()
-			.enumerate()
-			.map(|(i, symbol)| {
-				Asset::new(
-					format!("0x{:040x}", i), // Generate dummy address
-					symbol.clone(),
-					symbol,
-					18, // Default decimals
-					1,  // Default to Ethereum
-				)
-			})
-			.collect();
-		self
-	}
-
 	pub fn with_max_retries(mut self, retries: u32) -> Self {
 		self.metadata.max_retries = retries;
 		self
@@ -365,7 +450,7 @@ impl Default for SolverMetadata {
 			version: None,
 			supported_networks: Vec::new(),
 			supported_assets: Vec::new(),
-			max_retries: 3,
+			max_retries: 1,
 			headers: None,
 			config: HashMap::new(),
 		}
@@ -492,15 +577,6 @@ mod tests {
 	}
 
 	#[test]
-	fn test_chain_support() {
-		let solver = create_test_solver().with_chain_ids(vec![1, 137, 42161]);
-
-		assert!(solver.supports_chain(1));
-		assert!(solver.supports_chain(137));
-		assert!(!solver.supports_chain(56));
-	}
-
-	#[test]
 	fn test_priority_score() {
 		let mut solver = create_test_solver();
 		solver.update_status(SolverStatus::Active);
@@ -546,15 +622,20 @@ mod tests {
 		let solver = create_test_solver()
 			.with_name("Test Solver".to_string())
 			.with_version("1.0.0".to_string())
-			.with_chain_ids(vec![1, 137])
-			.with_asset_symbols(vec!["uniswap-v3".to_string()])
+			.with_networks(vec![Network::new(1, "Ethereum".to_string(), false)])
+			.with_assets(vec![Asset::new(
+				"0x0000000000000000000000000000000000000000".to_string(),
+				"ETH".to_string(),
+				"Ethereum".to_string(),
+				18,
+				1,
+			)])
 			.with_max_retries(5);
 
 		assert_eq!(solver.metadata.name, Some("Test Solver".to_string()));
 		assert_eq!(solver.metadata.version, Some("1.0.0".to_string()));
-		assert_eq!(solver.metadata.supported_networks.len(), 2);
+		assert_eq!(solver.metadata.supported_networks.len(), 1);
 		assert!(solver.supports_chain(1));
-		assert!(solver.supports_chain(137));
 		assert_eq!(solver.metadata.max_retries, 5);
 	}
 }

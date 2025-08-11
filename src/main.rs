@@ -1,6 +1,6 @@
 //! OIF Aggregator Server
 //!
-//! Main entry point for the aggregator server with tokio async runtime
+//! Main entry point for the aggregator server
 
 use oif_aggregator::AggregatorBuilder;
 

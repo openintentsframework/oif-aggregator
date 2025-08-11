@@ -44,7 +44,7 @@ pub async fn get_solvers(
 		})?;
 
 	// Build page responses
-	let responses: Result<Vec<_>, _> = page_items.iter().map(SolverResponse::from_domain).collect();
+	let responses: Result<Vec<_>, _> = page_items.iter().map(SolverResponse::try_from).collect();
 	let responses = responses.map_err(|e| {
 		(
 			StatusCode::INTERNAL_SERVER_ERROR,
@@ -99,7 +99,7 @@ pub async fn get_solver_by_id(
 			),
 		})?;
 
-	let response = SolverResponse::from_domain(&solver).map_err(|e| {
+	let response = SolverResponse::try_from(&solver).map_err(|e| {
 		(
 			StatusCode::INTERNAL_SERVER_ERROR,
 			Json(ErrorResponse {

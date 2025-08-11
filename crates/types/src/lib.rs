@@ -5,6 +5,7 @@
 
 pub mod adapters;
 pub mod auth;
+pub mod constants;
 pub mod models;
 pub mod orders;
 pub mod quotes;

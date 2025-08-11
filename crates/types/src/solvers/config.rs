@@ -3,9 +3,10 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use url::Url;
 
 use super::{Solver, SolverValidationError, SolverValidationResult};
+use crate::constants::{DEFAULT_SOLVER_RETRIES, DEFAULT_SOLVER_TIMEOUT_MS};
+use crate::models::{Asset, Network};
 
 /// Solver configuration from external sources (config files, API)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,10 +42,10 @@ pub struct SolverConfig {
 	pub version: Option<String>,
 
 	/// Supported blockchain networks
-	pub supported_networks: Option<Vec<u64>>,
+	pub supported_networks: Option<Vec<Network>>,
 
 	/// Supported assets/tokens
-	pub supported_assets: Option<Vec<String>>,
+	pub supported_assets: Option<Vec<Asset>>,
 
 	/// Solver-specific configuration
 	pub config: Option<HashMap<String, serde_json::Value>>,
@@ -87,22 +88,8 @@ pub struct AdapterConfig {
 pub enum AdapterType {
 	/// Open Intent Framework v1 protocol
 	OifV1,
-	/// Uniswap V2 direct integration
-	UniswapV2,
-	/// Uniswap V3 direct integration
-	UniswapV3,
-	/// 1inch aggregator
-	OneInch,
-	/// Paraswap aggregator
-	Paraswap,
-	/// LiFi cross-chain
-	Lifi,
-	/// Cowswap solver
-	Cowswap,
-	/// 0x protocol
-	ZeroX,
-	/// Custom/proprietary adapter
-	Custom,
+	/// LiFi v1 protocol
+	LifiV1,
 }
 
 impl SolverConfig {
@@ -112,9 +99,9 @@ impl SolverConfig {
 			solver_id,
 			adapter_id,
 			endpoint,
-			timeout_ms: 2000, // Default 2 second timeout
+			timeout_ms: DEFAULT_SOLVER_TIMEOUT_MS,
 			enabled: true,
-			max_retries: 3,
+			max_retries: DEFAULT_SOLVER_RETRIES,
 			headers: None,
 			name: None,
 			description: None,
@@ -123,143 +110,6 @@ impl SolverConfig {
 			supported_assets: None,
 			config: None,
 		}
-	}
-
-	/// Validate the solver configuration
-	pub fn validate(&self) -> SolverValidationResult<()> {
-		// Validate solver ID
-		if self.solver_id.is_empty() {
-			return Err(SolverValidationError::MissingRequiredField {
-				field: "solver_id".to_string(),
-			});
-		}
-
-		if !self
-			.solver_id
-			.chars()
-			.all(|c| c.is_alphanumeric() || c == '-' || c == '_')
-		{
-			return Err(SolverValidationError::InvalidSolverId {
-				solver_id: self.solver_id.clone(),
-			});
-		}
-
-		// Validate adapter ID
-		if self.adapter_id.is_empty() {
-			return Err(SolverValidationError::MissingRequiredField {
-				field: "adapter_id".to_string(),
-			});
-		}
-
-		// Validate endpoint URL
-		if self.endpoint.is_empty() {
-			return Err(SolverValidationError::MissingRequiredField {
-				field: "endpoint".to_string(),
-			});
-		}
-
-		match Url::parse(&self.endpoint) {
-			Ok(url) => {
-				if !matches!(url.scheme(), "http" | "https") {
-					return Err(SolverValidationError::InvalidEndpoint {
-						endpoint: self.endpoint.clone(),
-						reason: "Only HTTP and HTTPS schemes are supported".to_string(),
-					});
-				}
-				if url.host().is_none() {
-					return Err(SolverValidationError::InvalidEndpoint {
-						endpoint: self.endpoint.clone(),
-						reason: "URL must have a valid host".to_string(),
-					});
-				}
-			},
-			Err(e) => {
-				return Err(SolverValidationError::InvalidEndpoint {
-					endpoint: self.endpoint.clone(),
-					reason: e.to_string(),
-				});
-			},
-		}
-
-		// Validate timeout
-		const MIN_TIMEOUT: u64 = 100; // 100ms minimum
-		const MAX_TIMEOUT: u64 = 30000; // 30 seconds maximum
-
-		if self.timeout_ms < MIN_TIMEOUT || self.timeout_ms > MAX_TIMEOUT {
-			return Err(SolverValidationError::InvalidTimeout {
-				timeout_ms: self.timeout_ms,
-				min: MIN_TIMEOUT,
-				max: MAX_TIMEOUT,
-			});
-		}
-
-		// Validate retry count
-		const MAX_RETRIES: u32 = 10;
-		if self.max_retries > MAX_RETRIES {
-			return Err(SolverValidationError::InvalidRetryCount {
-				retries: self.max_retries,
-				max: MAX_RETRIES,
-			});
-		}
-
-		// Validate supported chains (if provided)
-		if let Some(ref networks) = self.supported_networks {
-			for &chain_id in networks {
-				if !is_valid_chain_id(chain_id) {
-					return Err(SolverValidationError::InvalidChainId { chain_id });
-				}
-			}
-		}
-
-		Ok(())
-	}
-
-	/// Convert configuration to domain solver
-	pub fn to_domain(&self) -> SolverValidationResult<Solver> {
-		// Validate first
-		self.validate()?;
-
-		let mut solver = Solver::new(
-			self.solver_id.clone(),
-			self.adapter_id.clone(),
-			self.endpoint.clone(),
-			self.timeout_ms,
-		);
-
-		// Apply metadata
-		if let Some(ref name) = self.name {
-			solver = solver.with_name(name.clone());
-		}
-
-		if let Some(ref description) = self.description {
-			solver = solver.with_description(description.clone());
-		}
-
-		if let Some(ref version) = self.version {
-			solver = solver.with_version(version.clone());
-		}
-
-		if let Some(ref networks) = self.supported_networks {
-			solver = solver.with_chain_ids(networks.clone());
-		}
-
-		if let Some(ref assets) = self.supported_assets {
-			solver = solver.with_asset_symbols(assets.clone());
-		}
-
-		solver = solver.with_max_retries(self.max_retries);
-
-		if let Some(ref headers) = self.headers {
-			solver = solver.with_headers(headers.clone());
-		}
-
-		if let Some(ref config) = self.config {
-			for (key, value) in config {
-				solver = solver.with_config(key.clone(), value.clone());
-			}
-		}
-
-		Ok(solver)
 	}
 
 	/// Builder methods for easy configuration
@@ -278,12 +128,12 @@ impl SolverConfig {
 		self
 	}
 
-	pub fn with_networks(mut self, networks: Vec<u64>) -> Self {
+	pub fn with_networks(mut self, networks: Vec<Network>) -> Self {
 		self.supported_networks = Some(networks);
 		self
 	}
 
-	pub fn with_assets(mut self, assets: Vec<String>) -> Self {
+	pub fn with_assets(mut self, assets: Vec<Asset>) -> Self {
 		self.supported_assets = Some(assets);
 		self
 	}
@@ -340,13 +190,6 @@ impl AdapterConfig {
 			});
 		}
 
-		// Validate supported chains
-		for &chain_id in &self.supported_networks {
-			if !is_valid_chain_id(chain_id) {
-				return Err(SolverValidationError::InvalidChainId { chain_id });
-			}
-		}
-
 		Ok(())
 	}
 }
@@ -361,36 +204,10 @@ impl AdapterType {
 				"intent_endpoint": "/intent",
 				"health_endpoint": "/health"
 			}),
-			AdapterType::UniswapV2 => serde_json::json!({
-				"router_address": "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D",
-				"factory_address": "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f"
-			}),
-			AdapterType::UniswapV3 => serde_json::json!({
-				"router_address": "0xE592427A0AEce92De3Edee1F18E0157C05861564",
-				"factory_address": "0x1F98431c8aD98523631AE4a59f267346ea31F984",
-				"quoter_address": "0xb27308f9F90D607463bb33eA1BeBb41C27CE5AB6"
-			}),
-			AdapterType::OneInch => serde_json::json!({
-				"base_url": "https://api.1inch.io",
-				"api_version": "v5.0"
-			}),
-			AdapterType::Paraswap => serde_json::json!({
-				"base_url": "https://apiv5.paraswap.io",
-				"api_version": "v5"
-			}),
-			AdapterType::Lifi => serde_json::json!({
+			AdapterType::LifiV1 => serde_json::json!({
 				"base_url": "https://li.quest",
 				"api_version": "v1"
 			}),
-			AdapterType::Cowswap => serde_json::json!({
-				"base_url": "https://api.cow.fi",
-				"api_version": "v1"
-			}),
-			AdapterType::ZeroX => serde_json::json!({
-				"base_url": "https://api.0x.org",
-				"api_version": "v1"
-			}),
-			AdapterType::Custom => serde_json::json!({}),
 		}
 	}
 
@@ -398,35 +215,9 @@ impl AdapterType {
 	pub fn display_name(&self) -> &'static str {
 		match self {
 			AdapterType::OifV1 => "OIF v1",
-			AdapterType::UniswapV2 => "Uniswap V2",
-			AdapterType::UniswapV3 => "Uniswap V3",
-			AdapterType::OneInch => "1inch",
-			AdapterType::Paraswap => "Paraswap",
-			AdapterType::Lifi => "LiFi",
-			AdapterType::Cowswap => "CoW Swap",
-			AdapterType::ZeroX => "0x Protocol",
-			AdapterType::Custom => "Custom",
+			AdapterType::LifiV1 => "LiFi v1",
 		}
 	}
-}
-
-/// Check if a chain ID is valid/supported
-fn is_valid_chain_id(chain_id: u64) -> bool {
-	const SUPPORTED_CHAINS: &[u64] = &[
-		1,        // Ethereum Mainnet
-		10,       // Optimism
-		56,       // BSC
-		100,      // Gnosis
-		137,      // Polygon
-		250,      // Fantom
-		8453,     // Base
-		42161,    // Arbitrum One
-		43114,    // Avalanche
-		5,        // Goerli (testnet)
-		11155111, // Sepolia (testnet)
-	];
-
-	SUPPORTED_CHAINS.contains(&chain_id)
 }
 
 /// Convert from config SolverConfig to domain Solver
@@ -434,7 +225,49 @@ impl TryFrom<SolverConfig> for Solver {
 	type Error = SolverValidationError;
 
 	fn try_from(config: SolverConfig) -> Result<Self, Self::Error> {
-		config.to_domain()
+		let mut solver = Solver::new(
+			config.solver_id,
+			config.adapter_id,
+			config.endpoint,
+			config.timeout_ms,
+		);
+
+		// Apply metadata
+		if let Some(name) = config.name {
+			solver = solver.with_name(name);
+		}
+
+		if let Some(description) = config.description {
+			solver = solver.with_description(description);
+		}
+
+		if let Some(version) = config.version {
+			solver = solver.with_version(version);
+		}
+
+		if let Some(networks) = config.supported_networks {
+			solver = solver.with_networks(networks);
+		}
+
+		if let Some(assets) = config.supported_assets {
+			solver = solver.with_assets(assets);
+		}
+
+		solver = solver.with_max_retries(config.max_retries);
+
+		if let Some(headers) = config.headers {
+			solver = solver.with_headers(headers);
+		}
+
+		if let Some(config_map) = config.config {
+			for (key, value) in config_map {
+				solver = solver.with_config(key, value);
+			}
+		}
+
+		// Validate the constructed solver
+		solver.validate()?;
+		Ok(solver)
 	}
 }
 
@@ -471,7 +304,7 @@ mod tests {
 			"https://api.example.com".to_string(),
 		);
 
-		assert!(valid_config.validate().is_ok());
+		assert!(Solver::try_from(valid_config).is_ok());
 	}
 
 	#[test]
@@ -482,10 +315,10 @@ mod tests {
 			"https://api.example.com".to_string(),
 		);
 
-		assert!(config.validate().is_err());
+		assert!(Solver::try_from(config.clone()).is_err());
 
 		config.solver_id = "".to_string();
-		assert!(config.validate().is_err());
+		assert!(Solver::try_from(config).is_err());
 	}
 
 	#[test]
@@ -496,7 +329,7 @@ mod tests {
 			"not-a-url".to_string(),
 		);
 
-		assert!(config.validate().is_err());
+		assert!(Solver::try_from(config).is_err());
 	}
 
 	#[test]
@@ -508,10 +341,10 @@ mod tests {
 		);
 
 		config.timeout_ms = 50; // Too low
-		assert!(config.validate().is_err());
+		assert!(Solver::try_from(config.clone()).is_err());
 
 		config.timeout_ms = 50000; // Too high
-		assert!(config.validate().is_err());
+		assert!(Solver::try_from(config).is_err());
 	}
 
 	#[test]
@@ -522,9 +355,12 @@ mod tests {
 			"https://api.example.com".to_string(),
 		)
 		.with_name("Test Solver".to_string())
-		.with_networks(vec![1, 137]);
+		.with_networks(vec![
+			Network::new(1, "Ethereum".to_string(), false),
+			Network::new(137, "Polygon".to_string(), false),
+		]);
 
-		let solver = config.to_domain().unwrap();
+		let solver = Solver::try_from(config).unwrap();
 
 		assert_eq!(solver.solver_id, "test-solver");
 		assert_eq!(solver.metadata.name, Some("Test Solver".to_string()));
@@ -536,15 +372,7 @@ mod tests {
 	#[test]
 	fn test_adapter_type_display_names() {
 		assert_eq!(AdapterType::OifV1.display_name(), "OIF v1");
-		assert_eq!(AdapterType::UniswapV3.display_name(), "Uniswap V3");
-		assert_eq!(AdapterType::OneInch.display_name(), "1inch");
-	}
-
-	#[test]
-	fn test_valid_chain_ids() {
-		assert!(is_valid_chain_id(1)); // Ethereum
-		assert!(is_valid_chain_id(137)); // Polygon
-		assert!(!is_valid_chain_id(999999)); // Invalid
+		assert_eq!(AdapterType::LifiV1.display_name(), "LiFi v1");
 	}
 
 	#[test]

@@ -7,7 +7,7 @@ use oif_service::aggregator::AggregatorService;
 use oif_types::adapters::{AdapterConfig, AdapterType};
 use oif_types::orders::OrderStatus;
 use oif_types::serde_json::json;
-use oif_types::{Order, QuoteRequest};
+use oif_types::{Network, Order, QuoteRequest};
 
 mod mocks;
 
@@ -38,7 +38,6 @@ async fn test_oif_adapter_creation() {
 
 	let adapter = adapter_result.unwrap();
 	assert_eq!(adapter.adapter_info().adapter_id, "test-oif-adapter");
-	assert_eq!(adapter.supported_chains(), &[1]); // OifV1 only supports Ethereum
 }
 
 #[tokio::test]
@@ -70,15 +69,10 @@ fn test_quote_request_creation() {
 
 #[test]
 fn test_order_creation() {
-	let order = Order::new(
-		"0x1234567890123456789012345678901234567890".to_string(),
-		0.005,                           // 0.5% slippage tolerance
-		Utc::now() + Duration::hours(1), // 1 hour deadline
-	);
+	let order = Order::new("0x1234567890123456789012345678901234567890".to_string());
 
 	assert!(!order.order_id.is_empty());
 	assert_eq!(order.status, OrderStatus::Pending);
-	assert_eq!(order.slippage_tolerance, 0.005);
 }
 
 #[test]

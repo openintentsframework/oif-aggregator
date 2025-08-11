@@ -80,20 +80,12 @@ impl MockEntities {
 
 	/// Create a basic test order
 	pub fn order() -> Order {
-		Order::new(
-			TestConstants::TEST_USER_ADDRESS.to_string(),
-			0.01,                            // 1% slippage
-			Utc::now() + Duration::hours(1), // 1 hour deadline
-		)
+		Order::new(TestConstants::TEST_USER_ADDRESS.to_string())
 	}
 
 	/// Create an order with custom user address
 	pub fn order_for_user(user_address: &str) -> Order {
-		Order::new(
-			user_address.to_string(),
-			0.01,                            // 1% slippage
-			Utc::now() + Duration::hours(1), // 1 hour deadline
-		)
+		Order::new(user_address.to_string())
 	}
 
 	/// Create an order with specific status

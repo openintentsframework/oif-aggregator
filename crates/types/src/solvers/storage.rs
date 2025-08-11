@@ -97,7 +97,7 @@ impl SolverStorage {
 			adapter_id: solver.adapter_id,
 			endpoint: solver.endpoint,
 			timeout_ms: solver.timeout_ms,
-			status: SolverStatusStorage::from_domain(&solver.status),
+			status: SolverStatusStorage::from(&solver.status),
 			metadata: SolverMetadataStorage::from_domain(solver.metadata),
 			created_at: solver.created_at,
 			last_seen: solver.last_seen,
@@ -179,13 +179,7 @@ impl SolverStorage {
 
 impl SolverStatusStorage {
 	fn from_domain(status: &SolverStatus) -> Self {
-		match status {
-			SolverStatus::Active => Self::Active,
-			SolverStatus::Inactive => Self::Inactive,
-			SolverStatus::Error => Self::Error,
-			SolverStatus::Maintenance => Self::Maintenance,
-			SolverStatus::Initializing => Self::Initializing,
-		}
+		Self::from(status)
 	}
 
 	fn to_domain(&self) -> SolverStatus {
@@ -195,6 +189,18 @@ impl SolverStatusStorage {
 			Self::Error => SolverStatus::Error,
 			Self::Maintenance => SolverStatus::Maintenance,
 			Self::Initializing => SolverStatus::Initializing,
+		}
+	}
+}
+
+impl From<&SolverStatus> for SolverStatusStorage {
+	fn from(status: &SolverStatus) -> Self {
+		match status {
+			SolverStatus::Active => Self::Active,
+			SolverStatus::Inactive => Self::Inactive,
+			SolverStatus::Error => Self::Error,
+			SolverStatus::Maintenance => Self::Maintenance,
+			SolverStatus::Initializing => Self::Initializing,
 		}
 	}
 }
@@ -513,58 +519,10 @@ impl TryFrom<SolverStorage> for Solver {
 	}
 }
 
-/// Estimate storage size for a solver (in bytes)
-fn estimate_storage_size(solver: &Solver) -> u64 {
-	let base_size = 512; // Base struct size
-	let strings_size = solver.solver_id.len()
-		+ solver.adapter_id.len()
-		+ solver.endpoint.len()
-		+ solver.metadata.name.as_ref().map_or(0, |s| s.len())
-		+ solver.metadata.description.as_ref().map_or(0, |s| s.len())
-		+ solver.metadata.version.as_ref().map_or(0, |s| s.len());
-	let networks_size = solver.metadata.supported_networks.len() * 64; // Approximate size per network
-	let assets_size = solver
-		.metadata
-		.supported_assets
-		.iter()
-		.map(|a| a.address.len() + a.symbol.len() + a.name.len() + 24) // address + symbol + name + other fields
-		.sum::<usize>();
-	let headers_size = solver.metadata.headers.as_ref().map_or(0, |h| {
-		h.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>()
-	});
-	let config_size = solver
-		.metadata
-		.config
-		.iter()
-		.map(|(k, v)| k.len() + v.to_string().len())
-		.sum::<usize>();
-
-	(base_size + strings_size + networks_size + assets_size + headers_size + config_size) as u64
-}
-
-/// Estimate storage size from storage model
-fn estimate_storage_size_from_storage(storage: &SolverStorage) -> u64 {
-	let base_size = 512; // Base struct size
-	let strings_size = storage.solver_id.len()
-		+ storage.adapter_id.len()
-		+ storage.endpoint.len()
-		+ storage.metadata.name.as_ref().map_or(0, |s| s.len())
-		+ storage.metadata.description.as_ref().map_or(0, |s| s.len())
-		+ storage.metadata.version.as_ref().map_or(0, |s| s.len());
-	let metrics_size = 256; // Estimated metrics size
-	let health_check_size = storage
-		.metrics
-		.last_health_check
-		.as_ref()
-		.map_or(0, |_| 128);
-
-	(base_size + strings_size + metrics_size + health_check_size) as u64
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::solvers::Solver;
+	use crate::{solvers::Solver, Network};
 
 	fn create_test_solver() -> Solver {
 		Solver::new(
@@ -574,7 +532,7 @@ mod tests {
 			2000,
 		)
 		.with_name("Test Solver".to_string())
-		.with_chain_ids(vec![1, 137])
+		.with_networks(vec![Network::new(1, "Ethereum".to_string(), false)])
 	}
 
 	#[test]
@@ -583,7 +541,7 @@ mod tests {
 		let solver_id = solver.solver_id.clone();
 
 		// Convert to storage
-		let storage = SolverStorage::from_domain(solver);
+		let storage = SolverStorage::from(solver);
 		assert_eq!(storage.solver_id, solver_id);
 		assert_eq!(storage.version, 1);
 
@@ -607,7 +565,7 @@ mod tests {
 	#[test]
 	fn test_storage_filter() {
 		let solver = create_test_solver();
-		let storage = SolverStorage::from_domain(solver);
+		let storage = SolverStorage::from(solver);
 
 		// Test basic filter
 		let filter = SolverStorageFilter::new()
@@ -630,7 +588,7 @@ mod tests {
 	#[test]
 	fn test_storage_stats() {
 		let solver = create_test_solver();
-		let mut storage = SolverStorage::from_domain(solver);
+		let mut storage = SolverStorage::from(solver);
 
 		storage.mark_accessed();
 		storage.mark_accessed();
@@ -644,7 +602,7 @@ mod tests {
 	#[test]
 	fn test_storage_compaction() {
 		let solver = create_test_solver();
-		let mut storage = SolverStorage::from_domain(solver);
+		let mut storage = SolverStorage::from(solver);
 
 		// Add some data that should be compacted
 		storage.metrics.last_error_message = Some("Old error".to_string());
@@ -660,7 +618,7 @@ mod tests {
 	#[test]
 	fn test_staleness_check() {
 		let solver = create_test_solver();
-		let mut storage = SolverStorage::from_domain(solver);
+		let mut storage = SolverStorage::from(solver);
 
 		// Fresh storage should not be stale
 		assert!(!storage.is_stale(24));

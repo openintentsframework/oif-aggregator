@@ -1,6 +1,7 @@
 //! Tests for the Builder Pattern implementation
 
 use oif_aggregator::{config::Settings, storage::MemoryStore, AggregatorBuilder, Solver};
+use oif_types::Network;
 
 use std::collections::HashMap;
 
@@ -51,7 +52,10 @@ fn create_test_solver() -> Solver {
 	solver.metadata.name = Some("Test Solver".to_string());
 	solver.metadata.description = Some("A test solver for unit tests".to_string());
 	solver.metadata.version = Some("1.0.0".to_string());
-	solver.metadata.supported_chains = vec![1, 137]; // Now u64 instead of String
+	solver.metadata.supported_networks = vec![
+		Network::new(1, "Ethereum".to_string(), false),
+		Network::new(137, "Polygon".to_string(), false),
+	];
 	solver.metadata.max_retries = 3;
 	solver.status = SolverStatus::Active;
 	solver
