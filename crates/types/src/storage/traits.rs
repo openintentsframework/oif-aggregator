@@ -85,42 +85,46 @@ pub trait StorageTrait: QuoteStorageTrait + OrderStorageTrait + SolverStorageTra
 	// ===============================
 	// Solver convenience methods
 	// ===============================
-	
+
 	/// List all solvers
 	async fn list_all_solvers(&self) -> StorageResult<Vec<Solver>> {
 		<Self as Repository<Solver>>::list_all(self).await
 	}
-	
+
 	/// List solvers with pagination
-	async fn list_solvers_paginated(&self, offset: usize, limit: usize) -> StorageResult<Vec<Solver>> {
+	async fn list_solvers_paginated(
+		&self,
+		offset: usize,
+		limit: usize,
+	) -> StorageResult<Vec<Solver>> {
 		<Self as Repository<Solver>>::list_paginated(self, offset, limit).await
 	}
-	
+
 	/// Count total solvers
 	async fn count_solvers(&self) -> StorageResult<usize> {
 		<Self as Repository<Solver>>::count(self).await
 	}
-	
+
 	/// Get a specific solver by ID
 	async fn get_solver(&self, id: &str) -> StorageResult<Option<Solver>> {
 		<Self as Repository<Solver>>::get(self, id).await
 	}
-	
+
 	/// Create a new solver
 	async fn create_solver(&self, solver: Solver) -> StorageResult<()> {
 		<Self as Repository<Solver>>::create(self, solver).await
 	}
-	
+
 	/// Update an existing solver
 	async fn update_solver(&self, solver: Solver) -> StorageResult<()> {
 		<Self as Repository<Solver>>::update(self, solver).await
 	}
-	
+
 	/// Delete a solver by ID
 	async fn delete_solver(&self, id: &str) -> StorageResult<bool> {
 		<Self as Repository<Solver>>::delete(self, id).await
 	}
-	
+
 	/// Get active solvers only
 	async fn get_active_solvers(&self) -> StorageResult<Vec<Solver>> {
 		<Self as SolverStorageTrait>::get_active(self).await
@@ -129,47 +133,51 @@ pub trait StorageTrait: QuoteStorageTrait + OrderStorageTrait + SolverStorageTra
 	// ===============================
 	// Order convenience methods
 	// ===============================
-	
+
 	/// List all orders
 	async fn list_all_orders(&self) -> StorageResult<Vec<Order>> {
 		<Self as Repository<Order>>::list_all(self).await
 	}
-	
+
 	/// List orders with pagination
-	async fn list_orders_paginated(&self, offset: usize, limit: usize) -> StorageResult<Vec<Order>> {
+	async fn list_orders_paginated(
+		&self,
+		offset: usize,
+		limit: usize,
+	) -> StorageResult<Vec<Order>> {
 		<Self as Repository<Order>>::list_paginated(self, offset, limit).await
 	}
-	
+
 	/// Count total orders
 	async fn count_orders(&self) -> StorageResult<usize> {
 		<Self as Repository<Order>>::count(self).await
 	}
-	
+
 	/// Get a specific order by ID
 	async fn get_order(&self, id: &str) -> StorageResult<Option<Order>> {
 		<Self as Repository<Order>>::get(self, id).await
 	}
-	
+
 	/// Create a new order
 	async fn create_order(&self, order: Order) -> StorageResult<()> {
 		<Self as Repository<Order>>::create(self, order).await
 	}
-	
+
 	/// Update an existing order
 	async fn update_order(&self, order: Order) -> StorageResult<()> {
 		<Self as Repository<Order>>::update(self, order).await
 	}
-	
+
 	/// Delete an order by ID
 	async fn delete_order(&self, id: &str) -> StorageResult<bool> {
 		<Self as Repository<Order>>::delete(self, id).await
 	}
-	
+
 	/// Get orders by user address
 	async fn get_orders_by_user(&self, user_address: &str) -> StorageResult<Vec<Order>> {
 		<Self as OrderStorageTrait>::get_by_user(self, user_address).await
 	}
-	
+
 	/// Get orders by status
 	async fn get_orders_by_status(&self, status: crate::OrderStatus) -> StorageResult<Vec<Order>> {
 		<Self as OrderStorageTrait>::get_by_status(self, status).await
@@ -178,52 +186,56 @@ pub trait StorageTrait: QuoteStorageTrait + OrderStorageTrait + SolverStorageTra
 	// ===============================
 	// Quote convenience methods
 	// ===============================
-	
+
 	/// List all quotes
 	async fn list_all_quotes(&self) -> StorageResult<Vec<Quote>> {
 		<Self as Repository<Quote>>::list_all(self).await
 	}
-	
+
 	/// List quotes with pagination
-	async fn list_quotes_paginated(&self, offset: usize, limit: usize) -> StorageResult<Vec<Quote>> {
+	async fn list_quotes_paginated(
+		&self,
+		offset: usize,
+		limit: usize,
+	) -> StorageResult<Vec<Quote>> {
 		<Self as Repository<Quote>>::list_paginated(self, offset, limit).await
 	}
-	
+
 	/// Count total quotes
 	async fn count_quotes(&self) -> StorageResult<usize> {
 		<Self as Repository<Quote>>::count(self).await
 	}
-	
+
 	/// Get a specific quote by ID
 	async fn get_quote(&self, id: &str) -> StorageResult<Option<Quote>> {
 		<Self as Repository<Quote>>::get(self, id).await
 	}
-	
+
 	/// Create a new quote
 	async fn create_quote(&self, quote: Quote) -> StorageResult<()> {
 		<Self as Repository<Quote>>::create(self, quote).await
 	}
-	
+
 	/// Update an existing quote
 	async fn update_quote(&self, quote: Quote) -> StorageResult<()> {
 		<Self as Repository<Quote>>::update(self, quote).await
 	}
-	
+
 	/// Delete a quote by ID
 	async fn delete_quote(&self, id: &str) -> StorageResult<bool> {
 		<Self as Repository<Quote>>::delete(self, id).await
 	}
-	
+
 	/// Get quotes by request ID
 	async fn get_quotes_by_request(&self, request_id: &str) -> StorageResult<Vec<Quote>> {
 		<Self as QuoteStorageTrait>::get_quotes_by_request(self, request_id).await
 	}
-	
+
 	/// Get quotes by solver ID
 	async fn get_quotes_by_solver(&self, solver_id: &str) -> StorageResult<Vec<Quote>> {
 		<Self as QuoteStorageTrait>::get_quotes_by_solver(self, solver_id).await
 	}
-	
+
 	/// Clean up expired quotes
 	async fn cleanup_expired_quotes(&self) -> StorageResult<usize> {
 		<Self as QuoteStorageTrait>::cleanup_expired_quotes(self).await

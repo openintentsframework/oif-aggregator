@@ -1,8 +1,10 @@
 //! OIF v1 adapter implementation for HTTP-based solvers
 
-use crate::{AdapterError, AdapterResult, SolverAdapter};
 use async_trait::async_trait;
-use oif_types::{AdapterConfig, Order, OrderStatus, Quote, QuoteRequest};
+use oif_types::{
+	AdapterConfig, Asset, Network, Order, OrderDetails, OrderStatus, Quote, QuoteRequest,
+};
+use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 use reqwest::{
 	header::{HeaderMap, HeaderName, HeaderValue},
 	Client,
@@ -167,7 +169,7 @@ impl SolverAdapter for OifAdapter {
 		&self.config
 	}
 
-	async fn get_quote(&self, request: &QuoteRequest) -> AdapterResult<Quote> {
+	async fn get_quote(&self, request: QuoteRequest) -> AdapterResult<Quote> {
 		let start_time = std::time::Instant::now();
 
 		debug!(
@@ -308,13 +310,90 @@ impl SolverAdapter for OifAdapter {
 		}
 	}
 
-	fn supported_chains(&self) -> &[u64] {
-		// Return a static reference based on adapter type
-		match self.config.adapter_type {
-			oif_types::AdapterType::OifV1 => &[1], // Ethereum mainnet
-			oif_types::AdapterType::LifiV1 => &[1, 137, 56], // Ethereum, Polygon, BSC
+	async fn get_order_details(&self, order_id: &str) -> AdapterResult<OrderDetails> {
+		let order_url = format!("{}/v1/order/{}", self.endpoint, order_id);
+
+		debug!("Getting order details for {} from {}", order_id, order_url);
+
+		let response = self.client.get(&order_url).send().await.map_err(|e| {
+			error!("HTTP request failed to {}: {}", order_url, e);
+			AdapterError::HttpError(e)
+		})?;
+
+		if !response.status().is_success() {
+			let status = response.status();
+			let error_text = response.text().await.unwrap_or_default();
+			error!("OIF adapter returned error {}: {}", status, error_text);
+			return Err(AdapterError::SolverError {
+				code: status.to_string(),
+				message: error_text,
+			});
 		}
+
+		let order_response: serde_json::Value = response.json().await.map_err(|e| {
+			error!("Failed to parse OIF order details response: {}", e);
+			AdapterError::InvalidResponse {
+				reason: format!("JSON parsing failed: {}", e),
+			}
+		})?;
+
+		// Parse the response into OrderDetails
+		let mut order_details = OrderDetails::new(
+			order_id.to_string(),
+			order_response
+				.get("status")
+				.and_then(|v| v.as_str())
+				.unwrap_or("unknown")
+				.to_string(),
+		);
+
+		// Extract additional fields from response
+		if let Some(tx_hash) = order_response
+			.get("transaction_hash")
+			.and_then(|v| v.as_str())
+		{
+			order_details.transaction_hash = Some(tx_hash.to_string());
+		}
+
+		if let Some(gas_used) = order_response.get("gas_used").and_then(|v| v.as_u64()) {
+			order_details.gas_used = Some(gas_used);
+		}
+
+		if let Some(gas_price) = order_response.get("gas_price").and_then(|v| v.as_str()) {
+			order_details.gas_price = Some(gas_price.to_string());
+		}
+
+		if let Some(fee) = order_response
+			.get("transaction_fee")
+			.and_then(|v| v.as_str())
+		{
+			order_details.transaction_fee = Some(fee.to_string());
+		}
+
+		if let Some(block_num) = order_response.get("block_number").and_then(|v| v.as_u64()) {
+			order_details.block_number = Some(block_num);
+		}
+
+		// Store any additional metadata
+		if let Some(metadata) = order_response.get("metadata").and_then(|v| v.as_object()) {
+			for (key, value) in metadata {
+				order_details.metadata.insert(key.clone(), value.clone());
+			}
+		}
+
+		info!("Successfully retrieved order details for {}", order_id);
+		Ok(order_details)
+	}
+
+	async fn get_supported_networks(&self) -> AdapterResult<Vec<Network>> {
+		Err(AdapterError::NotImplemented(
+			"OIF adapter getting supported networks not yet implemented".to_string(),
+		))
+	}
+
+	async fn get_supported_assets(&self, _network: &Network) -> AdapterResult<Vec<Asset>> {
+		Err(AdapterError::NotImplemented(
+			"OIF adapter getting supported networks not yet implemented".to_string(),
+		))
 	}
 }
-
-// Removed duplicate LifiAdapter implementation. Use `crates/adapters/src/lifi_adapter.rs` instead.

@@ -23,7 +23,8 @@ impl SolverService {
 	}
 
 	pub async fn list_solvers(&self) -> Result<Vec<Solver>, SolverServiceError> {
-		self.storage.list_all_solvers()
+		self.storage
+			.list_all_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))
 	}
@@ -34,7 +35,8 @@ impl SolverService {
 		page: Option<u32>,
 		page_size: Option<u32>,
 	) -> Result<(Vec<Solver>, usize, usize, usize), SolverServiceError> {
-		let total = self.storage
+		let total = self
+			.storage
 			.count_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
@@ -44,20 +46,23 @@ impl SolverService {
 		let effective_page = page.unwrap_or(1).max(1);
 		let start = (effective_page as usize - 1).saturating_mul(effective_page_size as usize);
 
-		let page_items = self.storage
+		let page_items = self
+			.storage
 			.list_solvers_paginated(start, effective_page_size as usize)
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
 		// Active count via convenient method
-		let active_count = self.storage
+		let active_count = self
+			.storage
 			.get_active_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?
 			.len();
 
 		// Healthy count across all
-		let all = self.storage
+		let all = self
+			.storage
 			.list_all_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
@@ -67,7 +72,8 @@ impl SolverService {
 	}
 
 	pub async fn get_solver(&self, solver_id: &str) -> Result<Solver, SolverServiceError> {
-		match self.storage
+		match self
+			.storage
 			.get_solver(solver_id)
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?

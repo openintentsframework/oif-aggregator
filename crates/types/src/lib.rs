@@ -31,6 +31,9 @@ pub use adapters::{
 	AdapterValidationResult, SolverAdapter,
 };
 
+// Re-export adapter-specific types
+pub use adapters::{Asset, Network, OrderDetails};
+
 pub use orders::{
 	Order, OrderError, OrderResponse, OrderStatus, OrderStorage, OrderValidationError,
 	OrderValidationResult, OrdersRequest, OrdersResponse,

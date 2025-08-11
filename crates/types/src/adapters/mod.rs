@@ -1,6 +1,7 @@
 //! Core Adapter domain model and business logic
 
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 pub mod config;
@@ -50,6 +51,93 @@ pub struct Adapter {
 
 	/// Last time the adapter was updated
 	pub updated_at: DateTime<Utc>,
+}
+
+/// Supported blockchain network
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct Network {
+	/// Chain ID (e.g., 1 for Ethereum mainnet, 137 for Polygon)
+	pub chain_id: u64,
+	/// Human-readable name (e.g., "Ethereum", "Polygon", "Base")
+	pub name: String,
+	/// Whether the network is a testnet
+	pub is_testnet: bool,
+}
+
+impl Network {
+	pub fn new(chain_id: u64, name: String, is_testnet: bool) -> Self {
+		Self {
+			chain_id,
+			name,
+			is_testnet,
+		}
+	}
+}
+
+/// Supported asset on a blockchain network
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct Asset {
+	/// Contract address (0x0 for native token)
+	pub address: String,
+	/// Token symbol (e.g., "USDC", "ETH", "USDT")
+	pub symbol: String,
+	/// Token name (e.g., "USD Coin", "Ethereum", "Tether USD")
+	pub name: String,
+	/// Number of decimal places
+	pub decimals: u8,
+	/// Chain ID this asset exists on
+	pub chain_id: u64,
+}
+
+impl Asset {
+	pub fn new(address: String, symbol: String, name: String, decimals: u8, chain_id: u64) -> Self {
+		Self {
+			address,
+			symbol,
+			name,
+			decimals,
+			chain_id,
+		}
+	}
+}
+
+/// Detailed order information from an adapter
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrderDetails {
+	/// Order ID from the solver
+	pub order_id: String,
+	/// Current status of the order
+	pub status: String,
+	/// Transaction hash if available
+	pub transaction_hash: Option<String>,
+	/// Gas used for the transaction
+	pub gas_used: Option<u64>,
+	/// Gas price in wei
+	pub gas_price: Option<String>,
+	/// Transaction fee in wei
+	pub transaction_fee: Option<String>,
+	/// Block number where transaction was included
+	pub block_number: Option<u64>,
+	/// Additional metadata from the solver
+	pub metadata: HashMap<String, serde_json::Value>,
+	/// When the order was last updated
+	pub updated_at: DateTime<Utc>,
+}
+
+impl OrderDetails {
+	pub fn new(order_id: String, status: String) -> Self {
+		Self {
+			order_id,
+			status,
+			transaction_hash: None,
+			gas_used: None,
+			gas_price: None,
+			transaction_fee: None,
+			block_number: None,
+			metadata: HashMap::new(),
+			updated_at: Utc::now(),
+		}
+	}
 }
 
 impl Adapter {

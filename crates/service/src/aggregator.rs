@@ -54,21 +54,29 @@ impl AggregatorService {
 
 		for (solver_id, solver) in &self.solvers {
 			// Build adapter configuration from solver metadata
-			let adapter_config = AdapterConfig {
-				adapter_id: solver.adapter_id.clone(),
-				adapter_type: AdapterType::OifV1, // TODO: derive from config/solver.adapter_id if encoded
-				name: solver
+			let adapter_config = AdapterConfig::new(
+				solver.adapter_id.clone(),
+				AdapterType::OifV1, // TODO: derive from config/solver.adapter_id if encoded
+				solver
 					.metadata
 					.name
 					.clone()
 					.unwrap_or_else(|| solver.solver_id.clone()),
-				description: solver.metadata.description.clone(),
-				version: solver
+				solver
 					.metadata
 					.version
 					.clone()
 					.unwrap_or_else(|| "1.0.0".to_string()),
-			};
+			)
+			.with_description(
+				solver
+					.metadata
+					.description
+					.clone()
+					.unwrap_or_else(|| format!("Adapter for {}", solver.solver_id)),
+			)
+			.with_endpoint(solver.endpoint.clone())
+			.with_timeout_ms(solver.timeout_ms);
 
 			// Use solver-provided endpoint and timeout
 			match AdapterFactory::create_for_solver(
@@ -122,7 +130,7 @@ impl AggregatorService {
 					},
 				};
 
-				let quote_future = adapter.get_quote(&request);
+				let quote_future = adapter.get_quote(request.clone());
 				let timeout_duration = Duration::from_millis(solver.timeout_ms);
 
 				match timeout(timeout_duration, quote_future).await {

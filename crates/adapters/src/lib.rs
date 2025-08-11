@@ -5,22 +5,9 @@
 pub mod lifi_adapter;
 pub mod oif_adapter;
 
-use async_trait::async_trait;
-use oif_types::{Order, Quote, QuoteRequest};
-
 pub use lifi_adapter::LifiAdapter;
 pub use oif_adapter::OifAdapter;
-pub use oif_types::{AdapterError, AdapterResult};
-
-/// Trait for solver adapters
-#[async_trait]
-pub trait SolverAdapter: Send + Sync {
-	async fn get_quote(&self, request: &QuoteRequest) -> AdapterResult<Quote>;
-	async fn submit_order(&self, order: &Order) -> AdapterResult<String>;
-	async fn health_check(&self) -> AdapterResult<bool>;
-	fn adapter_info(&self) -> &oif_types::AdapterConfig;
-	fn supported_chains(&self) -> &[u64];
-}
+pub use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 
 /// Factory for creating solver adapters
 pub struct AdapterFactory {
@@ -47,10 +34,11 @@ impl AdapterFactory {
 		}
 	}
 
+	/// Create adapter from configuration with default endpoints
 	pub fn create_from_config(
 		config: &oif_types::AdapterConfig,
 	) -> AdapterResult<Box<dyn SolverAdapter>> {
-		// Backward-compat: default endpoints; prefer create_for_solver when available
+		// Default endpoints and timeout
 		let (adapter_type_str, endpoint) = match config.adapter_type {
 			oif_types::AdapterType::OifV1 => {
 				("oif-v1", "https://api.oif.example.com/v1".to_string())
@@ -75,6 +63,29 @@ impl AdapterFactory {
 		};
 
 		Self::create_adapter(adapter_type_str, config.clone(), endpoint, timeout_ms)
+	}
+
+	/// Create adapter using configuration's endpoint and timeout
+	pub fn create_from_config_with_defaults(
+		config: &oif_types::AdapterConfig,
+	) -> AdapterResult<Box<dyn SolverAdapter>> {
+		if !config.is_enabled() {
+			return Err(AdapterError::Disabled {
+				adapter_id: config.adapter_id.clone(),
+			});
+		}
+
+		let adapter_type_str = match config.adapter_type {
+			oif_types::AdapterType::OifV1 => "oif-v1",
+			oif_types::AdapterType::LifiV1 => "lifi-v1",
+		};
+
+		Self::create_adapter(
+			adapter_type_str,
+			config.clone(),
+			config.get_endpoint(),
+			config.get_timeout_ms(),
+		)
 	}
 
 	pub fn register(&mut self, id: String, adapter: Box<dyn SolverAdapter>) {
