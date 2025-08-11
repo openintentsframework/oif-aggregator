@@ -4,6 +4,7 @@ use oif_aggregator::{
 	storage::{MemoryStore, RedisStore, Storage},
 	AggregatorBuilder, Solver, SolverStatus,
 };
+use oif_types::Network;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -58,7 +59,7 @@ where
 	solver.metadata.name = Some(format!("{} Solver", storage_name));
 	solver.metadata.description = Some("A demonstration solver".to_string());
 	solver.metadata.version = Some("1.0.0".to_string());
-	solver.metadata.supported_chains = vec![1, 137];
+	solver.metadata.supported_networks = vec![Network::new(1, "Ethereum".to_string(), false)];
 	solver.status = SolverStatus::Active;
 
 	// Add solver using the builder

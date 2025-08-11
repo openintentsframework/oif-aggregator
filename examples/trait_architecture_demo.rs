@@ -9,6 +9,7 @@
 use async_trait::async_trait;
 use oif_aggregator::models::{AuthError, AuthenticationResult};
 use oif_aggregator::*;
+use oif_types::{Asset, Network, OrderDetails};
 use tokio;
 
 // Example of custom authentication implementation
@@ -235,6 +236,17 @@ impl CustomUniswapAdapter {
 				name: "Custom Uniswap V3 Adapter".to_string(),
 				description: Some("Custom implementation for Uniswap V3".to_string()),
 				version: "1.0.0".to_string(),
+				supported_networks: Some(vec![Network::new(1, "Ethereum".to_string(), false)]),
+				supported_assets: Some(vec![Asset::new(
+					"0x0000000000000000000000000000000000000000".to_string(),
+					"ETH".to_string(),
+					"Ethereum".to_string(),
+					18,
+					1,
+				)]),
+				endpoint: Some("https://api.uniswap.org/v3".to_string()),
+				timeout_ms: Some(10000),
+				enabled: Some(true),
 			},
 			client: reqwest::Client::new(),
 			endpoint: "https://api.uniswap.org/v3".to_string(),
@@ -248,7 +260,7 @@ impl SolverAdapter for CustomUniswapAdapter {
 		&self.config
 	}
 
-	async fn get_quote(&self, request: &QuoteRequest) -> AdapterResult<Quote> {
+	async fn get_quote(&self, request: QuoteRequest) -> AdapterResult<Quote> {
 		println!(
 			"Getting quote from Uniswap V3 for {}/{}",
 			request.token_in.clone(),
@@ -293,9 +305,26 @@ impl SolverAdapter for CustomUniswapAdapter {
 		Ok(true)
 	}
 
-	fn supported_chains(&self) -> &[u64] {
-		const CHAINS: &[u64] = &[1, 137, 42161];
-		CHAINS
+	async fn get_supported_networks(&self) -> AdapterResult<Vec<Network>> {
+		Ok(vec![Network::new(1, "Ethereum".to_string(), false)])
+	}
+
+	async fn get_supported_assets(&self, _network: &Network) -> AdapterResult<Vec<Asset>> {
+		Ok(vec![Asset::new(
+			"0x0000000000000000000000000000000000000000".to_string(),
+			"ETH".to_string(),
+			"Ethereum".to_string(),
+			18,
+			1,
+		)])
+	}
+
+	async fn get_order_details(&self, order_id: &str) -> AdapterResult<OrderDetails> {
+		println!("Getting order details for {} from Uniswap V3", order_id);
+		Ok(OrderDetails::new(
+			order_id.to_string(),
+			"completed".to_string(),
+		))
 	}
 }
 

@@ -19,11 +19,11 @@ pub struct AdapterStorage {
 	pub name: String,
 	pub version: String,
 	pub enabled: bool,
-	
+
 	/// Core operational parameters
 	pub endpoint: String,
 	pub timeout_ms: u64,
-	
+
 	/// Timestamps
 	pub created_at: DateTime<Utc>,
 	pub updated_at: DateTime<Utc>,
@@ -37,13 +37,13 @@ pub struct AdapterStorage {
 pub struct AdapterMetadataStorage {
 	/// Optional description
 	pub description: Option<String>,
-	
+
 	/// Supported blockchain networks
 	pub supported_networks: Option<Vec<NetworkStorage>>,
-	
+
 	/// Supported assets per network
 	pub supported_assets: Option<Vec<AssetStorage>>,
-	
+
 	/// Adapter-specific configuration
 	pub configuration: HashMap<String, serde_json::Value>,
 }
@@ -143,20 +143,17 @@ impl AdapterMetadataStorage {
 	/// Add supported networks
 	pub fn with_networks(mut self, networks: Vec<Network>) -> Self {
 		self.supported_networks = Some(
-			networks.into_iter()
+			networks
+				.into_iter()
 				.map(NetworkStorage::from_domain)
-				.collect()
+				.collect(),
 		);
 		self
 	}
 
 	/// Add supported assets
 	pub fn with_assets(mut self, assets: Vec<Asset>) -> Self {
-		self.supported_assets = Some(
-			assets.into_iter()
-				.map(AssetStorage::from_domain)
-				.collect()
-		);
+		self.supported_assets = Some(assets.into_iter().map(AssetStorage::from_domain).collect());
 		self
 	}
 
@@ -296,7 +293,8 @@ mod tests {
 		let timeout_ms = 15000;
 
 		// Convert to storage with custom params
-		let storage = AdapterStorage::from_domain_with_params(adapter, endpoint.clone(), timeout_ms);
+		let storage =
+			AdapterStorage::from_domain_with_params(adapter, endpoint.clone(), timeout_ms);
 		assert_eq!(storage.adapter_id, adapter_id);
 		assert_eq!(storage.endpoint, endpoint);
 		assert_eq!(storage.timeout_ms, timeout_ms);
@@ -318,18 +316,14 @@ mod tests {
 	#[test]
 	fn test_metadata_storage() {
 		let metadata = AdapterMetadataStorage::new()
-			.with_networks(vec![
-				Network::new(1, "Ethereum".to_string(), false)
-			])
-			.with_assets(vec![
-				Asset::new(
-					"0x0".to_string(),
-					"ETH".to_string(),
-					"Ethereum".to_string(),
-					18,
-					1,
-				)
-			]);
+			.with_networks(vec![Network::new(1, "Ethereum".to_string(), false)])
+			.with_assets(vec![Asset::new(
+				"0x0".to_string(),
+				"ETH".to_string(),
+				"Ethereum".to_string(),
+				18,
+				1,
+			)]);
 
 		assert_eq!(metadata.get_networks().len(), 1);
 		assert_eq!(metadata.get_assets().len(), 1);

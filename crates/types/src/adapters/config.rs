@@ -474,7 +474,7 @@ mod tests {
 	#[test]
 	fn test_explicit_networks_and_assets() {
 		use crate::models::{Asset, Network};
-		
+
 		let config = AdapterConfig::new(
 			"test-adapter".to_string(),
 			AdapterType::LifiV1,
@@ -505,7 +505,7 @@ mod tests {
 		// Check that assets exist for supported networks
 		let ethereum_assets = config.get_assets_for_network(&Network::ethereum());
 		assert_eq!(ethereum_assets.len(), 2); // ETH and USDC
-		
+
 		let polygon_assets = config.get_assets_for_network(&Network::polygon());
 		assert_eq!(polygon_assets.len(), 2); // MATIC and USDC
 	}

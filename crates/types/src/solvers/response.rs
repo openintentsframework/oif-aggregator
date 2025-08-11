@@ -4,7 +4,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use super::{HealthCheckResult, Solver, SolverResult, SolverStatus};
-use crate::adapters::{NetworkResponse, AssetResponse};
+use crate::adapters::{AssetResponse, NetworkResponse};
 
 /// Response format for individual solvers in API
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -93,11 +93,15 @@ impl SolverResponse {
 			description: solver.metadata.description.clone(),
 			endpoint: solver.endpoint.clone(),
 			status: SolverStatusResponse::from_domain(&solver.status),
-			supported_networks: solver.metadata.supported_networks
+			supported_networks: solver
+				.metadata
+				.supported_networks
 				.iter()
 				.map(NetworkResponse::from_domain)
 				.collect(),
-			supported_assets: solver.metadata.supported_assets
+			supported_assets: solver
+				.metadata
+				.supported_assets
 				.iter()
 				.map(AssetResponse::from_domain)
 				.collect(),
@@ -116,11 +120,15 @@ impl SolverResponse {
 			description: solver.metadata.description.clone(),
 			endpoint: "".to_string(), // Hide endpoint in public API
 			status: SolverStatusResponse::from_domain(&solver.status),
-			supported_networks: solver.metadata.supported_networks
+			supported_networks: solver
+				.metadata
+				.supported_networks
 				.iter()
 				.map(NetworkResponse::from_domain)
 				.collect(),
-			supported_assets: solver.metadata.supported_assets
+			supported_assets: solver
+				.metadata
+				.supported_assets
 				.iter()
 				.map(AssetResponse::from_domain)
 				.collect(),
@@ -242,8 +250,12 @@ impl SolversResponse {
 
 	/// Filter solvers by supported chain
 	pub fn filter_by_chain(&mut self, chain_id: u64) {
-		self.solvers
-			.retain(|solver| solver.supported_networks.iter().any(|n| n.chain_id == chain_id));
+		self.solvers.retain(|solver| {
+			solver
+				.supported_networks
+				.iter()
+				.any(|n| n.chain_id == chain_id)
+		});
 		self.total_solvers = self.solvers.len();
 	}
 }
@@ -296,7 +308,10 @@ mod tests {
 		assert!(matches!(response.status, SolverStatusResponse::Active));
 		assert_eq!(response.supported_networks.len(), 2);
 		assert!(response.supported_networks.iter().any(|n| n.chain_id == 1));
-		assert!(response.supported_networks.iter().any(|n| n.chain_id == 137));
+		assert!(response
+			.supported_networks
+			.iter()
+			.any(|n| n.chain_id == 137));
 	}
 
 	#[test]
@@ -355,8 +370,14 @@ mod tests {
 		response.filter_by_chain(1);
 		assert_eq!(response.total_solvers, 1);
 		assert_eq!(response.solvers[0].supported_networks.len(), 2);
-		assert!(response.solvers[0].supported_networks.iter().any(|n| n.chain_id == 1));
-		assert!(response.solvers[0].supported_networks.iter().any(|n| n.chain_id == 137));
+		assert!(response.solvers[0]
+			.supported_networks
+			.iter()
+			.any(|n| n.chain_id == 1));
+		assert!(response.solvers[0]
+			.supported_networks
+			.iter()
+			.any(|n| n.chain_id == 137));
 	}
 
 	// (removed legacy SystemHealthResponse test)

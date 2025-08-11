@@ -4,8 +4,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-
-
 pub mod config;
 pub mod errors;
 pub mod response;
@@ -18,10 +16,10 @@ pub use errors::{
 	AdapterValidationResult,
 };
 pub use response::{
-	AdapterResponse, AdapterDetailResponse, AdapterConfigResponse, AdapterNetworksResponse,
-	AdapterAssetsResponse, NetworkResponse, AssetResponse,
+	AdapterAssetsResponse, AdapterConfigResponse, AdapterDetailResponse, AdapterNetworksResponse,
+	AdapterResponse, AssetResponse, NetworkResponse,
 };
-pub use storage::{AdapterStorage, AdapterMetadataStorage, NetworkStorage, AssetStorage};
+pub use storage::{AdapterMetadataStorage, AdapterStorage, AssetStorage, NetworkStorage};
 pub use traits::SolverAdapter;
 
 /// Core Adapter domain model
@@ -57,8 +55,6 @@ pub struct Adapter {
 	/// Last time the adapter was updated
 	pub updated_at: DateTime<Utc>,
 }
-
-
 
 /// Detailed order information from an adapter
 #[derive(Debug, Clone, Serialize, Deserialize)]

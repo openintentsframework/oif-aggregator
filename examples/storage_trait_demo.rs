@@ -1,7 +1,6 @@
 //! Direct demonstration of storage traits without the complex builder
 
 // Direct module access to avoid lib.rs compilation issues
-use oif_aggregator::chrono::Utc;
 use oif_aggregator::models::solvers::SolverStatus;
 use oif_aggregator::models::{Order, Quote, Solver};
 use oif_aggregator::storage::{MemoryStore, RedisStore, Storage};
@@ -151,9 +150,5 @@ fn create_test_quote() -> Quote {
 }
 
 fn create_test_order() -> Order {
-	Order::new(
-		"0x1234567890123456789012345678901234567890".to_string(),
-		0.005,
-		Utc::now() + oif_aggregator::chrono::Duration::hours(1),
-	)
+	Order::new("0x1234567890123456789012345678901234567890".to_string())
 }

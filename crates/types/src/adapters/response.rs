@@ -177,11 +177,15 @@ impl AdapterDetailResponse {
 			description: storage.metadata.description.clone(),
 			version: storage.version.clone(),
 			enabled: storage.enabled,
-			supported_networks: storage.metadata.get_networks()
+			supported_networks: storage
+				.metadata
+				.get_networks()
 				.iter()
 				.map(NetworkResponse::from_domain)
 				.collect(),
-			supported_assets: storage.metadata.get_assets()
+			supported_assets: storage
+				.metadata
+				.get_assets()
 				.iter()
 				.map(AssetResponse::from_domain)
 				.collect(),
@@ -259,10 +263,8 @@ impl AssetResponse {
 impl AdapterNetworksResponse {
 	/// Create networks response for adapter
 	pub fn from_networks(adapter_id: String, networks: Vec<Network>) -> Self {
-		let network_responses: Vec<NetworkResponse> = networks
-			.iter()
-			.map(NetworkResponse::from_domain)
-			.collect();
+		let network_responses: Vec<NetworkResponse> =
+			networks.iter().map(NetworkResponse::from_domain).collect();
 
 		Self {
 			adapter_id,
@@ -276,10 +278,8 @@ impl AdapterNetworksResponse {
 impl AdapterAssetsResponse {
 	/// Create assets response for adapter
 	pub fn from_assets(adapter_id: String, assets: Vec<Asset>, chain_id: Option<u64>) -> Self {
-		let asset_responses: Vec<AssetResponse> = assets
-			.iter()
-			.map(AssetResponse::from_domain)
-			.collect();
+		let asset_responses: Vec<AssetResponse> =
+			assets.iter().map(AssetResponse::from_domain).collect();
 
 		Self {
 			adapter_id,
@@ -291,7 +291,11 @@ impl AdapterAssetsResponse {
 	}
 
 	/// Create assets response for specific network
-	pub fn from_assets_for_network(adapter_id: String, network: &Network, assets: Vec<Asset>) -> Self {
+	pub fn from_assets_for_network(
+		adapter_id: String,
+		network: &Network,
+		assets: Vec<Asset>,
+	) -> Self {
 		Self::from_assets(adapter_id, assets, Some(network.chain_id))
 	}
 }
@@ -399,7 +403,7 @@ mod tests {
 		let storage = AdapterStorage::from_domain_with_params(
 			adapter,
 			"https://test.endpoint.com".to_string(),
-			15000
+			15000,
 		);
 
 		let response = AdapterDetailResponse::from_storage(&storage).unwrap();
@@ -407,7 +411,10 @@ mod tests {
 		assert_eq!(response.adapter_id, "test-adapter");
 		assert_eq!(response.name, "Test Adapter");
 		assert_eq!(response.enabled, true);
-		assert_eq!(response.endpoint, Some("https://test.endpoint.com".to_string()));
+		assert_eq!(
+			response.endpoint,
+			Some("https://test.endpoint.com".to_string())
+		);
 		assert_eq!(response.timeout_ms, Some(15000));
 		assert!(response.created_at > 0);
 		assert!(response.updated_at > 0);
@@ -450,10 +457,7 @@ mod tests {
 			Network::new(137, "Polygon".to_string(), false),
 		];
 
-		let response = AdapterNetworksResponse::from_networks(
-			"test-adapter".to_string(),
-			networks
-		);
+		let response = AdapterNetworksResponse::from_networks("test-adapter".to_string(), networks);
 
 		assert_eq!(response.adapter_id, "test-adapter");
 		assert_eq!(response.total_networks, 2);
@@ -464,15 +468,24 @@ mod tests {
 	#[test]
 	fn test_adapter_assets_response() {
 		let assets = vec![
-			Asset::new("0x0".to_string(), "ETH".to_string(), "Ethereum".to_string(), 18, 1),
-			Asset::new("0x123".to_string(), "USDC".to_string(), "USD Coin".to_string(), 6, 1),
+			Asset::new(
+				"0x0".to_string(),
+				"ETH".to_string(),
+				"Ethereum".to_string(),
+				18,
+				1,
+			),
+			Asset::new(
+				"0x123".to_string(),
+				"USDC".to_string(),
+				"USD Coin".to_string(),
+				6,
+				1,
+			),
 		];
 
-		let response = AdapterAssetsResponse::from_assets(
-			"test-adapter".to_string(),
-			assets,
-			Some(1)
-		);
+		let response =
+			AdapterAssetsResponse::from_assets("test-adapter".to_string(), assets, Some(1));
 
 		assert_eq!(response.adapter_id, "test-adapter");
 		assert_eq!(response.chain_id, Some(1));

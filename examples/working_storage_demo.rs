@@ -1,6 +1,5 @@
 //! Working demonstration of pluggable storage architecture
 
-use oif_aggregator::chrono::Utc;
 use oif_aggregator::models::solvers::SolverStatus;
 use oif_aggregator::models::{Order, Quote, Solver};
 use oif_aggregator::storage::MemoryStore;
@@ -130,9 +129,5 @@ fn create_test_quote() -> Quote {
 }
 
 fn create_test_order() -> Order {
-	Order::new(
-		"0x1234567890123456789012345678901234567890".to_string(),
-		0.005,
-		Utc::now() + oif_aggregator::chrono::Duration::hours(1),
-	)
+	Order::new("0x1234567890123456789012345678901234567890".to_string())
 }

@@ -233,7 +233,10 @@ impl Solver {
 
 	/// Check if solver supports a specific chain
 	pub fn supports_chain(&self, chain_id: u64) -> bool {
-		self.metadata.supported_networks.iter().any(|n| n.chain_id == chain_id)
+		self.metadata
+			.supported_networks
+			.iter()
+			.any(|n| n.chain_id == chain_id)
 	}
 
 	/// Check if solver supports a specific network
@@ -325,13 +328,15 @@ impl Solver {
 		self.metadata.supported_assets = symbols
 			.into_iter()
 			.enumerate()
-			.map(|(i, symbol)| Asset::new(
-				format!("0x{:040x}", i), // Generate dummy address
-				symbol.clone(),
-				symbol,
-				18, // Default decimals
-				1,  // Default to Ethereum
-			))
+			.map(|(i, symbol)| {
+				Asset::new(
+					format!("0x{:040x}", i), // Generate dummy address
+					symbol.clone(),
+					symbol,
+					18, // Default decimals
+					1,  // Default to Ethereum
+				)
+			})
 			.collect();
 		self
 	}

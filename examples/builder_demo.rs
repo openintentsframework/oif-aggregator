@@ -1,6 +1,7 @@
 //! Builder Pattern demonstration example
 
 use oif_aggregator::{config::Settings, AggregatorBuilder, Solver, SolverStatus};
+use oif_types::Network;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -29,7 +30,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	custom_solver.metadata.name = Some("Demo Solver".to_string());
 	custom_solver.metadata.description = Some("A demonstration solver".to_string());
 	custom_solver.metadata.version = Some("1.0.0".to_string());
-	custom_solver.metadata.supported_chains = vec![1, 137]; // Now u64 instead of String
+	custom_solver.metadata.supported_networks =
+		vec![Network::new(1, "Ethereum".to_string(), false)];
 	custom_solver.metadata.max_retries = 3;
 	custom_solver.status = SolverStatus::Active;
 

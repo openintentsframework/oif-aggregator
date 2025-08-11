@@ -205,11 +205,13 @@ impl SolverMetadataStorage {
 			name: metadata.name,
 			description: metadata.description,
 			version: metadata.version,
-			supported_networks: metadata.supported_networks
+			supported_networks: metadata
+				.supported_networks
 				.into_iter()
 				.map(NetworkStorage::from_domain)
 				.collect(),
-			supported_assets: metadata.supported_assets
+			supported_assets: metadata
+				.supported_assets
 				.into_iter()
 				.map(AssetStorage::from_domain)
 				.collect(),
@@ -224,11 +226,13 @@ impl SolverMetadataStorage {
 			name: self.name,
 			description: self.description,
 			version: self.version,
-			supported_networks: self.supported_networks
+			supported_networks: self
+				.supported_networks
 				.into_iter()
 				.map(|n| n.to_domain())
 				.collect(),
-			supported_assets: self.supported_assets
+			supported_assets: self
+				.supported_assets
 				.into_iter()
 				.map(|a| a.to_domain())
 				.collect(),
@@ -325,8 +329,8 @@ impl HealthCheckStorage {
 /// Storage statistics for a solver
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SolverStorageStats {
-		pub solver_id: String,
-		pub version: u32,
+	pub solver_id: String,
+	pub version: u32,
 	pub created_at: DateTime<Utc>,
 	pub last_updated: DateTime<Utc>,
 	pub is_stale: bool,
@@ -432,7 +436,12 @@ impl SolverStorageFilter {
 		}
 
 		if let Some(chain_id) = self.supported_chain {
-			if !solver.metadata.supported_networks.iter().any(|n| n.chain_id == chain_id) {
+			if !solver
+				.metadata
+				.supported_networks
+				.iter()
+				.any(|n| n.chain_id == chain_id)
+			{
 				return false;
 			}
 		}
