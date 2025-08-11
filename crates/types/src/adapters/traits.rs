@@ -51,6 +51,4 @@ pub trait SolverAdapter: Send + Sync + Debug {
 	fn version(&self) -> &str {
 		&self.adapter_info().version
 	}
-
-	// Removed supports_chain helper
 }

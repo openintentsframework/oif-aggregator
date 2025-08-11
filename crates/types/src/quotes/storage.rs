@@ -112,18 +112,6 @@ impl QuoteStorage {
 	pub fn update_status(&mut self, status: QuoteStatusStorage) {
 		self.status = status;
 	}
-
-	/// Get storage statistics
-	pub fn storage_stats(&self) -> QuoteStorageStats {
-		QuoteStorageStats {
-			quote_id: self.quote_id.clone(),
-			created_at: self.created_at,
-			last_accessed: self.last_accessed,
-			access_count: self.access_count,
-			ttl_seconds: self.ttl_seconds(),
-			is_expired: self.is_expired(),
-		}
-	}
 }
 
 impl QuoteStatusStorage {
@@ -148,17 +136,6 @@ impl QuoteStatusStorage {
 	}
 }
 
-/// Storage statistics for a quote
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct QuoteStorageStats {
-	pub quote_id: String,
-	pub created_at: DateTime<Utc>,
-	pub last_accessed: Option<DateTime<Utc>>,
-	pub access_count: u64,
-	pub ttl_seconds: i64,
-	pub is_expired: bool,
-}
-
 /// Conversion traits for easy integration
 impl From<Quote> for QuoteStorage {
 	fn from(quote: Quote) -> Self {
@@ -173,138 +150,6 @@ impl TryFrom<QuoteStorage> for Quote {
 		storage.to_domain()
 	}
 }
-
-/// Storage query filters
-#[derive(Debug, Clone)]
-pub struct QuoteStorageFilter {
-	pub request_id: Option<String>,
-	pub solver_id: Option<String>,
-	pub chain_id: Option<u64>,
-	pub token_in: Option<String>,
-	pub token_out: Option<String>,
-	pub status: Option<QuoteStatusStorage>,
-	pub created_after: Option<DateTime<Utc>>,
-	pub created_before: Option<DateTime<Utc>>,
-	pub include_expired: bool,
-}
-
-impl Default for QuoteStorageFilter {
-	fn default() -> Self {
-		Self {
-			request_id: None,
-			solver_id: None,
-			chain_id: None,
-			token_in: None,
-			token_out: None,
-			status: None,
-			created_after: None,
-			created_before: None,
-			include_expired: false,
-		}
-	}
-}
-
-impl QuoteStorageFilter {
-	/// Create a new filter
-	pub fn new() -> Self {
-		Self::default()
-	}
-
-	/// Filter by request ID
-	pub fn with_request_id(mut self, request_id: String) -> Self {
-		self.request_id = Some(request_id);
-		self
-	}
-
-	/// Filter by solver ID
-	pub fn with_solver_id(mut self, solver_id: String) -> Self {
-		self.solver_id = Some(solver_id);
-		self
-	}
-
-	/// Filter by chain ID
-	pub fn with_chain_id(mut self, chain_id: u64) -> Self {
-		self.chain_id = Some(chain_id);
-		self
-	}
-
-	/// Filter by token pair
-	pub fn with_token_pair(mut self, token_in: String, token_out: String) -> Self {
-		self.token_in = Some(token_in);
-		self.token_out = Some(token_out);
-		self
-	}
-
-	/// Filter by status
-	pub fn with_status(mut self, status: QuoteStatusStorage) -> Self {
-		self.status = Some(status);
-		self
-	}
-
-	/// Include expired quotes
-	pub fn include_expired(mut self) -> Self {
-		self.include_expired = true;
-		self
-	}
-
-	/// Check if a quote matches this filter
-	pub fn matches(&self, quote: &QuoteStorage) -> bool {
-		if let Some(ref request_id) = self.request_id {
-			if quote.request_id != *request_id {
-				return false;
-			}
-		}
-
-		if let Some(ref solver_id) = self.solver_id {
-			if quote.solver_id != *solver_id {
-				return false;
-			}
-		}
-
-		if let Some(chain_id) = self.chain_id {
-			if quote.chain_id != chain_id {
-				return false;
-			}
-		}
-
-		if let Some(ref token_in) = self.token_in {
-			if quote.token_in != *token_in {
-				return false;
-			}
-		}
-
-		if let Some(ref token_out) = self.token_out {
-			if quote.token_out != *token_out {
-				return false;
-			}
-		}
-
-		if let Some(ref status) = self.status {
-			if quote.status != *status {
-				return false;
-			}
-		}
-
-		if let Some(created_after) = self.created_after {
-			if quote.created_at <= created_after {
-				return false;
-			}
-		}
-
-		if let Some(created_before) = self.created_before {
-			if quote.created_at >= created_before {
-				return false;
-			}
-		}
-
-		if !self.include_expired && quote.is_expired() {
-			return false;
-		}
-
-		true
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -363,47 +208,5 @@ mod tests {
 			QuoteStatusStorage::Valid
 		);
 		assert_eq!(QuoteStatusStorage::Valid.to_domain(), QuoteStatus::Valid);
-	}
-
-	#[test]
-	fn test_storage_filter() {
-		let quote = create_test_quote();
-		let storage = QuoteStorage::from_domain(quote);
-
-		// Test basic filter
-		let filter = QuoteStorageFilter::new()
-			.with_request_id("req-123".to_string())
-			.with_chain_id(1);
-		assert!(filter.matches(&storage));
-
-		// Test non-matching filter
-		let filter = QuoteStorageFilter::new().with_request_id("different-req".to_string());
-		assert!(!filter.matches(&storage));
-
-		// Test expired filter
-		let mut expired_storage = storage.clone();
-		expired_storage.expires_at = Utc::now() - Duration::minutes(1);
-
-		let filter = QuoteStorageFilter::new();
-		assert!(!filter.matches(&expired_storage)); // Excludes expired by default
-
-		let filter = QuoteStorageFilter::new().include_expired();
-		assert!(filter.matches(&expired_storage)); // Includes expired when specified
-	}
-
-	#[test]
-	fn test_storage_stats() {
-		let quote = create_test_quote();
-		let mut storage = QuoteStorage::from_domain(quote);
-
-		storage.mark_accessed();
-		storage.mark_accessed();
-
-		let stats = storage.storage_stats();
-		assert_eq!(stats.quote_id, storage.quote_id);
-		assert_eq!(stats.access_count, 2);
-		assert!(stats.last_accessed.is_some());
-		assert!(!stats.is_expired);
-		assert!(stats.ttl_seconds > 0);
 	}
 }
