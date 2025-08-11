@@ -37,8 +37,7 @@ impl OrderService {
 
 	/// Retrieve an existing order by id
 	pub async fn get_order(&self, order_id: &str) -> Result<Option<Order>, OrderServiceError> {
-		let os = self.storage.as_ref() as &dyn oif_storage::traits::OrderStorage;
-		os.get(order_id)
+		self.storage.get_order(order_id)
 			.await
 			.map_err(|e| OrderServiceError::Storage(e.to_string()))
 	}

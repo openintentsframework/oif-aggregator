@@ -52,9 +52,8 @@ pub async fn post_quotes(
 		.fetch_quotes(quote_request.clone())
 		.await;
 
-	let qs = state.storage.as_ref() as &dyn oif_storage::traits::QuoteStorage;
 	for quote in &quotes {
-		qs.create(quote.clone()).await.map_err(|e| {
+		state.storage.create_quote(quote.clone()).await.map_err(|e| {
 			(
 				StatusCode::INTERNAL_SERVER_ERROR,
 				Json(ErrorResponse {

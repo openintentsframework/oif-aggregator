@@ -229,8 +229,7 @@ where
 			solver.metadata.max_retries = solver_config.max_retries;
 			solver.metadata.headers = solver_config.headers.clone();
 			solver.status = SolverStatus::Active; // Set to active once initialized
-			(&storage as &dyn SolverStorage)
-				.create(solver)
+			storage.create_solver(solver)
 				.await
 				.expect("Failed to add solver to storage");
 		}
@@ -244,8 +243,8 @@ where
 	}
 	/// Add a solver to the aggregator
 	pub async fn with_solver(self, solver: Solver) -> Self {
-		(&self.storage as &dyn SolverStorage)
-			.create(solver.clone())
+		self.storage
+			.create_solver(solver.clone())
 			.await
 			.expect("Failed to add solver");
 		self
@@ -274,8 +273,8 @@ where
 		// Initialize the aggregator service
 		let settings = self.settings.clone().unwrap_or_default();
 		// Use base repository listing for solvers
-		let solvers = (&self.storage as &dyn oif_types::storage::Repository<oif_types::Solver>)
-			.list_all()
+		let solvers = self.storage
+			.list_all_solvers()
 			.await
 			.map_err(|e| format!("Failed to get solvers: {}", e))?;
 
@@ -395,6 +394,9 @@ where
 		info!("  POST /v1/quotes");
 		info!("  POST /v1/orders");
 		info!("  GET  /v1/orders/{{id}}");
+		info!("  GET /v1/solvers/");
+		info!("  GET  /v1/solvers/{{id}}");
+
 
 		// Apply global rate limiting based on settings at the make_service level
 		let rate_cfg = &settings.environment.rate_limiting;

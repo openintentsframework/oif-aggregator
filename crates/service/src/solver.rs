@@ -23,8 +23,7 @@ impl SolverService {
 	}
 
 	pub async fn list_solvers(&self) -> Result<Vec<Solver>, SolverServiceError> {
-		let repo = self.storage.as_ref() as &dyn oif_types::storage::Repository<Solver>;
-		repo.list_all()
+		self.storage.list_all_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))
 	}
@@ -35,9 +34,8 @@ impl SolverService {
 		page: Option<u32>,
 		page_size: Option<u32>,
 	) -> Result<(Vec<Solver>, usize, usize, usize), SolverServiceError> {
-		let repo = self.storage.as_ref() as &dyn oif_types::storage::Repository<Solver>;
-		let total = repo
-			.count()
+		let total = self.storage
+			.count_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
@@ -46,22 +44,21 @@ impl SolverService {
 		let effective_page = page.unwrap_or(1).max(1);
 		let start = (effective_page as usize - 1).saturating_mul(effective_page_size as usize);
 
-		let page_items = repo
-			.list_paginated(start, effective_page_size as usize)
+		let page_items = self.storage
+			.list_solvers_paginated(start, effective_page_size as usize)
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
-		// Active count via domain trait (efficient)
-		let ss = self.storage.as_ref() as &dyn oif_storage::traits::SolverStorage;
-		let active_count = ss
-			.get_active()
+		// Active count via convenient method
+		let active_count = self.storage
+			.get_active_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?
 			.len();
 
 		// Healthy count across all
-		let all = repo
-			.list_all()
+		let all = self.storage
+			.list_all_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 		let healthy_count = all.iter().filter(|s| s.is_healthy()).count();
@@ -70,9 +67,8 @@ impl SolverService {
 	}
 
 	pub async fn get_solver(&self, solver_id: &str) -> Result<Solver, SolverServiceError> {
-		let ss = self.storage.as_ref() as &dyn oif_storage::traits::SolverStorage;
-		match ss
-			.get(solver_id)
+		match self.storage
+			.get_solver(solver_id)
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?
 		{
