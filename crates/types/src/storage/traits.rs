@@ -1,10 +1,7 @@
 //! Storage traits for pluggable storage implementations
 
-use crate::storage::errors::StorageError;
-use crate::{Order, Quote, Solver};
+use crate::{Order, Quote, Solver, StorageResult};
 use async_trait::async_trait;
-
-pub type StorageResult<T> = Result<T, StorageError>;
 
 /// Generic repository abstraction for basic CRUD operations over an entity type.
 ///
@@ -32,9 +29,6 @@ pub trait QuoteStorageTrait: Repository<Quote> + Send + Sync {
 
 	/// Get all quotes from a solver
 	async fn get_quotes_by_solver(&self, solver_id: &str) -> StorageResult<Vec<Quote>>;
-
-	/// Remove expired quotes
-	async fn cleanup_expired_quotes(&self) -> StorageResult<usize>;
 }
 
 /// Trait for order storage operations (CRUD naming)
@@ -62,12 +56,6 @@ pub trait StorageTrait: QuoteStorageTrait + OrderStorageTrait + SolverStorageTra
 
 	/// Close the storage connection
 	async fn close(&self) -> StorageResult<()>;
-
-	/// Start any background tasks associated with the storage implementation (e.g., TTL cleanup).
-	/// Default implementation does nothing.
-	async fn start_background_tasks(&self) -> StorageResult<()> {
-		Ok(())
-	}
 
 	// ===============================
 	// Solver convenience methods
@@ -221,10 +209,5 @@ pub trait StorageTrait: QuoteStorageTrait + OrderStorageTrait + SolverStorageTra
 	/// Get quotes by solver ID
 	async fn get_quotes_by_solver(&self, solver_id: &str) -> StorageResult<Vec<Quote>> {
 		<Self as QuoteStorageTrait>::get_quotes_by_solver(self, solver_id).await
-	}
-
-	/// Clean up expired quotes
-	async fn cleanup_expired_quotes(&self) -> StorageResult<usize> {
-		<Self as QuoteStorageTrait>::cleanup_expired_quotes(self).await
 	}
 }

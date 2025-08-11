@@ -135,7 +135,3 @@ pub enum OrderError {
 	#[error("Internal error: {0}")]
 	Internal(String),
 }
-
-/// Result types for order operations
-pub type OrderResult<T> = Result<T, OrderError>;
-pub type OrderValidationResult<T> = Result<T, OrderValidationError>;

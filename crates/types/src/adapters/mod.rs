@@ -11,16 +11,18 @@ pub mod storage;
 pub mod traits;
 
 pub use config::{AdapterConfig, AdapterType};
-pub use errors::{
-	AdapterError, AdapterFactoryError, AdapterFactoryResult, AdapterResult, AdapterValidationError,
-	AdapterValidationResult,
-};
+pub use errors::{AdapterError, AdapterFactoryError, AdapterValidationError};
 pub use response::{
 	AdapterAssetsResponse, AdapterConfigResponse, AdapterDetailResponse, AdapterNetworksResponse,
 	AdapterResponse, AssetResponse, NetworkResponse,
 };
 pub use storage::{AdapterMetadataStorage, AdapterStorage, AssetStorage, NetworkStorage};
 pub use traits::SolverAdapter;
+
+/// Result types for adapter operations
+pub type AdapterResult<T> = Result<T, AdapterError>;
+pub type AdapterValidationResult<T> = Result<T, AdapterValidationError>;
+pub type AdapterFactoryResult<T> = Result<T, AdapterFactoryError>;
 
 /// Core Adapter domain model
 ///

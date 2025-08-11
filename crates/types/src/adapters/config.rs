@@ -265,19 +265,6 @@ impl TryFrom<AdapterConfig> for Adapter {
 	}
 }
 
-/// Validate semantic version format
-fn is_valid_semver(version: &str) -> bool {
-	// Simple semver validation - just check basic format
-	let parts: Vec<&str> = version.split('.').collect();
-	if parts.len() != 3 {
-		return false;
-	}
-
-	parts
-		.iter()
-		.all(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;

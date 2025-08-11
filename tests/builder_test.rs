@@ -98,7 +98,7 @@ async fn test_builder_with_solver() {
 
 #[tokio::test]
 async fn test_builder_with_storage() {
-	let custom_storage = MemoryStore::with_ttl_enabled(false);
+	let custom_storage = MemoryStore::new();
 	let builder = AggregatorBuilder::with_storage(custom_storage);
 
 	// Test that we can create the app with custom storage
@@ -119,7 +119,7 @@ async fn test_builder_chaining() {
 #[tokio::test]
 async fn test_builder_storage_switching() {
 	let solver = create_test_solver();
-	let custom_storage = MemoryStore::with_ttl_enabled(true);
+	let custom_storage = MemoryStore::new();
 
 	// Test switching storage and adding solver
 	let builder = AggregatorBuilder::with_storage(custom_storage)

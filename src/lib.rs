@@ -373,9 +373,6 @@ where
 		// Create the router using the builder pattern
 		let (app, app_state) = self.start().await?;
 
-		// Start storage background tasks (e.g., TTL cleanup) if implemented
-		let _bg = app_state.storage.start_background_tasks();
-
 		// Log application startup info
 		let stats = app_state.aggregator_service.get_stats();
 		info!(

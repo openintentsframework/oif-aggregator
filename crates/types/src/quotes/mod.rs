@@ -9,10 +9,16 @@ pub mod request;
 pub mod response;
 pub mod storage;
 
-pub use errors::{QuoteError, QuoteResult, QuoteValidationError, QuoteValidationResult};
+pub use errors::{QuoteError, QuoteValidationError};
 pub use request::QuoteRequest;
 pub use response::{FeeInfo, QuoteResponse, RouteStep, TokenInfo};
 pub use storage::QuoteStorage;
+
+/// Result type for quote operations
+pub type QuoteResult<T> = Result<T, QuoteError>;
+
+/// Result type for quote validation operations
+pub type QuoteValidationResult<T> = Result<T, QuoteValidationError>;
 
 /// Core Quote domain model
 ///
@@ -120,11 +126,6 @@ impl Quote {
 	/// Check if the quote has expired
 	pub fn is_expired(&self) -> bool {
 		Utc::now() > self.expires_at
-	}
-
-	/// Get remaining time to live in seconds
-	pub fn ttl_seconds(&self) -> i64 {
-		(self.expires_at - Utc::now()).num_seconds().max(0)
 	}
 
 	/// Calculate the exchange rate (amount_out / amount_in)
@@ -254,7 +255,6 @@ mod tests {
 		assert_eq!(quote.chain_id, 1);
 		assert_eq!(quote.status, QuoteStatus::Valid);
 		assert!(!quote.is_expired());
-		assert!(quote.ttl_seconds() > 0);
 	}
 
 	#[test]
@@ -280,7 +280,6 @@ mod tests {
 		quote.expires_at = Utc::now() - Duration::minutes(1);
 
 		assert!(quote.is_expired());
-		assert_eq!(quote.ttl_seconds(), 0);
 	}
 
 	#[test]

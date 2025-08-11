@@ -134,8 +134,3 @@ pub enum AdapterFactoryError {
 	#[error("Factory is locked and cannot be modified")]
 	FactoryLocked,
 }
-
-/// Result types for adapter operations
-pub type AdapterResult<T> = Result<T, AdapterError>;
-pub type AdapterValidationResult<T> = Result<T, AdapterValidationError>;
-pub type AdapterFactoryResult<T> = Result<T, AdapterFactoryError>;

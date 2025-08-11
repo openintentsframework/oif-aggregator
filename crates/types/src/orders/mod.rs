@@ -8,10 +8,14 @@ pub mod request;
 pub mod response;
 pub mod storage;
 
-pub use errors::{OrderError, OrderValidationError, OrderValidationResult};
+pub use errors::{OrderError, OrderValidationError};
 pub use request::OrdersRequest;
 pub use response::OrdersResponse;
 pub use storage::OrderStorage;
+
+/// Result types for order operations
+pub type OrderResult<T> = Result<T, OrderError>;
+pub type OrderValidationResult<T> = Result<T, OrderValidationError>;
 
 /// Core Order domain model
 ///

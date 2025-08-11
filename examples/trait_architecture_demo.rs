@@ -79,11 +79,6 @@ impl QuoteStorage for CustomPostgresStorage {
 		println!("Fetching quotes for solver {} from PostgreSQL", solver_id);
 		Ok(vec![])
 	}
-
-	async fn cleanup_expired_quotes(&self) -> StorageResult<usize> {
-		println!("Cleaning up expired quotes in PostgreSQL");
-		Ok(0)
-	}
 }
 
 #[async_trait]
@@ -210,11 +205,6 @@ impl Storage for CustomPostgresStorage {
 
 	async fn close(&self) -> StorageResult<()> {
 		println!("Closing PostgreSQL connections");
-		Ok(())
-	}
-
-	async fn start_background_tasks(&self) -> StorageResult<()> {
-		println!("Starting PostgreSQL background tasks");
 		Ok(())
 	}
 }

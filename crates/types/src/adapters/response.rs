@@ -3,7 +3,7 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use super::{Adapter, AdapterResult, AdapterStorage, AdapterType};
+use super::{Adapter, AdapterStorage, AdapterType};
 use crate::models::{Asset, Network};
 
 /// Response format for individual adapters in API
@@ -85,7 +85,7 @@ pub struct AdapterNetworksResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AdapterAssetsResponse {
 	pub adapter_id: String,
-	pub chain_id: Option<u64>, // If filtered by network
+	pub chain_id: Option<u64>,
 	pub assets: Vec<AssetResponse>,
 	pub total_assets: usize,
 	pub timestamp: i64,
@@ -114,20 +114,6 @@ impl TryFrom<Adapter> for AdapterResponse {
 	}
 }
 
-impl AdapterResponse {
-	/// Create minimal adapter response (for public API)
-	pub fn minimal_from_adapter(adapter: &Adapter) -> AdapterResult<Self> {
-		Ok(Self {
-			adapter_id: adapter.adapter_id.clone(),
-			adapter_type: adapter.adapter_type.to_string(),
-			name: adapter.name.clone(),
-			description: adapter.description.clone(),
-			version: adapter.version.clone(),
-			created_at: adapter.created_at.timestamp(),
-		})
-	}
-}
-
 impl TryFrom<Vec<Adapter>> for AdaptersResponse {
 	type Error = super::AdapterError;
 
@@ -141,24 +127,6 @@ impl TryFrom<Vec<Adapter>> for AdaptersResponse {
 		Ok(Self {
 			adapters: responses,
 			total_adapters,
-			timestamp: Utc::now().timestamp(),
-		})
-	}
-}
-
-impl AdaptersResponse {
-	/// Create minimal adapters response (for public API)
-	pub fn minimal_from_adapters(adapters: &[Adapter]) -> AdapterResult<Self> {
-		let adapter_responses: Result<Vec<_>, _> = adapters
-			.iter()
-			.map(AdapterResponse::minimal_from_adapter)
-			.collect();
-
-		let responses = adapter_responses?;
-
-		Ok(Self {
-			adapters: responses,
-			total_adapters: adapters.len(),
 			timestamp: Utc::now().timestamp(),
 		})
 	}
@@ -391,14 +359,6 @@ mod tests {
 
 		assert_eq!(response.adapter_id, "test-adapter");
 		assert_eq!(response.name, "Test Adapter");
-	}
-
-	#[test]
-	fn test_minimal_adapter_response() {
-		let adapter = create_test_adapter();
-		let response = AdapterResponse::minimal_from_adapter(&adapter).unwrap();
-
-		assert_eq!(response.adapter_id, "test-adapter");
 	}
 
 	#[test]

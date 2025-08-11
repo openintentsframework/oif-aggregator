@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
-use super::errors::OrderResult;
+use crate::orders::OrderResult;
+
 use super::{Order, OrderStatus};
 
 /// Response body for /v1/orders endpoint (order submission)

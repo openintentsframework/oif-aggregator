@@ -48,9 +48,3 @@ pub enum QuoteError {
 	#[error("Serialization error: {0}")]
 	Serialization(#[from] serde_json::Error),
 }
-
-/// Result type for quote operations
-pub type QuoteResult<T> = Result<T, QuoteError>;
-
-/// Result type for quote validation operations
-pub type QuoteValidationResult<T> = Result<T, QuoteValidationError>;

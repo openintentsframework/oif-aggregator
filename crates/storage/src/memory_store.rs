@@ -1,22 +1,18 @@
-//! In-memory storage implementation using DashMap with TTL support
+//! In-memory storage implementation using DashMap
 
 use crate::traits::{OrderStorage, QuoteStorage, SolverStorage, Storage, StorageResult};
 use async_trait::async_trait;
-use chrono::Utc;
 use dashmap::DashMap;
 use oif_types::{AdapterConfig, Order, Quote, Solver};
 use std::sync::Arc;
-use tokio::time::{interval, Duration};
-use tracing::{debug, info};
 
-/// In-memory storage for solvers, quotes, and intents with TTL support
+/// In-memory storage for solvers, quotes, and orders
 #[derive(Clone)]
 pub struct MemoryStore {
 	pub solvers: Arc<DashMap<String, Solver>>,
 	pub quotes: Arc<DashMap<String, Quote>>,
-	pub intents: Arc<DashMap<String, Order>>,
+	pub orders: Arc<DashMap<String, Order>>,
 	pub adapters: Arc<DashMap<String, AdapterConfig>>,
-	pub quote_ttl_enabled: bool,
 }
 
 impl MemoryStore {
@@ -25,171 +21,9 @@ impl MemoryStore {
 		Self {
 			solvers: Arc::new(DashMap::new()),
 			quotes: Arc::new(DashMap::new()),
-			intents: Arc::new(DashMap::new()),
+			orders: Arc::new(DashMap::new()),
 			adapters: Arc::new(DashMap::new()),
-			quote_ttl_enabled: true,
 		}
-	}
-
-	/// Create a new memory store with TTL configuration
-	pub fn with_ttl_enabled(ttl_enabled: bool) -> Self {
-		Self {
-			solvers: Arc::new(DashMap::new()),
-			quotes: Arc::new(DashMap::new()),
-			intents: Arc::new(DashMap::new()),
-			adapters: Arc::new(DashMap::new()),
-			quote_ttl_enabled: ttl_enabled,
-		}
-	}
-
-	/// Start the TTL cleanup task for expired quotes
-	pub fn start_ttl_cleanup(&self) -> tokio::task::JoinHandle<()> {
-		if !self.quote_ttl_enabled {
-			return tokio::spawn(async {});
-		}
-
-		let quotes = Arc::clone(&self.quotes);
-		tokio::spawn(async move {
-			let mut cleanup_interval = interval(Duration::from_secs(60)); // Check every minute
-
-			loop {
-				cleanup_interval.tick().await;
-
-				let mut expired_quotes = Vec::new();
-				let now = Utc::now();
-
-				// Collect expired quote IDs
-				for entry in quotes.iter() {
-					if entry.value().expires_at <= now {
-						expired_quotes.push(entry.key().clone());
-					}
-				}
-
-				// Remove expired quotes
-				if !expired_quotes.is_empty() {
-					debug!("Cleaning up {} expired quotes", expired_quotes.len());
-					for quote_id in expired_quotes {
-						quotes.remove(&quote_id);
-					}
-				}
-			}
-		})
-	}
-
-	/// Get all non-expired quotes
-	pub fn get_all_quotes(&self) -> Vec<Quote> {
-		if self.quote_ttl_enabled {
-			self.quotes
-				.iter()
-				.filter_map(|entry| {
-					let quote = entry.value();
-					if !quote.is_expired() {
-						Some(quote.clone())
-					} else {
-						None
-					}
-				})
-				.collect()
-		} else {
-			self.quotes.iter().map(|entry| entry.clone()).collect()
-		}
-	}
-
-	/// Get quotes by request ID
-	pub fn get_quotes_by_request(&self, request_id: &str) -> Vec<Quote> {
-		self.quotes
-			.iter()
-			.filter_map(|entry| {
-				let quote = entry.value();
-				if quote.request_id == request_id
-					&& (!self.quote_ttl_enabled || !quote.is_expired())
-				{
-					Some(quote.clone())
-				} else {
-					None
-				}
-			})
-			.collect()
-	}
-
-	/// Remove expired quotes manually
-	pub fn cleanup_expired_quotes(&self) -> usize {
-		if !self.quote_ttl_enabled {
-			return 0;
-		}
-
-		let mut expired_count = 0;
-		let now = Utc::now();
-		let mut to_remove = Vec::new();
-
-		for entry in self.quotes.iter() {
-			if entry.value().expires_at <= now {
-				to_remove.push(entry.key().clone());
-			}
-		}
-
-		for quote_id in to_remove {
-			self.quotes.remove(&quote_id);
-			expired_count += 1;
-		}
-
-		if expired_count > 0 {
-			info!("Cleaned up {} expired quotes", expired_count);
-		}
-
-		expired_count
-	}
-
-	/// Update intent status
-	pub fn update_intent_status(&self, order_id: &str, status: oif_types::OrderStatus) -> bool {
-		if let Some(mut entry) = self.intents.get_mut(order_id) {
-			entry.status = status;
-			true
-		} else {
-			false
-		}
-	}
-
-	/// Get intents by user address
-	pub fn get_intents_by_user(&self, user_address: &str) -> Vec<Order> {
-		self.intents
-			.iter()
-			.filter_map(|entry| {
-				let intent = entry.value();
-				if intent.user_address == user_address {
-					Some(intent.clone())
-				} else {
-					None
-				}
-			})
-			.collect()
-	}
-
-	/// Adapter management methods
-	/// Add an adapter configuration
-	pub fn add_adapter(&self, adapter: AdapterConfig) {
-		info!(
-			"Adding adapter {} of type {:?}",
-			adapter.adapter_id, adapter.adapter_type
-		);
-		self.adapters.insert(adapter.adapter_id.clone(), adapter);
-	}
-
-	/// Get an adapter by ID
-	pub fn get_adapter(&self, adapter_id: &str) -> Option<AdapterConfig> {
-		self.adapters.get(adapter_id).map(|entry| entry.clone())
-	}
-
-	/// Get all enabled adapters
-	pub fn get_enabled_adapters(&self) -> Vec<AdapterConfig> {
-		self.adapters
-			.iter()
-			.filter_map(|entry| {
-				let adapter = entry.value();
-				// Simplified: all adapters are considered enabled
-				Some(adapter.clone())
-			})
-			.collect()
 	}
 }
 
@@ -210,15 +44,6 @@ impl oif_types::storage::Repository<Quote> for MemoryStore {
 	}
 
 	async fn get(&self, quote_id: &str) -> StorageResult<Option<Quote>> {
-		if self.quote_ttl_enabled {
-			if let Some(quote) = self.quotes.get(quote_id) {
-				if quote.is_expired() {
-					self.quotes.remove(quote_id);
-					return Ok(None);
-				}
-				return Ok(Some(quote.clone()));
-			}
-		}
 		Ok(self.quotes.get(quote_id).map(|q| q.clone()))
 	}
 
@@ -235,21 +60,7 @@ impl oif_types::storage::Repository<Quote> for MemoryStore {
 	}
 
 	async fn list_all(&self) -> StorageResult<Vec<Quote>> {
-		if self.quote_ttl_enabled {
-			Ok(self
-				.quotes
-				.iter()
-				.filter_map(|e| {
-					if e.value().is_expired() {
-						None
-					} else {
-						Some(e.value().clone())
-					}
-				})
-				.collect())
-		} else {
-			Ok(self.quotes.iter().map(|e| e.value().clone()).collect())
-		}
+		Ok(self.quotes.iter().map(|e| e.value().clone()).collect())
 	}
 
 	async fn list_paginated(&self, offset: usize, limit: usize) -> StorageResult<Vec<Quote>> {
@@ -268,9 +79,7 @@ impl QuoteStorage for MemoryStore {
 			.iter()
 			.filter_map(|entry| {
 				let quote = entry.value();
-				if quote.request_id == request_id
-					&& (!self.quote_ttl_enabled || !quote.is_expired())
-				{
+				if quote.request_id == request_id {
 					Some(quote.clone())
 				} else {
 					None
@@ -286,8 +95,7 @@ impl QuoteStorage for MemoryStore {
 			.iter()
 			.filter_map(|entry| {
 				let quote = entry.value();
-				if quote.solver_id == solver_id && (!self.quote_ttl_enabled || !quote.is_expired())
-				{
+				if quote.solver_id == solver_id {
 					Some(quote.clone())
 				} else {
 					None
@@ -296,59 +104,34 @@ impl QuoteStorage for MemoryStore {
 			.collect();
 		Ok(quotes)
 	}
-
-	async fn cleanup_expired_quotes(&self) -> StorageResult<usize> {
-		if !self.quote_ttl_enabled {
-			return Ok(0);
-		}
-
-		let now = Utc::now();
-		let mut removed_count = 0;
-
-		self.quotes.retain(|_key, quote| {
-			if quote.expires_at <= now {
-				removed_count += 1;
-				debug!("Removed expired quote: {}", quote.quote_id);
-				false
-			} else {
-				true
-			}
-		});
-
-		if removed_count > 0 {
-			info!("Cleaned up {} expired quotes", removed_count);
-		}
-
-		Ok(removed_count)
-	}
 }
 
 #[async_trait]
 impl oif_types::storage::Repository<Order> for MemoryStore {
 	async fn create(&self, order: Order) -> StorageResult<()> {
-		self.intents.insert(order.order_id.clone(), order);
+		self.orders.insert(order.order_id.clone(), order);
 		Ok(())
 	}
 
 	async fn get(&self, order_id: &str) -> StorageResult<Option<Order>> {
-		Ok(self.intents.get(order_id).map(|i| i.clone()))
+		Ok(self.orders.get(order_id).map(|i| i.clone()))
 	}
 
 	async fn update(&self, order: Order) -> StorageResult<()> {
-		self.intents.insert(order.order_id.clone(), order);
+		self.orders.insert(order.order_id.clone(), order);
 		Ok(())
 	}
 
 	async fn delete(&self, order_id: &str) -> StorageResult<bool> {
-		Ok(self.intents.remove(order_id).is_some())
+		Ok(self.orders.remove(order_id).is_some())
 	}
 
 	async fn count(&self) -> StorageResult<usize> {
-		Ok(self.intents.len())
+		Ok(self.orders.len())
 	}
 
 	async fn list_all(&self) -> StorageResult<Vec<Order>> {
-		Ok(self.intents.iter().map(|e| e.value().clone()).collect())
+		Ok(self.orders.iter().map(|e| e.value().clone()).collect())
 	}
 
 	async fn list_paginated(&self, offset: usize, limit: usize) -> StorageResult<Vec<Order>> {
@@ -363,7 +146,7 @@ impl oif_types::storage::Repository<Order> for MemoryStore {
 impl OrderStorage for MemoryStore {
 	async fn get_by_user(&self, user_address: &str) -> StorageResult<Vec<Order>> {
 		let orders: Vec<Order> = self
-			.intents
+			.orders
 			.iter()
 			.filter_map(|entry| {
 				let order = entry.value();
@@ -379,7 +162,7 @@ impl OrderStorage for MemoryStore {
 
 	async fn get_by_status(&self, status: oif_types::OrderStatus) -> StorageResult<Vec<Order>> {
 		let orders: Vec<Order> = self
-			.intents
+			.orders
 			.iter()
 			.filter_map(|entry| {
 				let order = entry.value();
@@ -459,11 +242,6 @@ impl Storage for MemoryStore {
 
 	async fn close(&self) -> StorageResult<()> {
 		// For memory store, there's nothing to close
-		Ok(())
-	}
-
-	async fn start_background_tasks(&self) -> StorageResult<()> {
-		self.start_ttl_cleanup();
 		Ok(())
 	}
 }

@@ -203,16 +203,4 @@ impl AppStateBuilder {
 			solver_service: Arc::new(SolverService::new(storage.clone())),
 		}
 	}
-
-	/// Create app state with TTL-enabled storage
-	pub fn with_ttl_storage() -> AppState {
-		let aggregator_service = AggregatorService::new(vec![], 5000);
-		let storage = Arc::new(MemoryStore::with_ttl_enabled(true));
-		AppState {
-			aggregator_service: Arc::new(aggregator_service),
-			storage: storage.clone(),
-			order_service: Arc::new(OrderService::new(storage.clone())),
-			solver_service: Arc::new(SolverService::new(storage.clone())),
-		}
-	}
 }

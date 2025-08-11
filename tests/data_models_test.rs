@@ -17,17 +17,15 @@ async fn test_quote_ttl() {
 
 	// Test fresh quote
 	assert!(!quote.is_expired());
-	assert!(quote.ttl_seconds() > 0);
 
 	// Test expired quote
 	quote.expires_at = Utc::now() - Duration::minutes(1);
 	assert!(quote.is_expired());
-	assert_eq!(quote.ttl_seconds(), 0);
 }
 
 #[tokio::test]
 async fn test_memory_store_ttl() {
-	let store = MemoryStore::with_ttl_enabled(true);
+	let store = MemoryStore::new();
 
 	// Create a quote that expires in 1 second for testing
 	let quote = MockEntities::expiring_quote(1);
