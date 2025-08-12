@@ -57,37 +57,33 @@ impl OrderService {
 
 	/// Validate, persist and return the created order
 	pub async fn submit_order(&self, request: &OrdersRequest) -> Result<Order, OrderServiceError> {
-		// 1. Get the quote to determine which solver to use
-		let quote = if let Some(quote_id) = &request.quote_id {
-			self.storage
-				.get_quote(quote_id)
-				.await
-				.map_err(|e| OrderServiceError::Storage(e.to_string()))?
-				.ok_or_else(|| OrderServiceError::QuoteNotFound(quote_id.clone()))?
-		} else {
+		// 1. Verify quote integrity checksum
+		if request.quote_response.integrity_checksum.is_empty() {
 			return Err(OrderServiceError::Validation(
-				"quote_id is required for order submission".to_string(),
+				"Quote integrity checksum is required".to_string(),
 			));
-		};
+		}
 
-		// 2. Verify quote integrity if checksum is present
-		if let Some(checksum) = &quote.integrity_checksum {
-			let payload = quote.to_integrity_payload();
-			let is_valid = self
-				.integrity_service
-				.verify_checksum_from_payload(&payload, checksum)
-				.map_err(|_| OrderServiceError::IntegrityVerificationFailed)?;
+		// 2. Verify quote integrity using QuoteResponse directly
+		let is_valid = self
+			.integrity_service
+			.verify_checksum(
+				&request.quote_response,
+				&request.quote_response.integrity_checksum,
+			)
+			.map_err(|_| OrderServiceError::IntegrityVerificationFailed)?;
 
-			if !is_valid {
-				return Err(OrderServiceError::IntegrityVerificationFailed);
-			}
+		if !is_valid {
+			return Err(OrderServiceError::IntegrityVerificationFailed);
 		}
 
 		// 3. Find the solver that generated this quote
 		let solver = self
 			.solvers
-			.get(&quote.solver_id)
-			.ok_or_else(|| OrderServiceError::SolverNotFound(quote.solver_id.clone()))?;
+			.get(&request.quote_response.solver_id)
+			.ok_or_else(|| {
+				OrderServiceError::SolverNotFound(request.quote_response.solver_id.clone())
+			})?;
 
 		// 4. Get the adapter for this solver
 		let adapter = self
@@ -102,7 +98,7 @@ impl OrderService {
 
 		// 5. Create the order object
 		let mut order = Order::new(request.user_address.clone());
-		order.quote_id = Some(quote.quote_id.clone());
+		order.quote_id = Some(request.quote_response.quote_id.clone());
 		order.signature = request.signature.clone();
 
 		// 6. Submit the order to the solver via its adapter

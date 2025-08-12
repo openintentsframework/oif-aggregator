@@ -22,6 +22,7 @@ pub struct QuoteResponse {
 	pub expires_at: i64,
 	pub response_time_ms: u64,
 	pub confidence_score: Option<f64>,
+	pub integrity_checksum: String,
 }
 
 /// API response format for individual quotes (alias for backward compatibility)
@@ -115,6 +116,7 @@ impl QuoteResponse {
 			expires_at: quote.expires_at.timestamp(),
 			response_time_ms: quote.response_time_ms,
 			confidence_score: quote.confidence_score,
+			integrity_checksum: quote.integrity_checksum.clone(),
 		})
 	}
 }
@@ -229,14 +231,32 @@ impl From<Quote> for QuoteResponse {
 			expires_at: quote.expires_at.timestamp(),
 			response_time_ms: quote.response_time_ms,
 			confidence_score: quote.confidence_score,
+			integrity_checksum: quote.integrity_checksum.clone(),
 		}
+	}
+}
+
+/// Implement IntegrityPayload for QuoteResponse to enable direct integrity verification
+impl crate::IntegrityPayload for QuoteResponse {
+	fn to_integrity_payload(&self) -> String {
+		format!(
+			"quote_id={}|solver_id={}|amount_in={}|amount_out={}|token_in={}|token_out={}|chain_id={}|expires_at={}",
+			self.quote_id,
+			self.solver_id,
+			self.amount_in,
+			self.amount_out,
+			self.token_in.address,
+			self.token_out.address,
+			self.token_in.chain_id,
+			self.expires_at
+		)
 	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::quotes::Quote;
+	use crate::{quotes::Quote, IntegrityPayload};
 	use chrono::{Duration, Utc};
 
 	fn create_test_quote() -> Quote {
@@ -253,6 +273,35 @@ mod tests {
 		.with_price_impact(0.01)
 		.with_response_time(150)
 		.with_confidence_score(0.95)
+	}
+
+	fn create_test_quote_response() -> QuoteResponse {
+		QuoteResponse {
+			quote_id: "test-quote-123".to_string(),
+			solver_id: "test-solver".to_string(),
+			amount_in: "1000000000000000000".to_string(),
+			amount_out: "2500000000".to_string(),
+			token_in: TokenInfo {
+				address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
+				symbol: "WETH".to_string(),
+				decimals: 18,
+				chain_id: 1,
+				name: Some("Wrapped Ether".to_string()),
+			},
+			token_out: TokenInfo {
+				address: "0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0".to_string(),
+				symbol: "USDC".to_string(),
+				decimals: 6,
+				chain_id: 1,
+				name: Some("USD Coin".to_string()),
+			},
+			estimated_gas: Some(21000),
+			price_impact: Some(0.01),
+			expires_at: (Utc::now() + Duration::minutes(5)).timestamp(),
+			response_time_ms: 150,
+			confidence_score: Some(0.95),
+			integrity_checksum: "test-checksum".to_string(),
+		}
 	}
 
 	#[test]
@@ -280,6 +329,21 @@ mod tests {
 		let usdc = TokenInfo::from_address("0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0", 1);
 		assert_eq!(usdc.symbol, "USDC");
 		assert_eq!(usdc.decimals, 6);
+	}
+
+	#[test]
+	fn test_quote_response_integrity_payload() {
+		let response = create_test_quote_response();
+		let payload = response.to_integrity_payload();
+
+		assert!(payload.contains(&format!("quote_id={}", response.quote_id)));
+		assert!(payload.contains(&format!("solver_id={}", response.solver_id)));
+		assert!(payload.contains(&format!("amount_in={}", response.amount_in)));
+		assert!(payload.contains(&format!("amount_out={}", response.amount_out)));
+		assert!(payload.contains(&format!("token_in={}", response.token_in.address)));
+		assert!(payload.contains(&format!("token_out={}", response.token_out.address)));
+		assert!(payload.contains(&format!("chain_id={}", response.token_in.chain_id)));
+		assert!(payload.contains(&format!("expires_at={}", response.expires_at)));
 	}
 
 	#[test]

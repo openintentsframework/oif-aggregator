@@ -88,7 +88,7 @@ impl AggregatorService {
 							let payload = quote.to_integrity_payload();
 							match integrity_service.generate_checksum_from_payload(&payload) {
 								Ok(checksum) => {
-									quote.integrity_checksum = Some(checksum);
+									quote.integrity_checksum = checksum.clone();
 									info!(
 									"Successfully got quote from solver {} in {}ms with integrity checksum",
 									solver_id, quote.response_time_ms

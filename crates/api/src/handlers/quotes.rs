@@ -1,5 +1,5 @@
 use axum::{extract::State, http::StatusCode, response::Json};
-use tracing::{debug, info};
+use tracing::info;
 
 use crate::handlers::common::ErrorResponse;
 use crate::state::AppState;
@@ -42,32 +42,10 @@ pub async fn post_quotes(
 		},
 	};
 
-	debug!(
-		"Created quote request with ID: {}",
-		quote_request.request_id
-	);
-
 	let quotes = state
 		.aggregator_service
 		.fetch_quotes(quote_request.clone())
 		.await;
-
-	for quote in &quotes {
-		state
-			.storage
-			.create_quote(quote.clone())
-			.await
-			.map_err(|e| {
-				(
-					StatusCode::INTERNAL_SERVER_ERROR,
-					Json(ErrorResponse {
-						error: "STORAGE_ERROR".to_string(),
-						message: format!("Failed to store quote: {}", e),
-						timestamp: chrono::Utc::now().timestamp(),
-					}),
-				)
-			})?;
-	}
 
 	let response = match QuotesResponse::from_domain_quotes(quote_request.request_id, quotes) {
 		Ok(resp) => resp,

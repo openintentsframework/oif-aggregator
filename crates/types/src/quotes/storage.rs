@@ -27,7 +27,7 @@ pub struct QuoteStorage {
 	pub created_at: DateTime<Utc>,
 	pub expires_at: DateTime<Utc>,
 	pub raw_response: serde_json::Value,
-	pub integrity_checksum: Option<String>,
+	pub integrity_checksum: String,
 
 	// Storage-specific metadata
 	pub version: u32,

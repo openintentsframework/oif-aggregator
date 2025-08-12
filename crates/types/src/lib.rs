@@ -6,6 +6,7 @@
 pub mod adapters;
 pub mod auth;
 pub mod constants;
+pub mod integrity;
 pub mod models;
 pub mod orders;
 pub mod quotes;
@@ -17,6 +18,7 @@ pub use chrono;
 pub use serde_json;
 
 // Re-export commonly used types for convenience
+pub use integrity::IntegrityPayload;
 pub use quotes::{
 	Quote, QuoteError, QuoteRequest, QuoteResponse, QuoteResult, QuoteStatus, QuoteStorage,
 	QuoteValidationError, QuoteValidationResult,

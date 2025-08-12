@@ -76,7 +76,7 @@ pub struct Quote {
 
 	/// HMAC-SHA256 integrity checksum for quote verification
 	/// This ensures the quote originated from the aggregator service
-	pub integrity_checksum: Option<String>,
+	pub integrity_checksum: String,
 }
 
 /// Quote status enumeration
@@ -124,7 +124,7 @@ impl Quote {
 			created_at: now,
 			expires_at: now + Duration::minutes(5), // Default 5-minute TTL
 			raw_response: serde_json::Value::Null,
-			integrity_checksum: None,
+			integrity_checksum: "".to_string(),
 		}
 	}
 
