@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use oif_types::{
 	AdapterConfig, Asset, Network, Order, OrderDetails, OrderStatus, Quote, QuoteRequest,
+	SolverRuntimeConfig,
 };
 use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 use reqwest::{
@@ -14,11 +15,11 @@ use std::time::Duration;
 use tracing::{debug, error, info, warn};
 
 /// OIF v1 adapter for HTTP-based solvers
+/// This adapter is stateless and receives solver configuration at runtime
 #[derive(Debug)]
 pub struct OifAdapter {
 	config: AdapterConfig,
 	client: Client,
-	endpoint: String,
 }
 
 /// OIF v1 quote request format
@@ -59,54 +60,32 @@ struct OifOrderResponse {
 }
 
 impl OifAdapter {
-	/// Create a new OIF adapter
-	pub fn new(config: AdapterConfig, endpoint: String, timeout_ms: u64) -> AdapterResult<Self> {
+	/// Create a new OIF adapter (stateless, no hardcoded endpoint/timeout)
+	pub fn new(config: AdapterConfig) -> AdapterResult<Self> {
 		let mut headers = HeaderMap::new();
 
 		// Add default headers
 		headers.insert("Content-Type", HeaderValue::from_static("application/json"));
 		headers.insert("User-Agent", HeaderValue::from_static("OIF-Aggregator/1.0"));
 
-		// Add custom headers from configuration
-		// Simplified: no custom headers configuration for now
-		if false {
-			let custom_headers = serde_json::Value::Null; // dummy value
-			if let Some(header_map) = custom_headers.as_object() {
-				for (key, value) in header_map {
-					if let Some(value_str) = value.as_str() {
-						if let (Ok(header_name), Ok(header_value)) =
-							(HeaderName::try_from(key), HeaderValue::try_from(value_str))
-						{
-							headers.insert(header_name, header_value);
-						}
-					}
-				}
-			}
-		}
-
 		let client = Client::builder()
-			.timeout(Duration::from_millis(timeout_ms))
 			.default_headers(headers)
 			.build()
 			.map_err(AdapterError::HttpError)?;
 
-		Ok(Self {
-			config,
-			client,
-			endpoint,
-		})
+		Ok(Self { config, client })
 	}
 
-	/// Create from adapter configuration
-	pub fn from_config(config: &AdapterConfig) -> AdapterResult<Self> {
-		let endpoint = match &config.adapter_type {
-			oif_types::AdapterType::OifV1 => "https://api.oif.example.com/v1",
-			oif_types::AdapterType::LifiV1 => "https://li.quest/v1",
-		};
+	/// Create default OIF adapter instance
+	pub fn default() -> AdapterResult<Self> {
+		let config = AdapterConfig::new(
+			"oif-v1".to_string(),
+			"OIF v1 Protocol".to_string(),
+			"OIF v1 Adapter".to_string(),
+			"1.0.0".to_string(),
+		);
 
-		let timeout_ms = 5000; // Default 5 second timeout
-
-		Self::new(config.clone(), endpoint.to_string(), timeout_ms)
+		Self::new(config)
 	}
 
 	/// Convert our QuoteRequest to OIF format
@@ -126,6 +105,7 @@ impl OifAdapter {
 		&self,
 		oif_response: OifQuoteResponse,
 		request: &QuoteRequest,
+		config: &SolverRuntimeConfig,
 		response_time_ms: u64,
 	) -> Quote {
 		// Clone the raw response first before moving fields
@@ -133,13 +113,13 @@ impl OifAdapter {
 
 		// Create Quote directly using the new model structure
 		let mut quote = Quote::new(
-			self.config.adapter_id.clone(), // solver_id
-			request.request_id.clone(),     // request_id
-			request.token_in.clone(),       // token_in
-			request.token_out.clone(),      // token_out
-			request.amount_in.clone(),      // amount_in
-			oif_response.amount_out,        // amount_out
-			request.chain_id,               // chain_id
+			config.solver_id.clone(),   // solver_id (from runtime config)
+			request.request_id.clone(), // request_id
+			request.token_in.clone(),   // token_in
+			request.token_out.clone(),  // token_out
+			request.amount_in.clone(),  // amount_in
+			oif_response.amount_out,    // amount_out
+			request.chain_id,           // chain_id
 		);
 
 		// Set additional optional fields using builder pattern
@@ -165,27 +145,43 @@ impl OifAdapter {
 
 #[async_trait]
 impl SolverAdapter for OifAdapter {
+	fn adapter_id(&self) -> &str {
+		"oif-v1"
+	}
+
+	fn adapter_name(&self) -> &str {
+		"OIF v1 Protocol"
+	}
+
 	fn adapter_info(&self) -> &AdapterConfig {
 		&self.config
 	}
 
-	async fn get_quote(&self, request: QuoteRequest) -> AdapterResult<Quote> {
+	async fn get_quote(
+		&self,
+		request: QuoteRequest,
+		config: &SolverRuntimeConfig,
+	) -> AdapterResult<Quote> {
 		let start_time = std::time::Instant::now();
 
 		debug!(
-			"Getting quote from OIF adapter {} for request {}",
-			self.config.adapter_id, request.request_id
+			"Getting quote from OIF adapter {} for solver {} (request {})",
+			self.config.adapter_id, config.solver_id, request.request_id
 		);
 
 		let oif_request = self.to_oif_quote_request(&request);
-		let quote_url = format!("{}/v1/quote", self.endpoint);
+		let quote_url = format!("{}/v1/quote", config.endpoint);
 
-		info!("Requesting quote from {}", quote_url);
+		info!(
+			"Requesting quote from {} (solver: {})",
+			quote_url, config.solver_id
+		);
 
 		let response = self
 			.client
 			.post(&quote_url)
 			.json(&oif_request)
+			.timeout(Duration::from_millis(config.timeout_ms))
 			.send()
 			.await
 			.map_err(|e| {
@@ -212,7 +208,7 @@ impl SolverAdapter for OifAdapter {
 			}
 		})?;
 
-		let quote = self.from_oif_quote_response(oif_response, &request, response_time_ms);
+		let quote = self.from_oif_quote_response(oif_response, &request, config, response_time_ms);
 
 		info!(
 			"Successfully got quote {} in {}ms",
@@ -222,10 +218,14 @@ impl SolverAdapter for OifAdapter {
 		Ok(quote)
 	}
 
-	async fn submit_order(&self, order: &Order) -> AdapterResult<String> {
+	async fn submit_order(
+		&self,
+		order: &Order,
+		config: &SolverRuntimeConfig,
+	) -> AdapterResult<String> {
 		debug!(
-			"Submitting order {} to OIF adapter {}",
-			order.order_id, self.config.adapter_id
+			"Submitting order {} to OIF adapter {} via solver {}",
+			order.order_id, self.config.adapter_id, config.solver_id
 		);
 
 		let oif_request = OifOrderRequest {
@@ -234,14 +234,18 @@ impl SolverAdapter for OifAdapter {
 			signature: order.signature.clone(),
 		};
 
-		let order_url = format!("{}/v1/order", self.endpoint);
+		let order_url = format!("{}/v1/order", config.endpoint);
 
-		info!("Submitting order to {}", order_url);
+		info!(
+			"Submitting order to {} (solver: {})",
+			order_url, config.solver_id
+		);
 
 		let response = self
 			.client
 			.post(&order_url)
 			.json(&oif_request)
+			.timeout(Duration::from_millis(config.timeout_ms))
 			.send()
 			.await
 			.map_err(|e| {
@@ -281,12 +285,21 @@ impl SolverAdapter for OifAdapter {
 		Ok(order.order_id.clone())
 	}
 
-	async fn health_check(&self) -> AdapterResult<bool> {
-		let health_url = format!("{}/health", self.endpoint);
+	async fn health_check(&self, config: &SolverRuntimeConfig) -> AdapterResult<bool> {
+		let health_url = format!("{}/health", config.endpoint);
 
-		debug!("Health checking OIF adapter at {}", health_url);
+		debug!(
+			"Health checking OIF adapter at {} (solver: {})",
+			health_url, config.solver_id
+		);
 
-		match self.client.get(&health_url).send().await {
+		match self
+			.client
+			.get(&health_url)
+			.timeout(Duration::from_millis(config.timeout_ms))
+			.send()
+			.await
+		{
 			Ok(response) => {
 				let is_healthy = response.status().is_success();
 				if is_healthy {
@@ -310,15 +323,28 @@ impl SolverAdapter for OifAdapter {
 		}
 	}
 
-	async fn get_order_details(&self, order_id: &str) -> AdapterResult<OrderDetails> {
-		let order_url = format!("{}/v1/order/{}", self.endpoint, order_id);
+	async fn get_order_details(
+		&self,
+		order_id: &str,
+		config: &SolverRuntimeConfig,
+	) -> AdapterResult<OrderDetails> {
+		let order_url = format!("{}/v1/order/{}", config.endpoint, order_id);
 
-		debug!("Getting order details for {} from {}", order_id, order_url);
+		debug!(
+			"Getting order details for {} from {} (solver: {})",
+			order_id, order_url, config.solver_id
+		);
 
-		let response = self.client.get(&order_url).send().await.map_err(|e| {
-			error!("HTTP request failed to {}: {}", order_url, e);
-			AdapterError::HttpError(e)
-		})?;
+		let response = self
+			.client
+			.get(&order_url)
+			.timeout(Duration::from_millis(config.timeout_ms))
+			.send()
+			.await
+			.map_err(|e| {
+				error!("HTTP request failed to {}: {}", order_url, e);
+				AdapterError::HttpError(e)
+			})?;
 
 		if !response.status().is_success() {
 			let status = response.status();

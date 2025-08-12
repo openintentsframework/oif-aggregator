@@ -28,8 +28,14 @@ pub struct AuthConfig {
 impl Default for AuthConfig {
 	fn default() -> Self {
 		Self {
-			protected_paths: vec!["/v1/orders".to_string()],
-			public_paths: vec!["/health".to_string(), "/ready".to_string()],
+			protected_paths: vec![],
+			public_paths: vec![
+				"/health".to_string(),
+				"/ready".to_string(),
+				"/v1/solvers".to_string(),
+				"/v1/orders".to_string(),
+				"/v1/quotes".to_string(),
+			],
 			enable_rate_limiting: true,
 			default_rate_limits: Some(RateLimits::default()),
 		}

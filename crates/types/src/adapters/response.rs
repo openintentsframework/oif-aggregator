@@ -3,7 +3,7 @@
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use super::{Adapter, AdapterStorage, AdapterType};
+use super::{Adapter, AdapterStorage};
 use crate::models::{Asset, Network};
 
 /// Response format for individual adapters in API
@@ -97,7 +97,7 @@ impl TryFrom<&Adapter> for AdapterResponse {
 	fn try_from(adapter: &Adapter) -> Result<Self, Self::Error> {
 		Ok(Self {
 			adapter_id: adapter.adapter_id.clone(),
-			adapter_type: adapter.adapter_type.to_string(),
+			adapter_type: adapter.adapter_type_description.clone(),
 			name: adapter.name.clone(),
 			description: adapter.description.clone(),
 			version: adapter.version.clone(),
@@ -138,7 +138,7 @@ impl TryFrom<&Adapter> for AdapterDetailResponse {
 	fn try_from(adapter: &Adapter) -> Result<Self, Self::Error> {
 		Ok(Self {
 			adapter_id: adapter.adapter_id.clone(),
-			adapter_type: adapter.adapter_type.to_string(),
+			adapter_type: adapter.adapter_type_description.clone(),
 			name: adapter.name.clone(),
 			description: adapter.description.clone(),
 			version: adapter.version.clone(),
@@ -159,7 +159,7 @@ impl TryFrom<&AdapterStorage> for AdapterDetailResponse {
 	fn try_from(storage: &AdapterStorage) -> Result<Self, Self::Error> {
 		Ok(Self {
 			adapter_id: storage.adapter_id.clone(),
-			adapter_type: AdapterType::from(&storage.adapter_type).to_string(),
+			adapter_type: storage.adapter_type_description.clone(),
 			name: storage.name.clone(),
 			description: storage.metadata.description.clone(),
 			version: storage.version.clone(),
@@ -192,7 +192,7 @@ impl From<&Adapter> for AdapterConfigResponse {
 
 		Self {
 			adapter_id: adapter.adapter_id.clone(),
-			adapter_type: adapter.adapter_type.to_string(),
+			adapter_type: adapter.adapter_type_description.clone(),
 			name: adapter.name.clone(),
 			version: adapter.version.clone(),
 			enabled: adapter.enabled,
@@ -325,21 +325,10 @@ impl AdapterAssetsResponse {
 	}
 }
 
-/// Convert AdapterType to string for API responses
-impl std::fmt::Display for AdapterType {
-	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-		let s = match self {
-			AdapterType::OifV1 => "oif-v1",
-			AdapterType::LifiV1 => "lifi-v1",
-		};
-		write!(f, "{}", s)
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::adapters::{Adapter, AdapterType};
+	use crate::adapters::Adapter;
 
 	fn create_test_adapter() -> Adapter {
 		Adapter::new(

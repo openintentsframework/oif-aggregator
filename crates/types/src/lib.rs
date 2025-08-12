@@ -30,9 +30,9 @@ pub use solvers::{
 pub use adapters::{
 	Adapter, AdapterAssetsResponse, AdapterConfig, AdapterConfigResponse, AdapterDetailResponse,
 	AdapterError, AdapterFactoryError, AdapterFactoryResult, AdapterMetadataStorage,
-	AdapterNetworksResponse, AdapterResponse, AdapterResult, AdapterStorage, AdapterType,
+	AdapterNetworksResponse, AdapterResponse, AdapterResult, AdapterStorage,
 	AdapterValidationError, AdapterValidationResult, AssetResponse, AssetStorage, NetworkResponse,
-	NetworkStorage, SolverAdapter,
+	NetworkStorage, SolverAdapter, SolverRuntimeConfig,
 };
 
 // Re-export shared domain models
@@ -47,9 +47,8 @@ pub use orders::{
 };
 
 pub use auth::{
-	ApiKeyAuthenticator, AuthContext, AuthError, AuthRequest, AuthenticationResult, Authenticator,
-	MemoryRateLimiter, NoAuthenticator, Permission, RateLimitCheck, RateLimitError, RateLimiter,
-	RateLimits, SimpleRoleAuthenticator,
+	AuthContext, AuthError, AuthRequest, AuthenticationResult, Authenticator, Permission,
+	RateLimitCheck, RateLimitError, RateLimiter, RateLimits,
 };
 
 pub use storage::{

@@ -1537,12 +1537,15 @@ dependencies = [
 name = "oif-api"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "axum 0.8.4",
  "chrono",
+ "dashmap",
  "oif-config",
  "oif-service",
  "oif-storage",
  "oif-types",
+ "rand 0.9.2",
  "serde",
  "serde_json",
  "thiserror",

@@ -1,6 +1,6 @@
 //! Core adapter traits for user implementations
 
-use super::{AdapterConfig, AdapterResult, OrderDetails};
+use super::{AdapterConfig, AdapterResult, OrderDetails, SolverRuntimeConfig};
 use crate::models::{Asset, Network};
 use crate::{Order, Quote, QuoteRequest};
 use async_trait::async_trait;
@@ -12,23 +12,41 @@ use std::fmt::Debug;
 /// Users can create custom adapters by implementing this trait.
 #[async_trait]
 pub trait SolverAdapter: Send + Sync + Debug {
+	/// Get adapter ID (for registration and solver matching)
+	fn adapter_id(&self) -> &str;
+
+	/// Get adapter name (human-readable)
+	fn adapter_name(&self) -> &str;
+
 	/// Get adapter configuration information
 	fn adapter_info(&self) -> &AdapterConfig;
 
-	/// Get a quote from the solver
-	async fn get_quote(&self, request: QuoteRequest) -> AdapterResult<Quote>;
+	/// Get a quote from the solver using runtime configuration
+	async fn get_quote(
+		&self,
+		request: QuoteRequest,
+		config: &SolverRuntimeConfig,
+	) -> AdapterResult<Quote>;
 
-	/// Submit an order to the solver
-	async fn submit_order(&self, order: &Order) -> AdapterResult<String>;
+	/// Submit an order to the solver using runtime configuration
+	async fn submit_order(
+		&self,
+		order: &Order,
+		config: &SolverRuntimeConfig,
+	) -> AdapterResult<String>;
 
-	/// Health check for the solver
-	async fn health_check(&self) -> AdapterResult<bool>;
+	/// Health check for the solver using runtime configuration
+	async fn health_check(&self, config: &SolverRuntimeConfig) -> AdapterResult<bool>;
 
-	/// Get detailed order information from the solver
+	/// Get detailed order information from the solver using runtime configuration
 	///
 	/// This method retrieves comprehensive information about an order including
 	/// transaction status, gas usage, fees, and any additional metadata from the solver.
-	async fn get_order_details(&self, order_id: &str) -> AdapterResult<OrderDetails>;
+	async fn get_order_details(
+		&self,
+		order_id: &str,
+		config: &SolverRuntimeConfig,
+	) -> AdapterResult<OrderDetails>;
 
 	/// Get the list of blockchain networks supported by this adapter
 	///

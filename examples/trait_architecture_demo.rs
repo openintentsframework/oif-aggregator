@@ -9,6 +9,7 @@
 use async_trait::async_trait;
 use oif_aggregator::models::{AuthError, AuthenticationResult};
 use oif_aggregator::*;
+use oif_api::auth::MemoryRateLimiter;
 use oif_types::{Asset, Network, OrderDetails};
 use tokio;
 

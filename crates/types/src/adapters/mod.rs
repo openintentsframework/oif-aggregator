@@ -10,7 +10,7 @@ pub mod response;
 pub mod storage;
 pub mod traits;
 
-pub use config::{AdapterConfig, AdapterType};
+pub use config::AdapterConfig;
 pub use errors::{AdapterError, AdapterFactoryError, AdapterValidationError};
 pub use response::{
 	AdapterAssetsResponse, AdapterConfigResponse, AdapterDetailResponse, AdapterNetworksResponse,
@@ -24,6 +24,66 @@ pub type AdapterResult<T> = Result<T, AdapterError>;
 pub type AdapterValidationResult<T> = Result<T, AdapterValidationError>;
 pub type AdapterFactoryResult<T> = Result<T, AdapterFactoryError>;
 
+/// Minimal runtime configuration needed by adapters
+///
+/// This contains only the essential fields that adapter implementations actually need,
+/// providing a clean separation from the full Solver configuration which includes
+/// aggregator-specific metadata.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SolverRuntimeConfig {
+	/// Unique solver instance identifier
+	pub solver_id: String,
+
+	/// HTTP endpoint for the solver API
+	pub endpoint: String,
+
+	/// Timeout for requests in milliseconds
+	pub timeout_ms: u64,
+
+	/// Optional custom HTTP headers for requests
+	pub headers: Option<HashMap<String, String>>,
+
+	/// Maximum retry attempts for failed requests
+	pub max_retries: Option<u32>,
+}
+
+impl SolverRuntimeConfig {
+	/// Create a new runtime config
+	pub fn new(solver_id: String, endpoint: String, timeout_ms: u64) -> Self {
+		Self {
+			solver_id,
+			endpoint,
+			timeout_ms,
+			headers: None,
+			max_retries: None,
+		}
+	}
+
+	/// Create runtime config with optional headers
+	pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
+		self.headers = Some(headers);
+		self
+	}
+
+	/// Create runtime config with max retries
+	pub fn with_max_retries(mut self, max_retries: u32) -> Self {
+		self.max_retries = Some(max_retries);
+		self
+	}
+}
+
+impl From<&crate::solvers::Solver> for SolverRuntimeConfig {
+	fn from(solver: &crate::solvers::Solver) -> Self {
+		Self {
+			solver_id: solver.solver_id.clone(),
+			endpoint: solver.endpoint.clone(),
+			timeout_ms: solver.timeout_ms,
+			headers: None,     // TODO: Map from solver when available
+			max_retries: None, // TODO: Map from solver when available
+		}
+	}
+}
+
 /// Core Adapter domain model
 ///
 /// This represents an adapter in the domain layer with business logic.
@@ -33,8 +93,8 @@ pub struct Adapter {
 	/// Unique identifier for the adapter
 	pub adapter_id: String,
 
-	/// Type of adapter (OIF, LiFi, etc.)
-	pub adapter_type: AdapterType,
+	/// Type description of adapter (e.g., "OIF v1", "Custom Protocol")
+	pub adapter_type_description: String,
 
 	/// Human-readable name
 	pub name: String,
@@ -113,7 +173,7 @@ impl Adapter {
 	/// Create a new adapter
 	pub fn new(
 		adapter_id: String,
-		adapter_type: AdapterType,
+		adapter_type_description: String,
 		name: String,
 		version: String,
 	) -> Self {
@@ -121,7 +181,7 @@ impl Adapter {
 
 		Self {
 			adapter_id,
-			adapter_type,
+			adapter_type_description,
 			name,
 			description: None,
 			version,
@@ -321,7 +381,7 @@ mod tests {
 	fn create_test_adapter() -> Adapter {
 		Adapter::new(
 			"test-adapter".to_string(),
-			AdapterType::OifV1,
+			"OIF v1".to_string(),
 			"Test Adapter".to_string(),
 			"1.0.0".to_string(),
 		)
@@ -332,7 +392,7 @@ mod tests {
 		let adapter = create_test_adapter();
 
 		assert_eq!(adapter.adapter_id, "test-adapter");
-		assert_eq!(adapter.adapter_type, AdapterType::OifV1);
+		assert_eq!(adapter.adapter_type_description, "OIF v1");
 		assert_eq!(adapter.name, "Test Adapter");
 		assert_eq!(adapter.version, "1.0.0");
 		assert!(adapter.enabled);
@@ -352,11 +412,8 @@ mod tests {
 
 	#[test]
 	fn test_builder_pattern() {
-		let adapter = create_test_adapter()
-			.with_description("Test Description".to_string())
-			.enabled(true);
+		let adapter = create_test_adapter().with_description("Test Description".to_string());
 
 		assert_eq!(adapter.description, Some("Test Description".to_string()));
-		assert!(adapter.enabled);
 	}
 }

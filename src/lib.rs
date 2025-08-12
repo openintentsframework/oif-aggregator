@@ -12,13 +12,11 @@ pub use oif_types::{
 	Adapter,
 	AdapterConfig,
 	AdapterError,
-	AdapterType,
+
 	AuthContext,
 	AuthRequest,
-	// Auth traits and implementations
+	// Auth traits
 	Authenticator,
-	MemoryRateLimiter,
-	NoAuthenticator,
 	Order,
 	OrderError,
 	OrderResponse,
@@ -67,6 +65,8 @@ pub use oif_storage::RedisStore;
 
 // API layer
 pub use oif_api::{create_router, AppState};
+// Re-export auth implementations for convenience
+pub use oif_api::auth::{ApiKeyAuthenticator, MemoryRateLimiter, NoAuthenticator};
 
 // Adapters
 pub use oif_adapters::{AdapterFactory, AdapterResult, SolverAdapter};
@@ -122,6 +122,7 @@ where
 	storage: S,
 	authenticator: A,
 	rate_limiter: R,
+	custom_adapter_factory: Option<oif_adapters::AdapterFactory>,
 }
 
 impl<S> AggregatorBuilder<S, NoAuthenticator, MemoryRateLimiter>
@@ -135,6 +136,7 @@ where
 			storage,
 			authenticator: NoAuthenticator,
 			rate_limiter: MemoryRateLimiter::new(),
+			custom_adapter_factory: None,
 		}
 	}
 }
@@ -168,6 +170,7 @@ where
 			storage: self.storage,
 			authenticator,
 			rate_limiter: self.rate_limiter,
+			custom_adapter_factory: self.custom_adapter_factory,
 		}
 	}
 
@@ -181,25 +184,18 @@ where
 			storage: self.storage,
 			authenticator: self.authenticator,
 			rate_limiter,
+			custom_adapter_factory: self.custom_adapter_factory,
 		}
 	}
 
-	/// Set both auth and rate limiter
-	pub fn with_auth_and_limiter<NewA, NewR>(
-		self,
-		authenticator: NewA,
-		rate_limiter: NewR,
-	) -> AggregatorBuilder<S, NewA, NewR>
-	where
-		NewA: Authenticator + 'static,
-		NewR: RateLimiter + 'static,
-	{
-		AggregatorBuilder {
-			settings: self.settings,
-			storage: self.storage,
-			authenticator,
-			rate_limiter,
-		}
+	/// Register a custom adapter (uses adapter's own ID)
+	pub fn with_adapter(mut self, adapter: Box<dyn SolverAdapter>) -> Result<Self, String> {
+		let mut factory = self
+			.custom_adapter_factory
+			.unwrap_or_else(|| oif_adapters::AdapterFactory::with_defaults());
+		factory.register(adapter)?;
+		self.custom_adapter_factory = Some(factory);
+		Ok(self)
 	}
 }
 
@@ -225,10 +221,10 @@ where
 
 			// Update metadata with configuration details
 			solver.metadata.name = Some(solver_config.solver_id.clone());
-			solver.metadata.supported_networks = vec![]; // Default to Ethereum mainnet
+			solver.metadata.supported_networks = vec![];
 			solver.metadata.max_retries = solver_config.max_retries;
 			solver.metadata.headers = solver_config.headers.clone();
-			solver.status = SolverStatus::Active; // Set to active once initialized
+			solver.status = SolverStatus::Active;
 			storage
 				.create_solver(solver)
 				.await
@@ -240,6 +236,7 @@ where
 			storage,
 			authenticator: NoAuthenticator,
 			rate_limiter: MemoryRateLimiter::new(),
+			custom_adapter_factory: None,
 		}
 	}
 	/// Add a solver to the aggregator
@@ -256,19 +253,6 @@ where
 		self.settings.as_ref()
 	}
 
-	/// Replace the storage implementation with a different one
-	pub fn replace_storage<T>(self, storage: T) -> AggregatorBuilder<T, A, R>
-	where
-		T: Storage + Clone + 'static,
-	{
-		AggregatorBuilder {
-			settings: self.settings,
-			storage,
-			authenticator: self.authenticator,
-			rate_limiter: self.rate_limiter,
-		}
-	}
-
 	/// Start the aggregator and return the configured router with state
 	pub async fn start(self) -> Result<(axum::Router, AppState), Box<dyn std::error::Error>> {
 		// Initialize the aggregator service
@@ -280,16 +264,39 @@ where
 			.await
 			.map_err(|e| format!("Failed to get solvers: {}", e))?;
 
-		let mut aggregator_service = AggregatorService::new(solvers, settings.timeouts.global_ms);
+		// Use custom factory or create with defaults
+		let adapter_factory = Arc::new(
+			self.custom_adapter_factory
+				.unwrap_or_else(|| oif_adapters::AdapterFactory::with_defaults()),
+		);
 
-		// Initialize adapters
-		aggregator_service.initialize_adapters().await?;
+		// Create aggregator service
+		let aggregator_service = AggregatorService::new(
+			solvers.clone(),
+			Arc::clone(&adapter_factory),
+			settings.timeouts.global_ms,
+		);
+
+		// Validate that all solvers have matching adapters
+		aggregator_service
+			.validate_solvers()
+			.map_err(|e| format!("Solver validation failed: {}", e))?;
+
+		// Create solver HashMap for OrderService
+		let solver_map: std::collections::HashMap<String, Solver> = solvers
+			.into_iter()
+			.map(|solver| (solver.solver_id.clone(), solver))
+			.collect();
 
 		// Create application state
 		let storage_arc: Arc<dyn Storage> = Arc::new(self.storage.clone());
 		let app_state = AppState {
 			aggregator_service: Arc::new(aggregator_service),
-			order_service: Arc::new(OrderService::new(Arc::clone(&storage_arc))),
+			order_service: Arc::new(OrderService::new(
+				Arc::clone(&storage_arc),
+				Arc::clone(&adapter_factory),
+				solver_map,
+			)),
 			solver_service: Arc::new(SolverService::new(Arc::clone(&storage_arc))),
 			storage: storage_arc,
 		};

@@ -14,3 +14,12 @@ pub const MAX_SOLVER_RETRIES: u32 = 10;
 
 /// Default maximum retry attempts for solvers
 pub const DEFAULT_SOLVER_RETRIES: u32 = 3;
+
+/// Default rate limit: requests per minute
+pub const DEFAULT_RATE_LIMIT_REQUESTS_PER_MINUTE: u32 = 1000;
+
+/// Default rate limit: burst size (immediate requests allowed)
+pub const DEFAULT_RATE_LIMIT_BURST_SIZE: u32 = 100;
+
+/// Rate limit window duration in seconds
+pub const RATE_LIMIT_WINDOW_SECONDS: u64 = 60;

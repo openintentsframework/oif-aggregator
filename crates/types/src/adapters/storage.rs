@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::{Adapter, AdapterError, AdapterType};
+use super::{Adapter, AdapterError};
 use crate::models::{Asset, Network};
 
 /// Storage representation of an adapter
@@ -15,7 +15,7 @@ use crate::models::{Asset, Network};
 pub struct AdapterStorage {
 	/// Core adapter identity
 	pub adapter_id: String,
-	pub adapter_type: AdapterTypeStorage,
+	pub adapter_type_description: String,
 	pub name: String,
 	pub version: String,
 	pub enabled: bool,
@@ -66,14 +66,6 @@ pub struct AssetStorage {
 	pub chain_id: u64,
 }
 
-/// Storage-compatible adapter type
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-pub enum AdapterTypeStorage {
-	OifV1,
-	LifiV1,
-}
-
 impl AdapterStorage {
 	/// Create storage adapter from domain adapter with operational parameters
 	pub fn from_domain_with_params(adapter: Adapter, endpoint: String, timeout_ms: u64) -> Self {
@@ -86,7 +78,7 @@ impl AdapterStorage {
 
 		Self {
 			adapter_id: adapter.adapter_id,
-			adapter_type: AdapterTypeStorage::from(&adapter.adapter_type),
+			adapter_type_description: adapter.adapter_type_description,
 			name: adapter.name,
 			version: adapter.version,
 			enabled: adapter.enabled,
@@ -95,14 +87,6 @@ impl AdapterStorage {
 			created_at: adapter.created_at,
 			updated_at: adapter.updated_at,
 			metadata,
-		}
-	}
-
-	/// Get default operational parameters for adapter type
-	fn default_operational_params(adapter_type: &AdapterType) -> (String, u64) {
-		match adapter_type {
-			AdapterType::OifV1 => ("http://localhost:8080".to_string(), 30000),
-			AdapterType::LifiV1 => ("https://li.quest".to_string(), 10000),
 		}
 	}
 }
@@ -153,43 +137,11 @@ impl Default for AdapterMetadataStorage {
 	}
 }
 
-impl From<&AdapterType> for AdapterTypeStorage {
-	fn from(adapter_type: &AdapterType) -> Self {
-		match adapter_type {
-			AdapterType::OifV1 => Self::OifV1,
-			AdapterType::LifiV1 => Self::LifiV1,
-		}
-	}
-}
-
-impl From<AdapterType> for AdapterTypeStorage {
-	fn from(adapter_type: AdapterType) -> Self {
-		Self::from(&adapter_type)
-	}
-}
-
-impl From<AdapterTypeStorage> for AdapterType {
-	fn from(storage: AdapterTypeStorage) -> Self {
-		match storage {
-			AdapterTypeStorage::OifV1 => Self::OifV1,
-			AdapterTypeStorage::LifiV1 => Self::LifiV1,
-		}
-	}
-}
-
-impl From<&AdapterTypeStorage> for AdapterType {
-	fn from(storage: &AdapterTypeStorage) -> Self {
-		match storage {
-			AdapterTypeStorage::OifV1 => Self::OifV1,
-			AdapterTypeStorage::LifiV1 => Self::LifiV1,
-		}
-	}
-}
-
 impl From<Adapter> for AdapterStorage {
 	fn from(adapter: Adapter) -> Self {
 		// Use default values for operational parameters
-		let (endpoint, timeout_ms) = Self::default_operational_params(&adapter.adapter_type);
+		let endpoint = "https://api.default.com".to_string();
+		let timeout_ms = 30000;
 		Self::from_domain_with_params(adapter, endpoint, timeout_ms)
 	}
 }
@@ -200,7 +152,7 @@ impl TryFrom<AdapterStorage> for Adapter {
 	fn try_from(storage: AdapterStorage) -> Result<Self, Self::Error> {
 		let adapter = Adapter {
 			adapter_id: storage.adapter_id,
-			adapter_type: AdapterType::from(storage.adapter_type),
+			adapter_type_description: storage.adapter_type_description,
 			name: storage.name,
 			description: storage.metadata.description.clone(),
 			version: storage.version,

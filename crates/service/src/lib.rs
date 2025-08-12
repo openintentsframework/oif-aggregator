@@ -4,7 +4,6 @@
 
 pub mod aggregator;
 pub mod order;
-pub mod quote;
 pub mod solver;
 
 pub use aggregator::AggregatorService;

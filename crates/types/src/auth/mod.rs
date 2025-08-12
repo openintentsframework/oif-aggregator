@@ -1,9 +1,11 @@
 //! Authentication and authorization types and traits
 
 pub mod errors;
-pub mod implementations;
 pub mod traits;
 
 pub use errors::*;
-pub use implementations::*;
 pub use traits::*;
+
+/// Result types for auth operations
+pub type AuthResult<T> = Result<T, AuthError>;
+pub type RateLimitResult<T> = Result<T, RateLimitError>;

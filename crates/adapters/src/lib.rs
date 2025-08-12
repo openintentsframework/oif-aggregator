@@ -9,7 +9,7 @@ pub use lifi_adapter::LifiAdapter;
 pub use oif_adapter::OifAdapter;
 pub use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 
-/// Factory for creating solver adapters
+/// Simple registry for solver adapters
 pub struct AdapterFactory {
 	adapters: std::collections::HashMap<String, Box<dyn SolverAdapter>>,
 }
@@ -21,79 +21,55 @@ impl AdapterFactory {
 		}
 	}
 
-	pub fn create_adapter(
-		adapter_type: &str,
-		config: oif_types::AdapterConfig,
-		endpoint: String,
-		timeout_ms: u64,
-	) -> AdapterResult<Box<dyn SolverAdapter>> {
-		match adapter_type {
-			"lifi-v1" => Ok(Box::new(LifiAdapter::new(config, endpoint, timeout_ms)?)),
-			"oif-v1" => Ok(Box::new(OifAdapter::new(config, endpoint, timeout_ms)?)),
-			_ => Err(AdapterError::UnsupportedAdapter(adapter_type.to_string())),
-		}
-	}
+	/// Create factory with default OIF and LiFi adapters
+	pub fn with_defaults() -> Self {
+		let mut factory = Self::new();
 
-	/// Create adapter from configuration with default endpoints
-	pub fn create_from_config(
-		config: &oif_types::AdapterConfig,
-	) -> AdapterResult<Box<dyn SolverAdapter>> {
-		// Default endpoints and timeout
-		let (adapter_type_str, endpoint) = match config.adapter_type {
-			oif_types::AdapterType::OifV1 => {
-				("oif-v1", "https://api.oif.example.com/v1".to_string())
-			},
-			oif_types::AdapterType::LifiV1 => ("lifi-v1", "https://li.quest/v1".to_string()),
-		};
-
-		let timeout_ms = 30000; // Default 30 seconds
-
-		Self::create_adapter(adapter_type_str, config.clone(), endpoint, timeout_ms)
-	}
-
-	/// Create adapter using solver-provided endpoint and timeout
-	pub fn create_for_solver(
-		config: &oif_types::AdapterConfig,
-		endpoint: String,
-		timeout_ms: u64,
-	) -> AdapterResult<Box<dyn SolverAdapter>> {
-		let adapter_type_str = match config.adapter_type {
-			oif_types::AdapterType::OifV1 => "oif-v1",
-			oif_types::AdapterType::LifiV1 => "lifi-v1",
-		};
-
-		Self::create_adapter(adapter_type_str, config.clone(), endpoint, timeout_ms)
-	}
-
-	/// Create adapter using configuration's endpoint and timeout
-	pub fn create_from_config_with_defaults(
-		config: &oif_types::AdapterConfig,
-	) -> AdapterResult<Box<dyn SolverAdapter>> {
-		if !config.is_enabled() {
-			return Err(AdapterError::Disabled {
-				adapter_id: config.adapter_id.clone(),
-			});
+		// Add default OIF adapter
+		if let Ok(oif_adapter) = OifAdapter::default() {
+			let _ = factory.register(Box::new(oif_adapter));
 		}
 
-		let adapter_type_str = match config.adapter_type {
-			oif_types::AdapterType::OifV1 => "oif-v1",
-			oif_types::AdapterType::LifiV1 => "lifi-v1",
-		};
+		// Add default LiFi adapter
+		if let Ok(lifi_adapter) = LifiAdapter::default() {
+			let _ = factory.register(Box::new(lifi_adapter));
+		}
 
-		Self::create_adapter(
-			adapter_type_str,
-			config.clone(),
-			config.get_endpoint(),
-			config.get_timeout_ms(),
-		)
+		factory
 	}
 
-	pub fn register(&mut self, id: String, adapter: Box<dyn SolverAdapter>) {
-		self.adapters.insert(id, adapter);
+	/// Get all registered adapter IDs
+	pub fn get_adapter_ids(&self) -> Vec<String> {
+		self.adapters.keys().cloned().collect()
 	}
 
-	pub fn add_adapter(&mut self, id: String, adapter: Box<dyn SolverAdapter>) {
-		self.adapters.insert(id, adapter);
+	/// Validate that all solver adapter IDs exist in the registry
+	pub fn validate_solvers(&self, solvers: &[oif_types::Solver]) -> Result<(), String> {
+		for solver in solvers {
+			if !self.adapters.contains_key(&solver.adapter_id) {
+				return Err(format!(
+					"Solver '{}' references unknown adapter '{}'",
+					solver.solver_id, solver.adapter_id
+				));
+			}
+		}
+		Ok(())
+	}
+
+	/// Register an adapter (uses the adapter's own ID)
+	pub fn register(&mut self, adapter: Box<dyn SolverAdapter>) -> Result<(), String> {
+		let adapter_id = adapter.adapter_id().to_string();
+
+		// Check for duplicate IDs
+		if self.adapters.contains_key(&adapter_id) {
+			return Err(format!(
+				"Adapter with ID '{}' already registered",
+				adapter_id
+			));
+		}
+
+		self.adapters.insert(adapter_id, adapter);
+		Ok(())
 	}
 
 	pub fn get(&self, id: &str) -> Option<&Box<dyn SolverAdapter>> {

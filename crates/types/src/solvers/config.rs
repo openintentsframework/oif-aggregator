@@ -90,6 +90,8 @@ pub enum AdapterType {
 	OifV1,
 	/// LiFi v1 protocol
 	LifiV1,
+	/// Custom adapter type (for runtime registration)
+	Custom(String),
 }
 
 impl SolverConfig {
@@ -208,14 +210,19 @@ impl AdapterType {
 				"base_url": "https://li.quest",
 				"api_version": "v1"
 			}),
+			AdapterType::Custom(_) => serde_json::json!({
+				"api_version": "custom",
+				"custom": true
+			}),
 		}
 	}
 
 	/// Get the human-readable name
-	pub fn display_name(&self) -> &'static str {
+	pub fn display_name(&self) -> String {
 		match self {
-			AdapterType::OifV1 => "OIF v1",
-			AdapterType::LifiV1 => "LiFi v1",
+			AdapterType::OifV1 => "OIF v1".to_string(),
+			AdapterType::LifiV1 => "LiFi v1".to_string(),
+			AdapterType::Custom(name) => format!("Custom: {}", name),
 		}
 	}
 }

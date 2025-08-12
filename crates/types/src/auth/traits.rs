@@ -1,10 +1,14 @@
 //! Core authentication and authorization traits
 
-use super::errors::{AuthError, RateLimitError, RateLimitResult};
+use super::{AuthError, RateLimitError, RateLimitResult};
+use crate::constants::limits::{
+	DEFAULT_RATE_LIMIT_BURST_SIZE, DEFAULT_RATE_LIMIT_REQUESTS_PER_MINUTE,
+};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt::Debug;
 
 /// Authentication result with user context
 #[derive(Debug, Clone)]
@@ -105,7 +109,7 @@ pub struct RateLimitCheck {
 
 /// Core authentication trait for custom auth implementations
 #[async_trait]
-pub trait Authenticator: Send + Sync + std::fmt::Debug {
+pub trait Authenticator: Send + Sync + Debug {
 	/// Authenticate a request and return user context
 	async fn authenticate(&self, request: &AuthRequest) -> AuthenticationResult;
 
@@ -124,7 +128,7 @@ pub trait Authenticator: Send + Sync + std::fmt::Debug {
 
 /// Rate limiting trait for custom rate limiter implementations
 #[async_trait]
-pub trait RateLimiter: Send + Sync + std::fmt::Debug {
+pub trait RateLimiter: Send + Sync + Debug {
 	/// Check if request is within rate limits
 	async fn check_rate_limit(
 		&self,
@@ -209,8 +213,8 @@ impl AuthContext {
 impl Default for RateLimits {
 	fn default() -> Self {
 		Self {
-			requests_per_minute: 100,
-			burst_size: 10,
+			requests_per_minute: DEFAULT_RATE_LIMIT_REQUESTS_PER_MINUTE,
+			burst_size: DEFAULT_RATE_LIMIT_BURST_SIZE,
 			custom_windows: Vec::new(),
 		}
 	}

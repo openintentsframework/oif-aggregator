@@ -42,7 +42,3 @@ pub enum RateLimitError {
 	#[error("Rate limiter unavailable: {0}")]
 	ServiceUnavailable(String),
 }
-
-/// Result types for auth operations
-pub type AuthResult<T> = Result<T, AuthError>;
-pub type RateLimitResult<T> = Result<T, RateLimitError>;

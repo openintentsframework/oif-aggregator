@@ -11,8 +11,8 @@ pub struct AdapterConfig {
 	/// Unique identifier for the adapter
 	pub adapter_id: String,
 
-	/// Type of adapter
-	pub adapter_type: AdapterType,
+	/// Type description (e.g., "OIF v1", "Custom Protocol")
+	pub adapter_type_description: String,
 
 	/// Human-readable name
 	pub name: String,
@@ -41,53 +41,17 @@ pub struct AdapterConfig {
 	pub enabled: Option<bool>,
 }
 
-/// Types of adapters supported by the system
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "kebab-case")]
-pub enum AdapterType {
-	/// Open Intent Framework v1 protocol
-	OifV1,
-	/// LiFi V1 protocol
-	LifiV1,
-}
-
-impl AdapterType {
-	/// Get display name for UI
-	pub fn display_name(&self) -> &'static str {
-		match self {
-			AdapterType::OifV1 => "OIF v1",
-			AdapterType::LifiV1 => "LiFi v1",
-		}
-	}
-
-	/// Get default supported chains for this adapter type
-	pub fn default_chains(&self) -> Vec<u64> {
-		match self {
-			AdapterType::OifV1 => vec![1],           // Ethereum mainnet
-			AdapterType::LifiV1 => vec![1, 137, 56], // Ethereum, Polygon, BSC
-		}
-	}
-
-	/// Check if adapter type supports a specific operation
-	pub fn supports_operation(&self, operation: &str) -> bool {
-		match self {
-			AdapterType::OifV1 => matches!(operation, "quotes" | "intents"),
-			AdapterType::LifiV1 => matches!(operation, "quotes"), // LiFi only supports quotes
-		}
-	}
-}
-
 impl AdapterConfig {
 	/// Create a new adapter configuration
 	pub fn new(
 		adapter_id: String,
-		adapter_type: AdapterType,
+		adapter_type_description: String,
 		name: String,
 		version: String,
 	) -> Self {
 		Self {
 			adapter_id,
-			adapter_type,
+			adapter_type_description,
 			name,
 			description: None,
 			version,
@@ -195,12 +159,9 @@ impl AdapterConfig {
 		self.enabled.unwrap_or(true)
 	}
 
-	/// Get default endpoint for this adapter type
+	/// Get default endpoint (fallback)
 	fn default_endpoint(&self) -> String {
-		match self.adapter_type {
-			AdapterType::OifV1 => "https://api.oif.example.com/v1".to_string(),
-			AdapterType::LifiV1 => "https://li.quest/v1".to_string(),
-		}
+		"https://api.custom.com/v1".to_string()
 	}
 }
 
@@ -208,7 +169,7 @@ impl Default for AdapterConfig {
 	fn default() -> Self {
 		Self {
 			adapter_id: "default-adapter".to_string(),
-			adapter_type: AdapterType::OifV1,
+			adapter_type_description: "Default Adapter".to_string(),
 			name: "Default Adapter".to_string(),
 			description: None,
 			version: "1.0.0".to_string(),
@@ -227,7 +188,7 @@ impl TryFrom<AdapterConfig> for Adapter {
 	fn try_from(config: AdapterConfig) -> Result<Self, Self::Error> {
 		let mut adapter = Adapter::new(
 			config.adapter_id.clone(),
-			config.adapter_type.clone(),
+			config.adapter_type_description.clone(),
 			config.name.clone(),
 			config.version.clone(),
 		);
@@ -273,7 +234,7 @@ mod tests {
 	fn test_adapter_config_conversion() {
 		let config = AdapterConfig::new(
 			"test-adapter".to_string(),
-			AdapterType::OifV1,
+			"OIF v1".to_string(),
 			"Test Adapter".to_string(),
 			"1.0.0".to_string(),
 		);
@@ -285,7 +246,7 @@ mod tests {
 	fn test_invalid_adapter_id() {
 		let config = AdapterConfig::new(
 			"".to_string(),
-			AdapterType::OifV1,
+			"OIF v1".to_string(),
 			"Test Adapter".to_string(),
 			"1.0.0".to_string(),
 		);
@@ -297,7 +258,7 @@ mod tests {
 	fn test_invalid_version() {
 		let config = AdapterConfig::new(
 			"test-adapter".to_string(),
-			AdapterType::OifV1,
+			"OIF v1".to_string(),
 			"Test Adapter".to_string(),
 			"invalid".to_string(),
 		);
@@ -309,7 +270,7 @@ mod tests {
 	fn test_try_from_config() {
 		let config = AdapterConfig::new(
 			"test-adapter".to_string(),
-			AdapterType::OifV1,
+			"OIF v1".to_string(),
 			"Test Adapter".to_string(),
 			"1.0.0".to_string(),
 		);
@@ -333,7 +294,7 @@ mod tests {
 
 		let config = AdapterConfig::new(
 			"test-adapter".to_string(),
-			AdapterType::OifV1,
+			"OIF v1".to_string(),
 			"Test Adapter".to_string(),
 			"1.0.0".to_string(),
 		)
@@ -362,7 +323,7 @@ mod tests {
 
 		let config = AdapterConfig::new(
 			"test-adapter".to_string(),
-			AdapterType::LifiV1,
+			"Lifi v1".to_string(),
 			"Test LiFi Adapter".to_string(),
 			"1.0.0".to_string(),
 		)
@@ -399,7 +360,7 @@ mod tests {
 	fn test_empty_networks_and_assets_by_default() {
 		let config = AdapterConfig::new(
 			"test-adapter".to_string(),
-			AdapterType::LifiV1,
+			"Lifi v1".to_string(),
 			"Test LiFi Adapter".to_string(),
 			"1.0.0".to_string(),
 		);
@@ -417,7 +378,7 @@ mod tests {
 		// Test empty networks
 		let config = AdapterConfig::new(
 			"test-adapter".to_string(),
-			AdapterType::OifV1,
+			"OIF v1".to_string(),
 			"Test Adapter".to_string(),
 			"1.0.0".to_string(),
 		)
@@ -431,7 +392,7 @@ mod tests {
 
 		let config = AdapterConfig::new(
 			"test-adapter".to_string(),
-			AdapterType::OifV1,
+			"OIF v1".to_string(),
 			"Test Adapter".to_string(),
 			"1.0.0".to_string(),
 		)
@@ -454,7 +415,7 @@ mod tests {
 
 		let config = AdapterConfig::new(
 			"test-adapter".to_string(),
-			AdapterType::OifV1,
+			"OIF v1".to_string(),
 			"Test Adapter".to_string(),
 			"1.0.0".to_string(),
 		)
@@ -468,7 +429,7 @@ mod tests {
 	fn test_invalid_endpoint() {
 		let config = AdapterConfig::new(
 			"test-adapter".to_string(),
-			AdapterType::OifV1,
+			"OIF v1".to_string(),
 			"Test Adapter".to_string(),
 			"1.0.0".to_string(),
 		)
@@ -481,7 +442,7 @@ mod tests {
 	fn test_invalid_timeout() {
 		let config = AdapterConfig::new(
 			"test-adapter".to_string(),
-			AdapterType::OifV1,
+			"OIF v1".to_string(),
 			"Test Adapter".to_string(),
 			"1.0.0".to_string(),
 		)
@@ -491,7 +452,7 @@ mod tests {
 
 		let config = AdapterConfig::new(
 			"test-adapter".to_string(),
-			AdapterType::OifV1,
+			"OIF v1".to_string(),
 			"Test Adapter".to_string(),
 			"1.0.0".to_string(),
 		)

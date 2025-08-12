@@ -1,3 +1,4 @@
+//! Order handlers
 use axum::{
 	extract::{Path, State},
 	http::StatusCode,
@@ -32,8 +33,7 @@ pub async fn post_orders(
 		request.user_address
 	);
 
-	let ip_address = None;
-	let order = match state.order_service.submit_order(&request, ip_address).await {
+	let order = match state.order_service.submit_order(&request).await {
 		Ok(order) => order,
 		Err(e) => {
 			return Err(match e {
@@ -65,6 +65,30 @@ pub async fn post_orders(
 					StatusCode::INTERNAL_SERVER_ERROR,
 					Json(ErrorResponse {
 						error: "STORAGE_ERROR".to_string(),
+						message: msg,
+						timestamp: chrono::Utc::now().timestamp(),
+					}),
+				),
+				oif_service::OrderServiceError::SolverNotFound(solver_id) => (
+					StatusCode::NOT_FOUND,
+					Json(ErrorResponse {
+						error: "SOLVER_NOT_FOUND".to_string(),
+						message: format!("Solver {} not found", solver_id),
+						timestamp: chrono::Utc::now().timestamp(),
+					}),
+				),
+				oif_service::OrderServiceError::AdapterNotFound(msg) => (
+					StatusCode::INTERNAL_SERVER_ERROR,
+					Json(ErrorResponse {
+						error: "ADAPTER_NOT_FOUND".to_string(),
+						message: msg,
+						timestamp: chrono::Utc::now().timestamp(),
+					}),
+				),
+				oif_service::OrderServiceError::Adapter(msg) => (
+					StatusCode::BAD_GATEWAY,
+					Json(ErrorResponse {
+						error: "ADAPTER_ERROR".to_string(),
 						message: msg,
 						timestamp: chrono::Utc::now().timestamp(),
 					}),

@@ -1,12 +1,12 @@
 //! Core aggregation service logic
 
 use futures::future::join_all;
-use oif_adapters::{AdapterError, AdapterFactory};
-use oif_types::{AdapterConfig, AdapterType, Quote, QuoteRequest, Solver};
+use oif_adapters::AdapterFactory;
+use oif_types::{Quote, QuoteRequest, Solver, SolverRuntimeConfig};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::time::{timeout, Duration};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 /// Service for aggregating quotes from multiple solvers
 pub struct AggregatorService {
@@ -16,24 +16,10 @@ pub struct AggregatorService {
 }
 
 impl AggregatorService {
-	/// Create a new aggregator service
-	pub fn new(solvers: Vec<Solver>, global_timeout_ms: u64) -> Self {
-		let mut solver_map = HashMap::new();
-		for solver in solvers {
-			solver_map.insert(solver.solver_id.clone(), solver);
-		}
-
-		Self {
-			solvers: solver_map,
-			adapter_factory: Arc::new(AdapterFactory::new()),
-			global_timeout_ms,
-		}
-	}
-
-	/// Create aggregator service with pre-configured adapters
-	pub fn with_adapters(
+	/// Create a new aggregator service with pre-configured adapters
+	pub fn new(
 		solvers: Vec<Solver>,
-		adapter_factory: AdapterFactory,
+		adapter_factory: Arc<AdapterFactory>,
 		global_timeout_ms: u64,
 	) -> Self {
 		let mut solver_map = HashMap::new();
@@ -43,66 +29,15 @@ impl AggregatorService {
 
 		Self {
 			solvers: solver_map,
-			adapter_factory: Arc::new(adapter_factory),
+			adapter_factory,
 			global_timeout_ms,
 		}
 	}
 
-	/// Initialize adapters for all solvers
-	pub async fn initialize_adapters(&mut self) -> Result<(), AdapterError> {
-		let mut factory = AdapterFactory::new();
-
-		for (solver_id, solver) in &self.solvers {
-			// Build adapter configuration from solver metadata
-			let adapter_config = AdapterConfig::new(
-				solver.adapter_id.clone(),
-				AdapterType::OifV1, // TODO: derive from config/solver.adapter_id if encoded
-				solver
-					.metadata
-					.name
-					.clone()
-					.unwrap_or_else(|| solver.solver_id.clone()),
-				solver
-					.metadata
-					.version
-					.clone()
-					.unwrap_or_else(|| "1.0.0".to_string()),
-			)
-			.with_description(
-				solver
-					.metadata
-					.description
-					.clone()
-					.unwrap_or_else(|| format!("Adapter for {}", solver.solver_id)),
-			)
-			.with_endpoint(solver.endpoint.clone())
-			.with_timeout_ms(solver.timeout_ms);
-
-			// Use solver-provided endpoint and timeout
-			match AdapterFactory::create_for_solver(
-				&adapter_config,
-				solver.endpoint.clone(),
-				solver.timeout_ms,
-			) {
-				Ok(adapter) => {
-					info!(
-						"Initialized adapter {} for solver {}",
-						adapter_config.adapter_id, solver_id
-					);
-					factory.register(solver_id.clone(), adapter);
-				},
-				Err(e) => {
-					error!(
-						"Failed to initialize adapter for solver {}: {}",
-						solver_id, e
-					);
-					return Err(e);
-				},
-			}
-		}
-
-		self.adapter_factory = Arc::new(factory);
-		Ok(())
+	/// Validate that all solvers have matching adapters
+	pub fn validate_solvers(&self) -> Result<(), String> {
+		let solvers: Vec<_> = self.solvers.values().cloned().collect();
+		self.adapter_factory.validate_solvers(&solvers)
 	}
 
 	/// Fetch quotes concurrently from all registered solvers
@@ -122,34 +57,28 @@ impl AggregatorService {
 			tokio::spawn(async move {
 				debug!("Starting quote fetch from solver {}", solver_id);
 
-				let adapter = match adapter_factory.get(&solver_id) {
+				let adapter = match adapter_factory.get(&solver.adapter_id) {
 					Some(adapter) => adapter,
 					None => {
-						warn!("No adapter found for solver {}", solver_id);
+						warn!(
+							"No adapter found for solver {} (adapter_id: {})",
+							solver_id, solver.adapter_id
+						);
 						return None;
 					},
 				};
 
-				let quote_future = adapter.get_quote(request.clone());
-				let timeout_duration = Duration::from_millis(solver.timeout_ms);
-
-				match timeout(timeout_duration, quote_future).await {
-					Ok(Ok(quote)) => {
+				let config = SolverRuntimeConfig::from(&solver);
+				match adapter.get_quote(request.clone(), &config).await {
+					Ok(quote) => {
 						info!(
 							"Successfully got quote from solver {} in {}ms",
 							solver_id, quote.response_time_ms
 						);
 						Some(quote)
 					},
-					Ok(Err(e)) => {
+					Err(e) => {
 						warn!("Solver {} returned error: {}", solver_id, e);
-						None
-					},
-					Err(_) => {
-						warn!(
-							"Solver {} timed out after {}ms",
-							solver_id, solver.timeout_ms
-						);
 						None
 					},
 				}
@@ -189,9 +118,10 @@ impl AggregatorService {
 	pub async fn health_check_all(&self) -> HashMap<String, bool> {
 		let mut results = HashMap::new();
 
-		for (solver_id, _solver) in &self.solvers {
-			if let Some(adapter) = self.adapter_factory.get(solver_id) {
-				match adapter.health_check().await {
+		for (solver_id, solver) in &self.solvers {
+			if let Some(adapter) = self.adapter_factory.get(&solver.adapter_id) {
+				let config = SolverRuntimeConfig::from(solver);
+				match adapter.health_check(&config).await {
 					Ok(is_healthy) => {
 						results.insert(solver_id.to_string(), is_healthy);
 					},
