@@ -4,25 +4,15 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-pub mod config;
 pub mod errors;
-pub mod response;
-pub mod storage;
 pub mod traits;
 
-pub use config::AdapterConfig;
 pub use errors::{AdapterError, AdapterFactoryError, AdapterValidationError};
-pub use response::{
-	AdapterAssetsResponse, AdapterConfigResponse, AdapterDetailResponse, AdapterNetworksResponse,
-	AdapterResponse, AssetResponse, NetworkResponse,
-};
-pub use storage::{AdapterMetadataStorage, AdapterStorage, AssetStorage, NetworkStorage};
 pub use traits::SolverAdapter;
 
 /// Result types for adapter operations
 pub type AdapterResult<T> = Result<T, AdapterError>;
 pub type AdapterValidationResult<T> = Result<T, AdapterValidationError>;
-pub type AdapterFactoryResult<T> = Result<T, AdapterFactoryError>;
 
 /// Minimal runtime configuration needed by adapters
 ///
@@ -93,9 +83,6 @@ pub struct Adapter {
 	/// Unique identifier for the adapter
 	pub adapter_id: String,
 
-	/// Type description of adapter (e.g., "OIF v1", "Custom Protocol")
-	pub adapter_type_description: String,
-
 	/// Human-readable name
 	pub name: String,
 
@@ -107,27 +94,6 @@ pub struct Adapter {
 
 	/// Adapter-specific configuration
 	pub configuration: HashMap<String, serde_json::Value>,
-
-	/// Whether the adapter is enabled
-	pub enabled: bool,
-
-	/// Supported networks for this adapter
-	pub supported_networks: Vec<crate::models::Network>,
-
-	/// Supported assets for this adapter
-	pub supported_assets: Vec<crate::models::Asset>,
-
-	/// Endpoint URL for the adapter service
-	pub endpoint: Option<String>,
-
-	/// Request timeout in milliseconds
-	pub timeout_ms: Option<u64>,
-
-	/// When the adapter was created/registered
-	pub created_at: DateTime<Utc>,
-
-	/// Last time the adapter was updated
-	pub updated_at: DateTime<Utc>,
 }
 
 /// Detailed order information from an adapter
@@ -171,28 +137,13 @@ impl OrderDetails {
 
 impl Adapter {
 	/// Create a new adapter
-	pub fn new(
-		adapter_id: String,
-		adapter_type_description: String,
-		name: String,
-		version: String,
-	) -> Self {
-		let now = Utc::now();
-
+	pub fn new(adapter_id: String, description: String, name: String, version: String) -> Self {
 		Self {
 			adapter_id,
-			adapter_type_description,
 			name,
-			description: None,
+			description: Some(description),
 			version,
 			configuration: HashMap::new(),
-			enabled: true,
-			supported_networks: Vec::new(),
-			supported_assets: Vec::new(),
-			endpoint: None,
-			timeout_ms: None,
-			created_at: now,
-			updated_at: now,
 		}
 	}
 
@@ -213,20 +164,7 @@ impl Adapter {
 	{
 		let json_value = serde_json::to_value(value).map_err(AdapterError::Serialization)?;
 		self.configuration.insert(key, json_value);
-		self.updated_at = Utc::now();
 		Ok(())
-	}
-
-	/// Enable the adapter
-	pub fn enable(&mut self) {
-		self.enabled = true;
-		self.updated_at = Utc::now();
-	}
-
-	/// Disable the adapter
-	pub fn disable(&mut self) {
-		self.enabled = false;
-		self.updated_at = Utc::now();
 	}
 
 	/// Builder methods for easy configuration
@@ -241,11 +179,6 @@ impl Adapter {
 	{
 		self.set_config(key, value)?;
 		Ok(self)
-	}
-
-	pub fn enabled(mut self, enabled: bool) -> Self {
-		self.enabled = enabled;
-		self
 	}
 
 	/// Validate the adapter configuration
@@ -293,72 +226,6 @@ impl Adapter {
 			});
 		}
 
-		// Validate networks if provided
-		if !self.supported_networks.is_empty() {
-			// Check for duplicate chain IDs
-			let mut chain_ids = std::collections::HashSet::new();
-			for network in &self.supported_networks {
-				if !chain_ids.insert(network.chain_id) {
-					return Err(AdapterValidationError::InvalidConfiguration {
-						reason: format!(
-							"Duplicate chain ID {} in supported networks",
-							network.chain_id
-						),
-					});
-				}
-			}
-		}
-
-		// Validate assets if provided
-		if !self.supported_assets.is_empty() {
-			// Check that all assets have valid chain IDs from supported networks
-			let supported_chain_ids: std::collections::HashSet<u64> =
-				self.supported_networks.iter().map(|n| n.chain_id).collect();
-
-			for asset in &self.supported_assets {
-				if !supported_chain_ids.contains(&asset.chain_id) {
-					return Err(AdapterValidationError::InvalidConfiguration {
-						reason: format!(
-							"Asset {} has chain ID {} which is not in supported networks",
-							asset.symbol, asset.chain_id
-						),
-					});
-				}
-			}
-		}
-
-		// Validate endpoint if provided
-		if let Some(endpoint) = &self.endpoint {
-			if endpoint.is_empty() {
-				return Err(AdapterValidationError::InvalidConfiguration {
-					reason: "endpoint cannot be empty if provided".to_string(),
-				});
-			}
-
-			// Basic URL validation
-			if !endpoint.starts_with("http://") && !endpoint.starts_with("https://") {
-				return Err(AdapterValidationError::InvalidConfiguration {
-					reason: "endpoint must be a valid URL starting with http:// or https://"
-						.to_string(),
-				});
-			}
-		}
-
-		// Validate timeout if provided
-		if let Some(timeout_ms) = self.timeout_ms {
-			if timeout_ms == 0 {
-				return Err(AdapterValidationError::InvalidConfiguration {
-					reason: "timeout_ms must be greater than 0".to_string(),
-				});
-			}
-
-			if timeout_ms > 300_000 {
-				return Err(AdapterValidationError::InvalidConfiguration {
-					reason: "timeout_ms cannot exceed 5 minutes (300,000ms)".to_string(),
-				});
-			}
-		}
-
 		Ok(())
 	}
 }
@@ -392,10 +259,8 @@ mod tests {
 		let adapter = create_test_adapter();
 
 		assert_eq!(adapter.adapter_id, "test-adapter");
-		assert_eq!(adapter.adapter_type_description, "OIF v1");
 		assert_eq!(adapter.name, "Test Adapter");
 		assert_eq!(adapter.version, "1.0.0");
-		assert!(adapter.enabled);
 	}
 
 	#[test]

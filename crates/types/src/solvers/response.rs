@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{Solver, SolverStatus};
-use crate::adapters::{AssetResponse, NetworkResponse};
+use crate::models::{Asset as AssetResponse, Network as NetworkResponse};
 
 /// Response format for individual solvers in API
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -49,18 +49,8 @@ impl TryFrom<&Solver> for SolverResponse {
 			description: solver.metadata.description.clone(),
 			endpoint: solver.endpoint.clone(),
 			status: solver.status.clone(),
-			supported_networks: solver
-				.metadata
-				.supported_networks
-				.iter()
-				.map(NetworkResponse::from)
-				.collect(),
-			supported_assets: solver
-				.metadata
-				.supported_assets
-				.iter()
-				.map(AssetResponse::from)
-				.collect(),
+			supported_networks: solver.metadata.supported_networks.clone(),
+			supported_assets: solver.metadata.supported_assets.clone(),
 			created_at: solver.created_at.timestamp(),
 			last_seen: solver.last_seen.map(|dt| dt.timestamp()),
 		})

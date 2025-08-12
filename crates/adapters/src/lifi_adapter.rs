@@ -1,24 +1,24 @@
 //! LiFi adapter implementation
+//! TODO: Implement LiFi adapter
 
 use async_trait::async_trait;
 use oif_types::{
-	AdapterConfig, Asset, Network, Order, OrderDetails, Quote, QuoteRequest, SolverRuntimeConfig,
+	Adapter, Asset, Network, Order, OrderDetails, Quote, QuoteRequest, SolverRuntimeConfig,
 };
 use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 use reqwest::Client;
-use std::time::Duration;
 use tracing::debug;
 
 /// LiFi adapter for cross-chain bridge quotes
 /// This adapter is stateless and receives solver configuration at runtime
 #[derive(Debug)]
 pub struct LifiAdapter {
-	config: AdapterConfig,
+	config: Adapter,
 	client: Client,
 }
 
 impl LifiAdapter {
-	pub fn new(config: AdapterConfig) -> AdapterResult<Self> {
+	pub fn new(config: Adapter) -> AdapterResult<Self> {
 		let client = Client::builder().build().map_err(AdapterError::HttpError)?;
 
 		Ok(Self { config, client })
@@ -26,7 +26,7 @@ impl LifiAdapter {
 
 	/// Create default LiFi adapter instance
 	pub fn default() -> AdapterResult<Self> {
-		let config = AdapterConfig::new(
+		let config = Adapter::new(
 			"lifi-v1".to_string(),
 			"LiFi v1 Protocol".to_string(),
 			"LiFi v1 Adapter".to_string(),
@@ -40,14 +40,14 @@ impl LifiAdapter {
 #[async_trait]
 impl SolverAdapter for LifiAdapter {
 	fn adapter_id(&self) -> &str {
-		"lifi-v1"
+		&self.config.adapter_id
 	}
 
 	fn adapter_name(&self) -> &str {
-		"LiFi v1 Protocol"
+		&self.config.name
 	}
 
-	fn adapter_info(&self) -> &AdapterConfig {
+	fn adapter_info(&self) -> &Adapter {
 		&self.config
 	}
 

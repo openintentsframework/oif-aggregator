@@ -1,13 +1,14 @@
 //! OIF v1 adapter implementation for HTTP-based solvers
+//! TODO: Implement OIF adapter
 
 use async_trait::async_trait;
 use oif_types::{
-	AdapterConfig, Asset, Network, Order, OrderDetails, OrderStatus, Quote, QuoteRequest,
+	Adapter, Asset, Network, Order, OrderDetails, OrderStatus, Quote, QuoteRequest,
 	SolverRuntimeConfig,
 };
 use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 use reqwest::{
-	header::{HeaderMap, HeaderName, HeaderValue},
+	header::{HeaderMap, HeaderValue},
 	Client,
 };
 use serde::{Deserialize, Serialize};
@@ -18,7 +19,7 @@ use tracing::{debug, error, info, warn};
 /// This adapter is stateless and receives solver configuration at runtime
 #[derive(Debug)]
 pub struct OifAdapter {
-	config: AdapterConfig,
+	config: Adapter,
 	client: Client,
 }
 
@@ -61,7 +62,7 @@ struct OifOrderResponse {
 
 impl OifAdapter {
 	/// Create a new OIF adapter (stateless, no hardcoded endpoint/timeout)
-	pub fn new(config: AdapterConfig) -> AdapterResult<Self> {
+	pub fn new(config: Adapter) -> AdapterResult<Self> {
 		let mut headers = HeaderMap::new();
 
 		// Add default headers
@@ -78,7 +79,7 @@ impl OifAdapter {
 
 	/// Create default OIF adapter instance
 	pub fn default() -> AdapterResult<Self> {
-		let config = AdapterConfig::new(
+		let config = Adapter::new(
 			"oif-v1".to_string(),
 			"OIF v1 Protocol".to_string(),
 			"OIF v1 Adapter".to_string(),
@@ -146,14 +147,14 @@ impl OifAdapter {
 #[async_trait]
 impl SolverAdapter for OifAdapter {
 	fn adapter_id(&self) -> &str {
-		"oif-v1"
+		&self.config.adapter_id
 	}
 
 	fn adapter_name(&self) -> &str {
-		"OIF v1 Protocol"
+		&self.config.name
 	}
 
-	fn adapter_info(&self) -> &AdapterConfig {
+	fn adapter_info(&self) -> &Adapter {
 		&self.config
 	}
 

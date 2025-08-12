@@ -18,7 +18,6 @@ pub struct Settings {
 pub struct ServerSettings {
 	pub host: String,
 	pub port: u16,
-	pub workers: Option<usize>,
 }
 
 /// Individual solver configuration
@@ -31,6 +30,30 @@ pub struct SolverConfig {
 	pub enabled: bool,
 	pub max_retries: u32,
 	pub headers: Option<HashMap<String, String>>,
+	// Optional descriptive metadata
+	pub name: Option<String>,
+	pub description: Option<String>,
+	// Optional domain metadata for discoverability
+	pub supported_networks: Option<Vec<NetworkConfig>>,
+	pub supported_assets: Option<Vec<AssetConfig>>,
+}
+
+/// Minimal network shape for config to avoid cross-crate cycle
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct NetworkConfig {
+	pub chain_id: u64,
+	pub name: String,
+	pub is_testnet: bool,
+}
+
+/// Minimal asset shape for config to avoid cross-crate cycle
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AssetConfig {
+	pub address: String,
+	pub symbol: String,
+	pub name: String,
+	pub decimals: u8,
+	pub chain_id: u64,
 }
 
 /// Timeout configuration
@@ -93,7 +116,6 @@ impl Default for Settings {
 			server: ServerSettings {
 				host: "0.0.0.0".to_string(),
 				port: 3000,
-				workers: None,
 			},
 			solvers: HashMap::new(),
 			timeouts: TimeoutSettings {

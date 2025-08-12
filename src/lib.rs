@@ -3,6 +3,7 @@
 //! A high-performance aggregator for Open Intent Framework (OIF) solvers,
 //! providing quote aggregation, intent submission, and solver management.
 
+use oif_types::{Asset, Network};
 // Core domain types - the most commonly used types
 pub use oif_types::{
 	chrono,
@@ -10,7 +11,6 @@ pub use oif_types::{
 	serde_json,
 	// Core types
 	Adapter,
-	AdapterConfig,
 	AdapterError,
 
 	AuthContext,
@@ -58,10 +58,6 @@ pub use oif_storage::{
 pub mod traits {
 	pub use oif_storage::traits::*;
 }
-
-// Conditional re-exports based on features
-#[cfg(feature = "redis")]
-pub use oif_storage::RedisStore;
 
 // API layer
 pub use oif_api::{create_router, AppState};
@@ -160,6 +156,54 @@ where
 	A: Authenticator + 'static,
 	R: RateLimiter + 'static,
 {
+	/// Upsert solvers defined in Settings into storage so that start() can
+	/// load them via `list_all_solvers()`.
+	async fn upsert_solvers_from_settings(&self, settings: &Settings) {
+		for (_, solver_config) in &settings.enabled_solvers() {
+			let mut solver = Solver::new(
+				solver_config.solver_id.clone(),
+				solver_config.adapter_id.clone(),
+				solver_config.endpoint.clone(),
+				solver_config.timeout_ms,
+			);
+
+			// Populate metadata
+			solver.metadata.name = solver_config
+				.name
+				.clone()
+				.or_else(|| Some(solver_config.solver_id.clone()));
+			solver.metadata.supported_networks = vec![];
+			solver.metadata.max_retries = solver_config.max_retries;
+			solver.metadata.headers = solver_config.headers.clone();
+			if let Some(desc) = &solver_config.description {
+				solver.metadata.description = Some(desc.clone());
+			}
+			if let Some(networks) = &solver_config.supported_networks {
+				solver.metadata.supported_networks = networks
+					.iter()
+					.map(|n| Network::new(n.chain_id, n.name.clone(), n.is_testnet))
+					.collect();
+			}
+			if let Some(assets) = &solver_config.supported_assets {
+				solver.metadata.supported_assets = assets
+					.iter()
+					.map(|a| {
+						Asset::new(
+							a.address.clone(),
+							a.symbol.clone(),
+							a.name.clone(),
+							a.decimals,
+							a.chain_id,
+						)
+					})
+					.collect();
+			}
+			solver.status = SolverStatus::Active;
+
+			// Upsert into storage (ignore individual errors on duplicates)
+			let _ = self.storage.create_solver(solver).await;
+		}
+	}
 	/// Set custom authenticator
 	pub fn with_auth<NewA>(self, authenticator: NewA) -> AggregatorBuilder<S, NewA, R>
 	where
@@ -257,6 +301,8 @@ where
 	pub async fn start(self) -> Result<(axum::Router, AppState), Box<dyn std::error::Error>> {
 		// Initialize the aggregator service
 		let settings = self.settings.clone().unwrap_or_default();
+		// Upsert solvers from settings into storage first
+		self.upsert_solvers_from_settings(&settings).await;
 		// Use base repository listing for solvers
 		let solvers = self
 			.storage

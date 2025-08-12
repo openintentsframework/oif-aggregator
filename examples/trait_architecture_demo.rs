@@ -10,7 +10,8 @@ use async_trait::async_trait;
 use oif_aggregator::models::{AuthError, AuthenticationResult};
 use oif_aggregator::*;
 use oif_api::auth::MemoryRateLimiter;
-use oif_types::{Asset, Network, OrderDetails};
+use oif_types::{Asset, Network, OrderDetails, SolverRuntimeConfig};
+use std::collections::HashMap;
 use tokio;
 
 // Example of custom authentication implementation
@@ -213,7 +214,7 @@ impl Storage for CustomPostgresStorage {
 // Example of custom solver adapter
 #[derive(Debug)]
 struct CustomUniswapAdapter {
-	config: AdapterConfig,
+	config: Adapter,
 	client: reqwest::Client,
 	endpoint: String,
 }
@@ -221,23 +222,12 @@ struct CustomUniswapAdapter {
 impl CustomUniswapAdapter {
 	fn new() -> Self {
 		Self {
-			config: AdapterConfig {
+			config: Adapter {
 				adapter_id: "custom-uniswap".to_string(),
-				adapter_type: AdapterType::OifV1,
 				name: "Custom Uniswap V3 Adapter".to_string(),
 				description: Some("Custom implementation for Uniswap V3".to_string()),
 				version: "1.0.0".to_string(),
-				supported_networks: Some(vec![Network::new(1, "Ethereum".to_string(), false)]),
-				supported_assets: Some(vec![Asset::new(
-					"0x0000000000000000000000000000000000000000".to_string(),
-					"ETH".to_string(),
-					"Ethereum".to_string(),
-					18,
-					1,
-				)]),
-				endpoint: Some("https://api.uniswap.org/v3".to_string()),
-				timeout_ms: Some(10000),
-				enabled: Some(true),
+				configuration: HashMap::new(),
 			},
 			client: reqwest::Client::new(),
 			endpoint: "https://api.uniswap.org/v3".to_string(),
@@ -247,11 +237,23 @@ impl CustomUniswapAdapter {
 
 #[async_trait]
 impl SolverAdapter for CustomUniswapAdapter {
-	fn adapter_info(&self) -> &AdapterConfig {
+	fn adapter_info(&self) -> &Adapter {
 		&self.config
 	}
 
-	async fn get_quote(&self, request: QuoteRequest) -> AdapterResult<Quote> {
+	fn adapter_id(&self) -> &str {
+		&self.config.adapter_id
+	}
+
+	fn adapter_name(&self) -> &str {
+		&self.config.name
+	}
+
+	async fn get_quote(
+		&self,
+		request: QuoteRequest,
+		config: &SolverRuntimeConfig,
+	) -> AdapterResult<Quote> {
 		println!(
 			"Getting quote from Uniswap V3 for {}/{}",
 			request.token_in.clone(),
@@ -280,7 +282,11 @@ impl SolverAdapter for CustomUniswapAdapter {
 		Ok(quote)
 	}
 
-	async fn submit_order(&self, order: &Order) -> AdapterResult<String> {
+	async fn submit_order(
+		&self,
+		order: &Order,
+		config: &SolverRuntimeConfig,
+	) -> AdapterResult<String> {
 		println!("Submitting order {} to Uniswap V3", order.order_id);
 
 		// In real implementation:
@@ -291,7 +297,7 @@ impl SolverAdapter for CustomUniswapAdapter {
 		Ok("0x1234567890abcdef".to_string())
 	}
 
-	async fn health_check(&self) -> AdapterResult<bool> {
+	async fn health_check(&self, config: &SolverRuntimeConfig) -> AdapterResult<bool> {
 		println!("Uniswap V3 adapter health check");
 		Ok(true)
 	}
@@ -310,7 +316,11 @@ impl SolverAdapter for CustomUniswapAdapter {
 		)])
 	}
 
-	async fn get_order_details(&self, order_id: &str) -> AdapterResult<OrderDetails> {
+	async fn get_order_details(
+		&self,
+		order_id: &str,
+		config: &SolverRuntimeConfig,
+	) -> AdapterResult<OrderDetails> {
 		println!("Getting order details for {} from Uniswap V3", order_id);
 		Ok(OrderDetails::new(
 			order_id.to_string(),
@@ -382,7 +392,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	println!("🏗️  Building aggregator with custom traits...");
 
 	let builder = AggregatorBuilder::with_storage(custom_storage)
-		.with_auth_and_limiter(custom_auth, redis_rate_limiter);
+		.with_auth(custom_auth)
+		.with_rate_limiter(redis_rate_limiter);
 
 	println!("   ✅ AggregatorBuilder configured with:");
 	println!("      - Custom JWT authentication");

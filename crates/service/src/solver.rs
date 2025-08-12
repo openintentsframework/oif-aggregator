@@ -1,3 +1,7 @@
+//! Solver service
+//!
+//! Service for retrieving solvers.
+
 use std::sync::Arc;
 
 use oif_storage::Storage;

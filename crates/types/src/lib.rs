@@ -28,18 +28,12 @@ pub use solvers::{
 };
 
 pub use adapters::{
-	Adapter, AdapterAssetsResponse, AdapterConfig, AdapterConfigResponse, AdapterDetailResponse,
-	AdapterError, AdapterFactoryError, AdapterFactoryResult, AdapterMetadataStorage,
-	AdapterNetworksResponse, AdapterResponse, AdapterResult, AdapterStorage,
-	AdapterValidationError, AdapterValidationResult, AssetResponse, AssetStorage, NetworkResponse,
-	NetworkStorage, SolverAdapter, SolverRuntimeConfig,
+	Adapter, AdapterError, AdapterFactoryError, AdapterResult, AdapterValidationResult,
+	OrderDetails, SolverAdapter, SolverRuntimeConfig,
 };
 
 // Re-export shared domain models
 pub use models::{Asset, Network};
-
-// Re-export adapter-specific types
-pub use adapters::OrderDetails;
 
 pub use orders::{
 	Order, OrderError, OrderResponse, OrderStatus, OrderStorage, OrderValidationError,

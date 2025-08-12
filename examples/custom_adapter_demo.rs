@@ -4,8 +4,8 @@ use async_trait::async_trait;
 use oif_aggregator::{AggregatorBuilder, MemoryStore};
 use oif_types::StorageTrait;
 use oif_types::{
-	AdapterConfig, AdapterError, AdapterResult, Asset, Network, Order, OrderDetails, Quote,
-	QuoteRequest, Solver, SolverAdapter, SolverRuntimeConfig,
+	Adapter, AdapterError, AdapterResult, Asset, Network, Order, OrderDetails, Quote, QuoteRequest,
+	Solver, SolverAdapter, SolverRuntimeConfig,
 };
 use std::time::Duration;
 use tracing::info;
@@ -14,12 +14,12 @@ use tracing::info;
 /// This adapter is stateless and receives solver configuration at runtime
 #[derive(Debug)]
 pub struct CustomSolverAdapter {
-	config: AdapterConfig,
+	config: Adapter,
 }
 
 impl CustomSolverAdapter {
 	pub fn new() -> Self {
-		let config = AdapterConfig::new(
+		let config = Adapter::new(
 			"custom-v1".to_string(),
 			"Custom Protocol v1".to_string(),
 			"Custom Demo Adapter".to_string(),
@@ -40,7 +40,7 @@ impl SolverAdapter for CustomSolverAdapter {
 		"Custom Demo Adapter"
 	}
 
-	fn adapter_info(&self) -> &AdapterConfig {
+	fn adapter_info(&self) -> &Adapter {
 		&self.config
 	}
 

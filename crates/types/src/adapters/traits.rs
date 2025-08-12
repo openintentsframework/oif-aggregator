@@ -1,8 +1,8 @@
 //! Core adapter traits for user implementations
 
-use super::{AdapterConfig, AdapterResult, OrderDetails, SolverRuntimeConfig};
+use super::{AdapterResult, OrderDetails, SolverRuntimeConfig};
 use crate::models::{Asset, Network};
-use crate::{Order, Quote, QuoteRequest};
+use crate::{Adapter, Order, Quote, QuoteRequest};
 use async_trait::async_trait;
 use std::fmt::Debug;
 
@@ -19,7 +19,7 @@ pub trait SolverAdapter: Send + Sync + Debug {
 	fn adapter_name(&self) -> &str;
 
 	/// Get adapter configuration information
-	fn adapter_info(&self) -> &AdapterConfig;
+	fn adapter_info(&self) -> &Adapter;
 
 	/// Get a quote from the solver using runtime configuration
 	async fn get_quote(

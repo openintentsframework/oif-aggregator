@@ -4,8 +4,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::{Asset, Network};
+
 use super::{HealthCheckResult, Solver, SolverError, SolverMetadata, SolverMetrics, SolverStatus};
-use crate::adapters::storage::{AssetStorage, NetworkStorage};
 
 /// Storage representation of a solver
 ///
@@ -34,8 +35,8 @@ pub struct SolverMetadataStorage {
 	pub name: Option<String>,
 	pub description: Option<String>,
 	pub version: Option<String>,
-	pub supported_networks: Vec<NetworkStorage>,
-	pub supported_assets: Vec<AssetStorage>,
+	pub supported_networks: Vec<Network>,
+	pub supported_assets: Vec<Asset>,
 	pub max_retries: u32,
 	pub headers: Option<HashMap<String, String>>,
 	pub config: HashMap<String, serde_json::Value>,
@@ -162,16 +163,8 @@ impl From<SolverMetadata> for SolverMetadataStorage {
 			name: metadata.name,
 			description: metadata.description,
 			version: metadata.version,
-			supported_networks: metadata
-				.supported_networks
-				.into_iter()
-				.map(NetworkStorage::from)
-				.collect(),
-			supported_assets: metadata
-				.supported_assets
-				.into_iter()
-				.map(AssetStorage::from)
-				.collect(),
+			supported_networks: metadata.supported_networks,
+			supported_assets: metadata.supported_assets,
 			max_retries: metadata.max_retries,
 			headers: metadata.headers,
 			config: metadata.config,
@@ -185,16 +178,8 @@ impl From<SolverMetadataStorage> for SolverMetadata {
 			name: storage.name,
 			description: storage.description,
 			version: storage.version,
-			supported_networks: storage
-				.supported_networks
-				.into_iter()
-				.map(|n| n.into())
-				.collect(),
-			supported_assets: storage
-				.supported_assets
-				.into_iter()
-				.map(|a| a.into())
-				.collect(),
+			supported_networks: storage.supported_networks,
+			supported_assets: storage.supported_assets,
 			max_retries: storage.max_retries,
 			headers: storage.headers,
 			config: storage.config,

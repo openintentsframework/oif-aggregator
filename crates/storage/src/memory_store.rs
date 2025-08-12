@@ -3,7 +3,7 @@
 use crate::traits::{OrderStorage, QuoteStorage, SolverStorage, Storage, StorageResult};
 use async_trait::async_trait;
 use dashmap::DashMap;
-use oif_types::{AdapterConfig, Order, Quote, Solver};
+use oif_types::{Order, Quote, Solver};
 use std::sync::Arc;
 
 /// In-memory storage for solvers, quotes, and orders
@@ -12,7 +12,6 @@ pub struct MemoryStore {
 	pub solvers: Arc<DashMap<String, Solver>>,
 	pub quotes: Arc<DashMap<String, Quote>>,
 	pub orders: Arc<DashMap<String, Order>>,
-	pub adapters: Arc<DashMap<String, AdapterConfig>>,
 }
 
 impl MemoryStore {
@@ -22,7 +21,6 @@ impl MemoryStore {
 			solvers: Arc::new(DashMap::new()),
 			quotes: Arc::new(DashMap::new()),
 			orders: Arc::new(DashMap::new()),
-			adapters: Arc::new(DashMap::new()),
 		}
 	}
 }

@@ -1500,7 +1500,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
- "oif-config",
  "oif-types",
  "reqwest",
  "serde",
