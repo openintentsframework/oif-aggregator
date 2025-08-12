@@ -3,6 +3,7 @@
 //! A high-performance aggregator for Open Intent Framework (OIF) solvers,
 //! providing quote aggregation, intent submission, and solver management.
 
+use oif_service::IntegrityService;
 use oif_types::{Asset, Network};
 // Core domain types - the most commonly used types
 pub use oif_types::{
@@ -316,11 +317,21 @@ where
 				.unwrap_or_else(|| oif_adapters::AdapterRegistry::with_defaults()),
 		);
 
-		// Create aggregator service
+		// Get integrity secret wrapped in SecretString for secure handling
+		let integrity_secret = settings
+			.get_integrity_secret_secure()
+			.map_err(|e| {
+				format!(
+					"Failed to resolve integrity secret: {}. Please set the INTEGRITY_SECRET environment variable with a secure random string (minimum 32 characters).",
+					e
+				)
+			})?;
+		let integrity_service = Arc::new(IntegrityService::new(integrity_secret));
 		let aggregator_service = AggregatorService::new(
 			solvers.clone(),
 			Arc::clone(&adapter_factory),
 			settings.timeouts.global_ms,
+			Arc::clone(&integrity_service),
 		);
 
 		// Validate that all solvers have matching adapters
@@ -342,9 +353,11 @@ where
 				Arc::clone(&storage_arc),
 				Arc::clone(&adapter_factory),
 				solver_map,
+				Arc::clone(&integrity_service),
 			)),
 			solver_service: Arc::new(SolverService::new(Arc::clone(&storage_arc))),
 			storage: storage_arc,
+			integrity_service,
 		};
 
 		// Create router with state

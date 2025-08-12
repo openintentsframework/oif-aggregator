@@ -73,6 +73,10 @@ pub struct Quote {
 
 	/// Raw response from the solver (for debugging/future use)
 	pub raw_response: serde_json::Value,
+
+	/// HMAC-SHA256 integrity checksum for quote verification
+	/// This ensures the quote originated from the aggregator service
+	pub integrity_checksum: Option<String>,
 }
 
 /// Quote status enumeration
@@ -120,6 +124,7 @@ impl Quote {
 			created_at: now,
 			expires_at: now + Duration::minutes(5), // Default 5-minute TTL
 			raw_response: serde_json::Value::Null,
+			integrity_checksum: None,
 		}
 	}
 
@@ -230,6 +235,27 @@ impl Quote {
 	}
 }
 
+impl Quote {
+	/// Generate a canonical payload string for integrity verification
+	///
+	/// This method is used by the integrity service to create a consistent
+	/// string representation of the quote for HMAC generation.
+	pub fn to_integrity_payload(&self) -> String {
+		format!(
+            "quote_id={}|solver_id={}|request_id={}|token_in={}|token_out={}|amount_in={}|amount_out={}|chain_id={}|created_at={}",
+            self.quote_id,
+            self.solver_id,
+            self.request_id,
+            self.token_in,
+            self.token_out,
+            self.amount_in,
+            self.amount_out,
+            self.chain_id,
+            self.created_at.timestamp_millis()
+        )
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -294,5 +320,29 @@ mod tests {
 		assert_eq!(quote.price_impact, Some(0.01));
 		assert_eq!(quote.response_time_ms, 150);
 		assert_eq!(quote.confidence_score, Some(0.95));
+	}
+
+	#[test]
+	fn test_quote_integrity_payload() {
+		let quote = create_test_quote();
+		let payload = quote.to_integrity_payload();
+
+		// Verify payload contains all critical fields
+		assert!(payload.contains(&format!("quote_id={}", quote.quote_id)));
+		assert!(payload.contains(&format!("solver_id={}", quote.solver_id)));
+		assert!(payload.contains(&format!("request_id={}", quote.request_id)));
+		assert!(payload.contains(&format!("token_in={}", quote.token_in)));
+		assert!(payload.contains(&format!("token_out={}", quote.token_out)));
+		assert!(payload.contains(&format!("amount_in={}", quote.amount_in)));
+		assert!(payload.contains(&format!("amount_out={}", quote.amount_out)));
+		assert!(payload.contains(&format!("chain_id={}", quote.chain_id)));
+		assert!(payload.contains(&format!(
+			"created_at={}",
+			quote.created_at.timestamp_millis()
+		)));
+
+		// Verify deterministic output
+		let payload2 = quote.to_integrity_payload();
+		assert_eq!(payload, payload2);
 	}
 }

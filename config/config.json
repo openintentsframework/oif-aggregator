@@ -51,5 +51,11 @@
     "level": "info",
     "format": "pretty",
     "structured": false
+  },
+  "security": {
+    "integrity_secret": {
+      "type": "env",
+      "value": "INTEGRITY_SECRET"
+    }
   }
 }

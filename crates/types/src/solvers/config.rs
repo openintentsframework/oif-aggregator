@@ -278,27 +278,6 @@ impl TryFrom<SolverConfig> for Solver {
 	}
 }
 
-/// Convert from oif_config::Settings::SolverConfig to domain SolverConfig
-impl From<oif_config::settings::SolverConfig> for SolverConfig {
-	fn from(settings_config: oif_config::settings::SolverConfig) -> Self {
-		Self {
-			solver_id: settings_config.solver_id,
-			adapter_id: settings_config.adapter_id,
-			endpoint: settings_config.endpoint,
-			timeout_ms: settings_config.timeout_ms,
-			enabled: settings_config.enabled,
-			max_retries: settings_config.max_retries,
-			headers: settings_config.headers,
-			name: None,
-			description: None,
-			version: None,
-			supported_networks: None,
-			supported_assets: None,
-			config: None,
-		}
-	}
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;

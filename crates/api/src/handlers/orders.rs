@@ -93,6 +93,14 @@ pub async fn post_orders(
 						timestamp: chrono::Utc::now().timestamp(),
 					}),
 				),
+				oif_service::OrderServiceError::IntegrityVerificationFailed => (
+					StatusCode::BAD_REQUEST,
+					Json(ErrorResponse {
+						error: "INTEGRITY_VERIFICATION_FAILED".to_string(),
+						message: "Quote integrity verification failed. The quote may have been tampered with.".to_string(),
+						timestamp: chrono::Utc::now().timestamp(),
+					}),
+				),
 			})
 		},
 	};

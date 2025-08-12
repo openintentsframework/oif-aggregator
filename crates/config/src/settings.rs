@@ -1,5 +1,8 @@
 //! Configuration settings structures
 
+use crate::{configurable_value::ConfigurableValue, ConfigurableValueError};
+use oif_types::SecretString;
+use oif_types::SolverConfig as DomainSolverConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -11,6 +14,7 @@ pub struct Settings {
 	pub timeouts: TimeoutSettings,
 	pub environment: EnvironmentSettings,
 	pub logging: LoggingSettings,
+	pub security: SecuritySettings,
 }
 
 /// Server configuration
@@ -36,6 +40,39 @@ pub struct SolverConfig {
 	// Optional domain metadata for discoverability
 	pub supported_networks: Option<Vec<NetworkConfig>>,
 	pub supported_assets: Option<Vec<AssetConfig>>,
+}
+
+/// Convert from settings SolverConfig to domain SolverConfig
+impl From<SolverConfig> for DomainSolverConfig {
+	fn from(settings_config: SolverConfig) -> Self {
+		Self {
+			solver_id: settings_config.solver_id,
+			adapter_id: settings_config.adapter_id,
+			endpoint: settings_config.endpoint,
+			timeout_ms: settings_config.timeout_ms,
+			enabled: settings_config.enabled,
+			max_retries: settings_config.max_retries,
+			headers: settings_config.headers,
+			name: settings_config.name,
+			description: settings_config.description,
+			version: None,
+			supported_networks: settings_config.supported_networks.map(|networks| {
+				networks
+					.into_iter()
+					.map(|n| oif_types::Network::new(n.chain_id, n.name, n.is_testnet))
+					.collect()
+			}),
+			supported_assets: settings_config.supported_assets.map(|assets| {
+				assets
+					.into_iter()
+					.map(|a| {
+						oif_types::Asset::new(a.address, a.symbol, a.name, a.decimals, a.chain_id)
+					})
+					.collect()
+			}),
+			config: None,
+		}
+	}
 }
 
 /// Minimal network shape for config to avoid cross-crate cycle
@@ -110,6 +147,20 @@ pub enum LogFormat {
 	Compact,
 }
 
+/// Security configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SecuritySettings {
+	/// Secret key for HMAC integrity verification
+	///
+	/// Used to generate and verify integrity checksums for quotes and orders.
+	/// Should be a secure random string (minimum 32 characters).
+	///
+	/// Example configurations:
+	/// - Environment variable: `{"type": "env", "value": "INTEGRITY_SECRET"}`
+	/// - Plain value: `{"type": "plain", "value": "your-secret-here"}`
+	pub integrity_secret: ConfigurableValue,
+}
+
 impl Default for Settings {
 	fn default() -> Self {
 		Self {
@@ -138,6 +189,9 @@ impl Default for Settings {
 				format: LogFormat::Pretty,
 				structured: false,
 			},
+			security: SecuritySettings {
+				integrity_secret: ConfigurableValue::from_env("INTEGRITY_SECRET"),
+			},
 		}
 	}
 }
@@ -165,5 +219,18 @@ impl Settings {
 	/// Check if debug mode is enabled
 	pub fn is_debug(&self) -> bool {
 		self.environment.debug && !self.is_production()
+	}
+
+	/// Get integrity secret from configuration
+	///
+	/// Resolves the configurable value to get the actual secret string.
+	/// Supports both environment variables and plain values based on configuration.
+	pub fn get_integrity_secret(&self) -> Result<String, ConfigurableValueError> {
+		self.security.integrity_secret.resolve()
+	}
+
+	/// Get integrity secret for secure handling (caller should wrap in SecretString)
+	pub fn get_integrity_secret_secure(&self) -> Result<SecretString, ConfigurableValueError> {
+		self.security.integrity_secret.resolve_for_secret()
 	}
 }

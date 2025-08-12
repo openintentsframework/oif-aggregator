@@ -1,5 +1,6 @@
 //! Core aggregation service logic
 
+use crate::integrity::IntegrityService;
 use futures::future::join_all;
 use oif_adapters::AdapterRegistry;
 use oif_types::{Quote, QuoteRequest, Solver, SolverRuntimeConfig};
@@ -13,6 +14,7 @@ pub struct AggregatorService {
 	solvers: HashMap<String, Solver>,
 	adapter_registry: Arc<AdapterRegistry>,
 	global_timeout_ms: u64,
+	integrity_service: Arc<IntegrityService>,
 }
 
 impl AggregatorService {
@@ -21,6 +23,7 @@ impl AggregatorService {
 		solvers: Vec<Solver>,
 		adapter_registry: Arc<AdapterRegistry>,
 		global_timeout_ms: u64,
+		integrity_service: Arc<IntegrityService>,
 	) -> Self {
 		let mut solver_map = HashMap::new();
 		for solver in solvers {
@@ -31,6 +34,7 @@ impl AggregatorService {
 			solvers: solver_map,
 			adapter_registry,
 			global_timeout_ms,
+			integrity_service,
 		}
 	}
 
@@ -55,42 +59,55 @@ impl AggregatorService {
 			self.solvers.len()
 		);
 
-		let tasks = self.solvers.iter().map(|(solver_id, solver)| {
-			let request = request.clone();
-			let solver_id = solver_id.clone();
-			let solver = solver.clone();
-			let adapter_registry = Arc::clone(&self.adapter_registry);
+		let tasks =
+			self.solvers.iter().map(|(solver_id, solver)| {
+				let request = request.clone();
+				let solver_id = solver_id.clone();
+				let solver = solver.clone();
+				let adapter_registry = Arc::clone(&self.adapter_registry);
+				let integrity_service = Arc::clone(&self.integrity_service);
 
-			tokio::spawn(async move {
-				debug!("Starting quote fetch from solver {}", solver_id);
+				tokio::spawn(async move {
+					debug!("Starting quote fetch from solver {}", solver_id);
 
-				let adapter = match adapter_registry.get(&solver.adapter_id) {
-					Some(adapter) => adapter,
-					None => {
-						warn!(
-							"No adapter found for solver {} (adapter_id: {})",
-							solver_id, solver.adapter_id
-						);
-						return None;
-					},
-				};
+					let adapter = match adapter_registry.get(&solver.adapter_id) {
+						Some(adapter) => adapter,
+						None => {
+							warn!(
+								"No adapter found for solver {} (adapter_id: {})",
+								solver_id, solver.adapter_id
+							);
+							return None;
+						},
+					};
 
-				let config = SolverRuntimeConfig::from(&solver);
-				match adapter.get_quote(request.clone(), &config).await {
-					Ok(quote) => {
-						info!(
-							"Successfully got quote from solver {} in {}ms",
-							solver_id, quote.response_time_ms
-						);
-						Some(quote)
-					},
-					Err(e) => {
-						warn!("Solver {} returned error: {}", solver_id, e);
-						None
-					},
-				}
-			})
-		});
+					let config = SolverRuntimeConfig::from(&solver);
+					match adapter.get_quote(request.clone(), &config).await {
+						Ok(mut quote) => {
+							// Generate integrity checksum for the quote
+							let payload = quote.to_integrity_payload();
+							match integrity_service.generate_checksum_from_payload(&payload) {
+								Ok(checksum) => {
+									quote.integrity_checksum = Some(checksum);
+									info!(
+									"Successfully got quote from solver {} in {}ms with integrity checksum",
+									solver_id, quote.response_time_ms
+								);
+								},
+								Err(e) => {
+									warn!("Failed to generate integrity checksum for quote from {}: {}", solver_id, e);
+									// Still return the quote without checksum rather than failing entirely
+								},
+							}
+							Some(quote)
+						},
+						Err(e) => {
+							warn!("Solver {} returned error: {}", solver_id, e);
+							None
+						},
+					}
+				})
+			});
 
 		// Apply global timeout to the entire aggregation process
 		let aggregation_future = join_all(tasks);

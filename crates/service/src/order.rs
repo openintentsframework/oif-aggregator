@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::integrity::IntegrityService;
 use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;
 use oif_types::chrono::Utc;
@@ -27,6 +28,8 @@ pub enum OrderServiceError {
 	AdapterNotFound(String),
 	#[error("adapter error: {0}")]
 	Adapter(String),
+	#[error("quote integrity verification failed")]
+	IntegrityVerificationFailed,
 }
 
 #[derive(Clone)]
@@ -34,6 +37,7 @@ pub struct OrderService {
 	storage: Arc<dyn Storage>,
 	adapter_registry: Arc<AdapterRegistry>,
 	solvers: HashMap<String, Solver>,
+	integrity_service: Arc<IntegrityService>,
 }
 
 impl OrderService {
@@ -41,11 +45,13 @@ impl OrderService {
 		storage: Arc<dyn Storage>,
 		adapter_registry: Arc<AdapterRegistry>,
 		solvers: HashMap<String, Solver>,
+		integrity_service: Arc<IntegrityService>,
 	) -> Self {
 		Self {
 			storage,
 			adapter_registry,
 			solvers,
+			integrity_service,
 		}
 	}
 
@@ -64,13 +70,26 @@ impl OrderService {
 			));
 		};
 
-		// 2. Find the solver that generated this quote
+		// 2. Verify quote integrity if checksum is present
+		if let Some(checksum) = &quote.integrity_checksum {
+			let payload = quote.to_integrity_payload();
+			let is_valid = self
+				.integrity_service
+				.verify_checksum_from_payload(&payload, checksum)
+				.map_err(|_| OrderServiceError::IntegrityVerificationFailed)?;
+
+			if !is_valid {
+				return Err(OrderServiceError::IntegrityVerificationFailed);
+			}
+		}
+
+		// 3. Find the solver that generated this quote
 		let solver = self
 			.solvers
 			.get(&quote.solver_id)
 			.ok_or_else(|| OrderServiceError::SolverNotFound(quote.solver_id.clone()))?;
 
-		// 3. Get the adapter for this solver
+		// 4. Get the adapter for this solver
 		let adapter = self
 			.adapter_registry
 			.get(&solver.adapter_id)
@@ -81,19 +100,19 @@ impl OrderService {
 				))
 			})?;
 
-		// 4. Create the order object
+		// 5. Create the order object
 		let mut order = Order::new(request.user_address.clone());
 		order.quote_id = Some(quote.quote_id.clone());
 		order.signature = request.signature.clone();
 
-		// 5. Submit the order to the solver via its adapter
+		// 6. Submit the order to the solver via its adapter
 		let config = SolverRuntimeConfig::from(solver);
 		let _transaction_hash = adapter
 			.submit_order(&order, &config)
 			.await
 			.map_err(|e| OrderServiceError::Adapter(e.to_string()))?;
 
-		// 6. Update order status and save to storage
+		// 7. Update order status and save to storage
 		order.status = oif_types::OrderStatus::Submitted;
 		order.updated_at = Utc::now();
 

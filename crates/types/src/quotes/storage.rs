@@ -27,6 +27,7 @@ pub struct QuoteStorage {
 	pub created_at: DateTime<Utc>,
 	pub expires_at: DateTime<Utc>,
 	pub raw_response: serde_json::Value,
+	pub integrity_checksum: Option<String>,
 
 	// Storage-specific metadata
 	pub version: u32,
@@ -109,6 +110,7 @@ impl From<Quote> for QuoteStorage {
 			created_at: quote.created_at,
 			expires_at: quote.expires_at,
 			raw_response: quote.raw_response,
+			integrity_checksum: quote.integrity_checksum,
 			version: 1,
 			last_accessed: None,
 			access_count: 0,
@@ -137,6 +139,7 @@ impl TryFrom<QuoteStorage> for Quote {
 			created_at: storage.created_at,
 			expires_at: storage.expires_at,
 			raw_response: storage.raw_response,
+			integrity_checksum: storage.integrity_checksum,
 		})
 	}
 }
