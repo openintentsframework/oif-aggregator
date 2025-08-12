@@ -33,7 +33,7 @@ pub use adapters::{
 };
 
 // Re-export shared domain models
-pub use models::{Asset, Network};
+pub use models::{Asset, Network, SecretString};
 
 pub use orders::{
 	Order, OrderError, OrderResponse, OrderStatus, OrderStorage, OrderValidationError,
