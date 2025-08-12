@@ -1,7 +1,7 @@
 //! Core aggregation service logic
 
 use futures::future::join_all;
-use oif_adapters::AdapterFactory;
+use oif_adapters::AdapterRegistry;
 use oif_types::{Quote, QuoteRequest, Solver, SolverRuntimeConfig};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -11,7 +11,7 @@ use tracing::{debug, info, warn};
 /// Service for aggregating quotes from multiple solvers
 pub struct AggregatorService {
 	solvers: HashMap<String, Solver>,
-	adapter_factory: Arc<AdapterFactory>,
+	adapter_registry: Arc<AdapterRegistry>,
 	global_timeout_ms: u64,
 }
 
@@ -19,7 +19,7 @@ impl AggregatorService {
 	/// Create a new aggregator service with pre-configured adapters
 	pub fn new(
 		solvers: Vec<Solver>,
-		adapter_factory: Arc<AdapterFactory>,
+		adapter_registry: Arc<AdapterRegistry>,
 		global_timeout_ms: u64,
 	) -> Self {
 		let mut solver_map = HashMap::new();
@@ -29,15 +29,22 @@ impl AggregatorService {
 
 		Self {
 			solvers: solver_map,
-			adapter_factory,
+			adapter_registry,
 			global_timeout_ms,
 		}
 	}
 
 	/// Validate that all solvers have matching adapters
 	pub fn validate_solvers(&self) -> Result<(), String> {
-		let solvers: Vec<_> = self.solvers.values().cloned().collect();
-		self.adapter_factory.validate_solvers(&solvers)
+		for solver in self.solvers.values() {
+			if self.adapter_registry.get(&solver.adapter_id).is_none() {
+				return Err(format!(
+					"Solver '{}' references unknown adapter '{}'",
+					solver.solver_id, solver.adapter_id
+				));
+			}
+		}
+		Ok(())
 	}
 
 	/// Fetch quotes concurrently from all registered solvers
@@ -52,12 +59,12 @@ impl AggregatorService {
 			let request = request.clone();
 			let solver_id = solver_id.clone();
 			let solver = solver.clone();
-			let adapter_factory = Arc::clone(&self.adapter_factory);
+			let adapter_registry = Arc::clone(&self.adapter_registry);
 
 			tokio::spawn(async move {
 				debug!("Starting quote fetch from solver {}", solver_id);
 
-				let adapter = match adapter_factory.get(&solver.adapter_id) {
+				let adapter = match adapter_registry.get(&solver.adapter_id) {
 					Some(adapter) => adapter,
 					None => {
 						warn!(
@@ -119,7 +126,7 @@ impl AggregatorService {
 		let mut results = HashMap::new();
 
 		for (solver_id, solver) in &self.solvers {
-			if let Some(adapter) = self.adapter_factory.get(&solver.adapter_id) {
+			if let Some(adapter) = self.adapter_registry.get(&solver.adapter_id) {
 				let config = SolverRuntimeConfig::from(solver);
 				match adapter.health_check(&config).await {
 					Ok(is_healthy) => {
@@ -141,7 +148,7 @@ impl AggregatorService {
 	pub fn get_stats(&self) -> AggregationStats {
 		AggregationStats {
 			total_solvers: self.solvers.len(),
-			initialized_adapters: self.adapter_factory.get_all().len(),
+			initialized_adapters: self.adapter_registry.get_all().len(),
 			global_timeout_ms: self.global_timeout_ms,
 		}
 	}

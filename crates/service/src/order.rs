@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use oif_adapters::AdapterFactory;
+use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;
 use oif_types::chrono::Utc;
 use oif_types::{Order, OrdersRequest, Solver, SolverRuntimeConfig};
@@ -32,19 +32,19 @@ pub enum OrderServiceError {
 #[derive(Clone)]
 pub struct OrderService {
 	storage: Arc<dyn Storage>,
-	adapter_factory: Arc<AdapterFactory>,
+	adapter_registry: Arc<AdapterRegistry>,
 	solvers: HashMap<String, Solver>,
 }
 
 impl OrderService {
 	pub fn new(
 		storage: Arc<dyn Storage>,
-		adapter_factory: Arc<AdapterFactory>,
+		adapter_registry: Arc<AdapterRegistry>,
 		solvers: HashMap<String, Solver>,
 	) -> Self {
 		Self {
 			storage,
-			adapter_factory,
+			adapter_registry,
 			solvers,
 		}
 	}
@@ -72,7 +72,7 @@ impl OrderService {
 
 		// 3. Get the adapter for this solver
 		let adapter = self
-			.adapter_factory
+			.adapter_registry
 			.get(&solver.adapter_id)
 			.ok_or_else(|| {
 				OrderServiceError::AdapterNotFound(format!(
@@ -145,7 +145,7 @@ impl OrderService {
 
 		// 4. Get the adapter for this solver
 		let adapter = self
-			.adapter_factory
+			.adapter_registry
 			.get(&solver.adapter_id)
 			.ok_or_else(|| {
 				OrderServiceError::AdapterNotFound(format!(

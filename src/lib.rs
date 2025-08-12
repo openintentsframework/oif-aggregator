@@ -69,7 +69,7 @@ pub use oif_api::{create_router, AppState};
 pub use oif_api::auth::{ApiKeyAuthenticator, MemoryRateLimiter, NoAuthenticator};
 
 // Adapters
-pub use oif_adapters::{AdapterFactory, AdapterResult, SolverAdapter};
+pub use oif_adapters::{AdapterRegistry, AdapterResult, SolverAdapter};
 
 // Config
 pub use oif_config::{load_config, log_service_info, log_startup_complete, Settings};
@@ -122,7 +122,7 @@ where
 	storage: S,
 	authenticator: A,
 	rate_limiter: R,
-	custom_adapter_factory: Option<oif_adapters::AdapterFactory>,
+	custom_adapter_factory: Option<oif_adapters::AdapterRegistry>,
 }
 
 impl<S> AggregatorBuilder<S, NoAuthenticator, MemoryRateLimiter>
@@ -192,7 +192,7 @@ where
 	pub fn with_adapter(mut self, adapter: Box<dyn SolverAdapter>) -> Result<Self, String> {
 		let mut factory = self
 			.custom_adapter_factory
-			.unwrap_or_else(|| oif_adapters::AdapterFactory::with_defaults());
+			.unwrap_or_else(|| oif_adapters::AdapterRegistry::with_defaults());
 		factory.register(adapter)?;
 		self.custom_adapter_factory = Some(factory);
 		Ok(self)
@@ -267,7 +267,7 @@ where
 		// Use custom factory or create with defaults
 		let adapter_factory = Arc::new(
 			self.custom_adapter_factory
-				.unwrap_or_else(|| oif_adapters::AdapterFactory::with_defaults()),
+				.unwrap_or_else(|| oif_adapters::AdapterRegistry::with_defaults()),
 		);
 
 		// Create aggregator service

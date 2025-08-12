@@ -1,6 +1,8 @@
 //! Tests for adapter system and HTTP functionality
 
-use oif_adapters::AdapterFactory;
+use std::sync::Arc;
+
+use oif_adapters::AdapterRegistry;
 use oif_types::chrono::{Duration, Utc};
 // use oif_adapters::AdapterError; // Use the adapter-specific error type
 use oif_service::aggregator::AggregatorService;
@@ -14,16 +16,15 @@ mod mocks;
 use mocks::MockConfigs;
 
 #[test]
-fn test_adapter_factory_creation() {
-	let factory = AdapterFactory::new();
-	assert_eq!(factory.get_all().len(), 0);
+fn test_adapter_registry_creation() {
+	let registry = AdapterRegistry::new();
+	assert_eq!(registry.get_all().len(), 0);
 }
 
 #[test]
 fn test_adapter_config_creation() {
 	let config = MockConfigs::oif_adapter_config();
 	assert_eq!(config.adapter_id, "test-oif-adapter");
-	assert_eq!(config.adapter_type, AdapterType::OifV1);
 	// Test basic config fields since other fields were removed
 	assert_eq!(config.adapter_id, "test-oif-adapter");
 	assert_eq!(config.name, "Test OIF Adapter");
@@ -33,7 +34,7 @@ fn test_adapter_config_creation() {
 async fn test_oif_adapter_creation() {
 	let config = MockConfigs::oif_adapter_config();
 
-	let adapter_result = AdapterFactory::create_from_config(&config);
+	let adapter_result = AdapterRegistry::new().create_from_config(&config);
 	assert!(adapter_result.is_ok());
 
 	let adapter = adapter_result.unwrap();
@@ -44,7 +45,7 @@ async fn test_oif_adapter_creation() {
 async fn test_adapter_health_check() {
 	let config = MockConfigs::oif_adapter_config();
 
-	if let Ok(adapter) = AdapterFactory::create_from_config(&config) {
+	if let Ok(adapter) = AdapterRegistry::create_from_config(&config) {
 		// Health check to httpbin.org should fail (no /health endpoint)
 		let health_result = adapter.health_check().await;
 		assert!(health_result.is_ok());
@@ -78,7 +79,7 @@ fn test_order_creation() {
 #[test]
 fn test_aggregation_service_creation() {
 	let solvers = vec![];
-	let service = AggregatorService::new(solvers, 5000);
+	let service = AggregatorService::new(solvers, Arc::new(AdapterRegistry::new()), 5000);
 
 	let stats = service.get_stats();
 	assert_eq!(stats.total_solvers, 0);
@@ -108,13 +109,13 @@ fn test_unsupported_adapter_types() {
 	// With simplified config, both OifV1 and LifiV1 are supported
 	// Test that supported adapter types work correctly
 	assert!(config.adapter_type == AdapterType::OifV1);
-	let result = AdapterFactory::create_from_config(&config);
+	let result = AdapterRegistry::create_from_config(&config);
 	assert!(result.is_ok());
 
 	// Test LifiV1 adapter creation
 	let mut lifi_config = config.clone();
 	lifi_config.adapter_type = AdapterType::LifiV1;
-	let result = AdapterFactory::create_from_config(&lifi_config);
+	let result = AdapterRegistry::create_from_config(&lifi_config);
 	assert!(result.is_ok());
 }
 
@@ -132,7 +133,7 @@ fn test_adapter_config_validation() {
 		});
 	}
 
-	let result = AdapterFactory::create_from_config(&config);
+	let result = AdapterRegistry::create_from_config(&config);
 	// With simplified config, creation should succeed since all required fields are present
 	assert!(result.is_ok());
 }
