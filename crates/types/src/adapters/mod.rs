@@ -96,45 +96,6 @@ pub struct Adapter {
 	pub configuration: HashMap<String, serde_json::Value>,
 }
 
-/// Detailed order information from an adapter
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OrderDetails {
-	/// Order ID from the solver
-	pub order_id: String,
-	/// Current status of the order
-	pub status: String,
-	/// Transaction hash when available
-	pub transaction_hash: Option<String>,
-	/// Gas used in the transaction
-	pub gas_used: Option<u64>,
-	/// Gas price used
-	pub gas_price: Option<String>,
-	/// Transaction fee
-	pub transaction_fee: Option<String>,
-	/// Block number when mined
-	pub block_number: Option<u64>,
-	/// Additional metadata
-	pub metadata: HashMap<String, serde_json::Value>,
-	/// When the order was last updated
-	pub updated_at: DateTime<Utc>,
-}
-
-impl OrderDetails {
-	pub fn new(order_id: String, status: String) -> Self {
-		Self {
-			order_id,
-			status,
-			transaction_hash: None,
-			gas_used: None,
-			gas_price: None,
-			transaction_fee: None,
-			block_number: None,
-			metadata: HashMap::new(),
-			updated_at: Utc::now(),
-		}
-	}
-}
-
 impl Adapter {
 	/// Create a new adapter
 	pub fn new(adapter_id: String, description: String, name: String, version: String) -> Self {

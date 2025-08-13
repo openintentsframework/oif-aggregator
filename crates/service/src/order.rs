@@ -9,7 +9,7 @@ use crate::integrity::IntegrityService;
 use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;
 use oif_types::chrono::Utc;
-use oif_types::{Order, OrdersRequest, Solver, SolverRuntimeConfig};
+use oif_types::{Order, OrdersRequest, Quote, Solver, SolverRuntimeConfig};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -64,13 +64,17 @@ impl OrderService {
 			));
 		}
 
+		let quote_domain: Quote = Quote::try_from(request.quote_response.clone()).map_err(|e| {
+			OrderServiceError::Validation(format!(
+				"Failed to convert QuoteResponse to Quote: {}",
+				e
+			))
+		})?;
+
 		// 2. Verify quote integrity using QuoteResponse directly
 		let is_valid = self
 			.integrity_service
-			.verify_checksum(
-				&request.quote_response,
-				&request.quote_response.integrity_checksum,
-			)
+			.verify_checksum(&quote_domain, &request.quote_response.integrity_checksum)
 			.map_err(|_| OrderServiceError::IntegrityVerificationFailed)?;
 
 		if !is_valid {
@@ -126,56 +130,5 @@ impl OrderService {
 			.get_order(order_id)
 			.await
 			.map_err(|e| OrderServiceError::Storage(e.to_string()))
-	}
-
-	/// Get detailed order information from the solver (includes transaction status, gas, etc.)
-	pub async fn get_order_details(
-		&self,
-		order_id: &str,
-	) -> Result<Option<oif_types::OrderDetails>, OrderServiceError> {
-		// 1. Get the order from storage to determine which solver was used
-		let order = match self.get_order(order_id).await? {
-			Some(order) => order,
-			None => return Ok(None),
-		};
-
-		// 2. Get the quote to find the solver
-		let quote = if let Some(quote_id) = &order.quote_id {
-			self.storage
-				.get_quote(quote_id)
-				.await
-				.map_err(|e| OrderServiceError::Storage(e.to_string()))?
-				.ok_or_else(|| OrderServiceError::QuoteNotFound(quote_id.clone()))?
-		} else {
-			return Err(OrderServiceError::Validation(
-				"Order has no associated quote_id".to_string(),
-			));
-		};
-
-		// 3. Find the solver that processed this order
-		let solver = self
-			.solvers
-			.get(&quote.solver_id)
-			.ok_or_else(|| OrderServiceError::SolverNotFound(quote.solver_id.clone()))?;
-
-		// 4. Get the adapter for this solver
-		let adapter = self
-			.adapter_registry
-			.get(&solver.adapter_id)
-			.ok_or_else(|| {
-				OrderServiceError::AdapterNotFound(format!(
-					"No adapter found for solver {} (adapter_id: {})",
-					solver.solver_id, solver.adapter_id
-				))
-			})?;
-
-		// 5. Query the adapter for detailed order information
-		let config = SolverRuntimeConfig::from(solver);
-		let order_details = adapter
-			.get_order_details(order_id, &config)
-			.await
-			.map_err(|e| OrderServiceError::Adapter(e.to_string()))?;
-
-		Ok(Some(order_details))
 	}
 }

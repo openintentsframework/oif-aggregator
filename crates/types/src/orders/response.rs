@@ -12,6 +12,7 @@ use super::{Order, OrderStatus};
 /// Response body for /v1/orders endpoint (order submission)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[serde(rename_all = "camelCase")]
 pub struct OrdersResponse {
 	/// Unique order identifier
 	pub order_id: String,

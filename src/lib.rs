@@ -30,7 +30,6 @@ pub use oif_types::{
 	QuoteError,
 	QuoteRequest,
 	QuoteResponse,
-	QuoteStatus,
 	RateLimiter,
 	RateLimits,
 	Solver,

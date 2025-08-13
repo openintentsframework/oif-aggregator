@@ -20,8 +20,8 @@ pub use serde_json;
 // Re-export commonly used types for convenience
 pub use integrity::IntegrityPayload;
 pub use quotes::{
-	Quote, QuoteError, QuoteRequest, QuoteResponse, QuoteResult, QuoteStatus, QuoteStorage,
-	QuoteValidationError, QuoteValidationResult,
+	Quote, QuoteError, QuoteRequest, QuoteResponse, QuoteResult, QuoteValidationError,
+	QuoteValidationResult,
 };
 
 pub use solvers::{
@@ -31,11 +31,15 @@ pub use solvers::{
 
 pub use adapters::{
 	Adapter, AdapterError, AdapterFactoryError, AdapterResult, AdapterValidationResult,
-	OrderDetails, SolverAdapter, SolverRuntimeConfig,
+	SolverAdapter, SolverRuntimeConfig,
 };
 
 // Re-export shared domain models
-pub use models::{Asset, Network, SecretString};
+pub use models::{
+	AdapterQuote, Asset, AvailableInput, GetQuoteRequest, GetQuoteResponse, InteropAddress, Lock,
+	Network, QuoteDetails, QuoteOrder, QuotePreference, RequestedOutput, SecretString,
+	SettlementType, SignatureType, U256,
+};
 
 pub use orders::{
 	Order, OrderError, OrderResponse, OrderStatus, OrderStorage, OrderValidationError,

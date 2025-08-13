@@ -102,8 +102,3 @@ impl TryFrom<OrderStorage> for Order {
 		})
 	}
 }
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-}

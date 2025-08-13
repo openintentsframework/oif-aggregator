@@ -7,7 +7,7 @@ pub mod integrity;
 pub mod order;
 pub mod solver;
 
-pub use aggregator::AggregatorService;
+pub use aggregator::{AggregatorResult, AggregatorService, AggregatorServiceError};
 pub use integrity::IntegrityService;
 pub use oif_types::IntegrityPayload;
 pub use order::{OrderService, OrderServiceError};

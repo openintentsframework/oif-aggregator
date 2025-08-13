@@ -1,8 +1,8 @@
 //! Core adapter traits for user implementations
 
-use super::{AdapterResult, OrderDetails, SolverRuntimeConfig};
-use crate::models::{Asset, Network};
-use crate::{Adapter, Order, Quote, QuoteRequest};
+use super::{AdapterResult, SolverRuntimeConfig};
+use crate::models::{Asset, GetOrderResponse, Network};
+use crate::{Adapter, GetQuoteRequest, GetQuoteResponse, Order};
 use async_trait::async_trait;
 use std::fmt::Debug;
 
@@ -21,19 +21,20 @@ pub trait SolverAdapter: Send + Sync + Debug {
 	/// Get adapter configuration information
 	fn adapter_info(&self) -> &Adapter;
 
-	/// Get a quote from the solver using runtime configuration
-	async fn get_quote(
+	/// Get quotes from the solver using runtime configuration
+	/// Adapters can choose to handle multi-input/output or process simple swaps
+	async fn get_quotes(
 		&self,
-		request: QuoteRequest,
+		request: &GetQuoteRequest,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<Quote>;
+	) -> AdapterResult<GetQuoteResponse>;
 
 	/// Submit an order to the solver using runtime configuration
 	async fn submit_order(
 		&self,
 		order: &Order,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<String>;
+	) -> AdapterResult<GetOrderResponse>;
 
 	/// Health check for the solver using runtime configuration
 	async fn health_check(&self, config: &SolverRuntimeConfig) -> AdapterResult<bool>;
@@ -46,7 +47,7 @@ pub trait SolverAdapter: Send + Sync + Debug {
 		&self,
 		order_id: &str,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<OrderDetails>;
+	) -> AdapterResult<GetOrderResponse>;
 
 	/// Get the list of blockchain networks supported by this adapter
 	///

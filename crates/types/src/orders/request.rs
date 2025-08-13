@@ -9,11 +9,12 @@ use crate::QuoteResponse;
 /// API request body for submitting orders
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OrdersRequest {
-	/// Associated quote ID (if using a specific quote)
-	pub quote_id: Option<String>,
+	/// Order ID
+	pub order_id: String,
 
-	/// Quote data (if not using quote_id)
+	/// Quote data
 	pub quote_response: QuoteResponse,
 
 	/// User's wallet address

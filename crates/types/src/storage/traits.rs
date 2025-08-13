@@ -24,9 +24,6 @@ pub trait Repository<Entity>: Send + Sync {
 /// Trait for quote storage operations (CRUD naming)
 #[async_trait]
 pub trait QuoteStorageTrait: Repository<Quote> + Send + Sync {
-	/// Get all quotes for a request
-	async fn get_quotes_by_request(&self, request_id: &str) -> StorageResult<Vec<Quote>>;
-
 	/// Get all quotes from a solver
 	async fn get_quotes_by_solver(&self, solver_id: &str) -> StorageResult<Vec<Quote>>;
 }
@@ -199,11 +196,6 @@ pub trait StorageTrait: QuoteStorageTrait + OrderStorageTrait + SolverStorageTra
 	/// Delete a quote by ID
 	async fn delete_quote(&self, id: &str) -> StorageResult<bool> {
 		<Self as Repository<Quote>>::delete(self, id).await
-	}
-
-	/// Get quotes by request ID
-	async fn get_quotes_by_request(&self, request_id: &str) -> StorageResult<Vec<Quote>> {
-		<Self as QuoteStorageTrait>::get_quotes_by_request(self, request_id).await
 	}
 
 	/// Get quotes by solver ID

@@ -3,14 +3,14 @@ use tracing::info;
 
 use crate::handlers::common::ErrorResponse;
 use crate::state::AppState;
-use oif_types::quotes::request::QuotesRequest;
+use oif_types::quotes::request::QuoteRequest;
 use oif_types::quotes::response::QuotesResponse;
 
-/// Get quotes for a swap request
+/// Get quotes for a swap request using standard OIF format
 #[cfg_attr(feature = "openapi", utoipa::path(
     post,
     path = "/v1/quotes",
-    request_body = QuotesRequest,
+    request_body = QuoteRequest,
     responses(
         (status = 200, description = "Quotes aggregated successfully", body = QuotesResponse),
         (status = 400, description = "Invalid request", body = ErrorResponse),
@@ -21,33 +21,47 @@ use oif_types::quotes::response::QuotesResponse;
 /// POST /v1/quotes - Get quotes
 pub async fn post_quotes(
 	State(state): State<AppState>,
-	Json(request): Json<QuotesRequest>,
+	Json(request): Json<QuoteRequest>,
 ) -> Result<Json<QuotesResponse>, (StatusCode, Json<ErrorResponse>)> {
 	info!(
-		"Received quotes request for {}/{} on chain {}",
-		request.token_in, request.token_out, request.chain_id
+		"Received quotes request with {} inputs and {} outputs",
+		request.available_inputs.len(),
+		request.requested_outputs.len()
 	);
 
-	let quote_request: oif_types::QuoteRequest = match request.try_into() {
-		Ok(req) => req,
+	// Validate the request
+	if let Err(e) = request.validate() {
+		return Err((
+			StatusCode::BAD_REQUEST,
+			Json(ErrorResponse {
+				error: "VALIDATION_ERROR".to_string(),
+				message: format!("Invalid request: {}", e),
+				timestamp: chrono::Utc::now().timestamp(),
+			}),
+		));
+	}
+
+	info!(
+		"Processing quotes request with {} inputs and {} outputs",
+		request.available_inputs.len(),
+		request.requested_outputs.len()
+	);
+
+	let quotes = match state.aggregator_service.fetch_quotes(request.clone()).await {
+		Ok(quotes) => quotes,
 		Err(e) => {
 			return Err((
 				StatusCode::BAD_REQUEST,
 				Json(ErrorResponse {
-					error: "VALIDATION_ERROR".to_string(),
-					message: format!("Invalid request: {}", e),
+					error: "AGGREGATION_ERROR".to_string(),
+					message: format!("Failed to fetch quotes: {}", e),
 					timestamp: chrono::Utc::now().timestamp(),
 				}),
-			))
+			));
 		},
 	};
 
-	let quotes = state
-		.aggregator_service
-		.fetch_quotes(quote_request.clone())
-		.await;
-
-	let response = match QuotesResponse::from_domain_quotes(quote_request.request_id, quotes) {
+	let response = match QuotesResponse::from_domain_quotes(quotes) {
 		Ok(resp) => resp,
 		Err(e) => {
 			return Err((
@@ -61,6 +75,9 @@ pub async fn post_quotes(
 		},
 	};
 
-	info!("Returning {} quotes for request", response.total_quotes);
+	info!(
+		"Returning {} quotes for request",
+		response.total_quotes
+	);
 	Ok(Json(response))
 }

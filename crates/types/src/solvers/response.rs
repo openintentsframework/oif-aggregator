@@ -7,6 +7,7 @@ use crate::models::{Asset as AssetResponse, Network as NetworkResponse};
 
 /// Response format for individual solvers in API
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SolverResponse {
 	pub solver_id: String,
 	pub adapter_id: String,
@@ -22,6 +23,7 @@ pub struct SolverResponse {
 
 /// Collection of solvers response for API endpoints
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SolversResponse {
 	pub solvers: Vec<SolverResponse>,
 	pub total_solvers: usize,

@@ -71,22 +71,6 @@ impl oif_types::storage::Repository<Quote> for MemoryStore {
 
 #[async_trait]
 impl QuoteStorage for MemoryStore {
-	async fn get_quotes_by_request(&self, request_id: &str) -> StorageResult<Vec<Quote>> {
-		let quotes: Vec<Quote> = self
-			.quotes
-			.iter()
-			.filter_map(|entry| {
-				let quote = entry.value();
-				if quote.request_id == request_id {
-					Some(quote.clone())
-				} else {
-					None
-				}
-			})
-			.collect();
-		Ok(quotes)
-	}
-
 	async fn get_quotes_by_solver(&self, solver_id: &str) -> StorageResult<Vec<Quote>> {
 		let quotes: Vec<Quote> = self
 			.quotes

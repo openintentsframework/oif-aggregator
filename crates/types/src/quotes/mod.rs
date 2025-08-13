@@ -1,18 +1,17 @@
 //! Core Quote domain model and business logic
 
-use chrono::{DateTime, Duration, Utc};
-use serde::{Deserialize, Serialize};
+use chrono::Utc;
 use uuid::Uuid;
 
 pub mod errors;
 pub mod request;
 pub mod response;
-pub mod storage;
 
 pub use errors::{QuoteError, QuoteValidationError};
 pub use request::QuoteRequest;
-pub use response::{FeeInfo, QuoteResponse, RouteStep, TokenInfo};
-pub use storage::QuoteStorage;
+pub use response::QuoteResponse;
+
+use crate::{QuoteDetails, QuoteOrder};
 
 /// Result type for quote operations
 pub type QuoteResult<T> = Result<T, QuoteError>;
@@ -28,247 +27,206 @@ pub type QuoteValidationResult<T> = Result<T, QuoteValidationError>;
 pub struct Quote {
 	/// Unique identifier for the quote
 	pub quote_id: String,
-
 	/// ID of the solver that provided this quote
 	pub solver_id: String,
-
-	/// ID of the original request that generated this quote
-	pub request_id: String,
-
-	/// Input token address
-	pub token_in: String,
-
-	/// Output token address  
-	pub token_out: String,
-
-	/// Input amount (as string to preserve precision)
-	pub amount_in: String,
-
-	/// Output amount (as string to preserve precision)
-	pub amount_out: String,
-
-	/// Chain ID where the swap occurs
-	pub chain_id: u64,
-
-	/// Estimated gas cost for the transaction
-	pub estimated_gas: Option<u64>,
-
-	/// Price impact as a percentage (0.01 = 1%)
-	pub price_impact: Option<f64>,
-
-	/// Response time from solver in milliseconds
-	pub response_time_ms: u64,
-
-	/// Confidence score (0.0 to 1.0)
-	pub confidence_score: Option<f64>,
-
-	/// Quote status
-	pub status: QuoteStatus,
-
-	/// When the quote was created
-	pub created_at: DateTime<Utc>,
-
-	/// When the quote expires
-	pub expires_at: DateTime<Utc>,
-
-	/// Raw response from the solver (for debugging/future use)
-	pub raw_response: serde_json::Value,
-
+	/// Array of EIP-712 compliant orders
+	pub orders: Vec<QuoteOrder>,
+	/// Quote details matching request structure
+	pub details: QuoteDetails,
+	/// Quote validity timestamp
+	pub valid_until: Option<u64>,
+	/// Estimated time to completion in seconds
+	pub eta: Option<u64>,
+	/// Provider identifier
+	pub provider: String,
 	/// HMAC-SHA256 integrity checksum for quote verification
 	/// This ensures the quote originated from the aggregator service
 	pub integrity_checksum: String,
 }
 
-/// Quote status enumeration
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum QuoteStatus {
-	/// Quote is valid and can be used
-	Valid,
-	/// Quote has expired
-	Expired,
-	/// Quote processing failed
-	Failed,
-	/// Quote is being processed
-	Processing,
+// ================================
+// INTEGRITY PAYLOAD IMPLEMENTATION
+// ================================
+
+impl crate::IntegrityPayload for Quote {
+	fn to_integrity_payload(&self) -> String {
+		// Create a canonical string representation for integrity verification
+		format!(
+			"quote_id:{};solver_id:{};provider:{};valid_until:{};eta:{};orders_count:{};details:{}",
+			self.quote_id,
+			self.solver_id,
+			self.provider,
+			self.valid_until.unwrap_or(0),
+			self.eta.unwrap_or(0),
+			self.orders.len(),
+			self.details_to_string()
+		)
+	}
+}
+
+impl Quote {
+	/// Convert quote details to a canonical string for integrity verification
+	fn details_to_string(&self) -> String {
+		let inputs_str = self
+			.details
+			.available_inputs
+			.iter()
+			.map(|input| format!("{}:{}", input.asset.to_string(), input.amount.as_str()))
+			.collect::<Vec<_>>()
+			.join(",");
+
+		let outputs_str = self
+			.details
+			.requested_outputs
+			.iter()
+			.map(|output| format!("{}:{}", output.asset.to_string(), output.amount.as_str()))
+			.collect::<Vec<_>>()
+			.join(",");
+
+		format!("inputs:[{}];outputs:[{}]", inputs_str, outputs_str)
+	}
 }
 
 impl Quote {
 	/// Create a new quote with the given parameters
 	pub fn new(
 		solver_id: String,
-		request_id: String,
-		token_in: String,
-		token_out: String,
-		amount_in: String,
-		amount_out: String,
-		chain_id: u64,
+		orders: Vec<QuoteOrder>,
+		details: QuoteDetails,
+		provider: String,
+		integrity_checksum: String,
 	) -> Self {
-		let now = Utc::now();
 		let quote_id = Uuid::new_v4().to_string();
 
 		Self {
 			quote_id,
 			solver_id,
-			request_id,
-			token_in,
-			token_out,
-			amount_in,
-			amount_out,
-			chain_id,
-			estimated_gas: None,
-			price_impact: None,
-			response_time_ms: 0,
-			confidence_score: None,
-			status: QuoteStatus::Valid,
-			created_at: now,
-			expires_at: now + Duration::minutes(5), // Default 5-minute TTL
-			raw_response: serde_json::Value::Null,
-			integrity_checksum: "".to_string(),
+			orders,
+			details,
+			valid_until: None,
+			eta: None,
+			provider,
+			integrity_checksum,
 		}
 	}
 
 	/// Check if the quote has expired
 	pub fn is_expired(&self) -> bool {
-		Utc::now() > self.expires_at
+		if let Some(valid_until) = self.valid_until {
+			Utc::now().timestamp() as u64 > valid_until
+		} else {
+			false // No expiration if valid_until is not set
+		}
 	}
 
-	/// Calculate the exchange rate (amount_out / amount_in)
+	/// Calculate the exchange rate (total output / total input)
 	pub fn exchange_rate(&self) -> QuoteResult<f64> {
-		let amount_in: f64 = self
-			.amount_in
-			.parse()
-			.map_err(|_| QuoteError::ProcessingFailed {
-				reason: "Invalid amount_in format".to_string(),
-			})?;
-		let amount_out: f64 =
-			self.amount_out
-				.parse()
-				.map_err(|_| QuoteError::ProcessingFailed {
-					reason: "Invalid amount_out format".to_string(),
-				})?;
+		// Calculate total input amount
+		let total_input: f64 = self
+			.details
+			.available_inputs
+			.iter()
+			.map(|input| input.amount.as_str().parse::<f64>().unwrap_or(0.0))
+			.sum();
 
-		if amount_in == 0.0 {
+		if total_input == 0.0 {
 			return Err(QuoteError::ProcessingFailed {
-				reason: "Cannot calculate exchange rate: amount_in is zero".to_string(),
+				reason: "Cannot calculate exchange rate: total input is zero".to_string(),
 			});
 		}
 
-		Ok(amount_out / amount_in)
+		// Calculate total output amount
+		let total_output: f64 = self
+			.details
+			.requested_outputs
+			.iter()
+			.map(|output| output.amount.as_str().parse::<f64>().unwrap_or(0.0))
+			.sum();
+
+		Ok(total_output / total_input)
 	}
 
 	/// Check if this quote is better than another (higher output amount)
 	pub fn is_better_than(&self, other: &Quote) -> QuoteResult<bool> {
-		if self.chain_id != other.chain_id {
-			return Err(QuoteError::ProcessingFailed {
-				reason: "Cannot compare quotes from different chains".to_string(),
-			});
-		}
+		// For simplicity, compare total output amounts - higher is better
+		let self_total_output: f64 = self
+			.details
+			.requested_outputs
+			.iter()
+			.map(|output| output.amount.as_str().parse::<f64>().unwrap_or(0.0))
+			.sum();
 
-		if self.token_in != other.token_in || self.token_out != other.token_out {
-			return Err(QuoteError::ProcessingFailed {
-				reason: "Cannot compare quotes for different token pairs".to_string(),
-			});
-		}
+		let other_total_output: f64 = other
+			.details
+			.requested_outputs
+			.iter()
+			.map(|output| output.amount.as_str().parse::<f64>().unwrap_or(0.0))
+			.sum();
 
-		let self_amount: f64 =
-			self.amount_out
-				.parse()
-				.map_err(|_| QuoteError::ProcessingFailed {
-					reason: "Invalid amount_out format in self".to_string(),
-				})?;
-		let other_amount: f64 =
-			other
-				.amount_out
-				.parse()
-				.map_err(|_| QuoteError::ProcessingFailed {
-					reason: "Invalid amount_out format in other".to_string(),
-				})?;
-
-		Ok(self_amount > other_amount)
-	}
-
-	/// Set the quote as expired
-	pub fn mark_expired(&mut self) {
-		self.status = QuoteStatus::Expired;
-	}
-
-	/// Set the quote as failed
-	pub fn mark_failed(&mut self) {
-		self.status = QuoteStatus::Failed;
+		Ok(self_total_output > other_total_output)
 	}
 
 	/// Update the expiration time
-	pub fn extend_ttl(&mut self, duration: Duration) {
-		self.expires_at = self.expires_at + duration;
-	}
-
-	/// Set additional metadata
-	pub fn with_estimated_gas(mut self, gas: u64) -> Self {
-		self.estimated_gas = Some(gas);
+	pub fn with_valid_until(mut self, valid_until: u64) -> Self {
+		self.valid_until = Some(valid_until);
 		self
 	}
 
-	pub fn with_price_impact(mut self, impact: f64) -> Self {
-		self.price_impact = Some(impact);
+	/// Set ETA
+	pub fn with_eta(mut self, eta: u64) -> Self {
+		self.eta = Some(eta);
 		self
-	}
-
-	pub fn with_response_time(mut self, time_ms: u64) -> Self {
-		self.response_time_ms = time_ms;
-		self
-	}
-
-	pub fn with_confidence_score(mut self, score: f64) -> Self {
-		self.confidence_score = Some(score);
-		self
-	}
-
-	pub fn with_raw_response(mut self, raw: serde_json::Value) -> Self {
-		self.raw_response = raw;
-		self
-	}
-
-	pub fn with_custom_ttl(mut self, duration: Duration) -> Self {
-		self.expires_at = self.created_at + duration;
-		self
-	}
-}
-
-impl Quote {
-	/// Generate a canonical payload string for integrity verification
-	///
-	/// This method is used by the integrity service to create a consistent
-	/// string representation of the quote for HMAC generation.
-	pub fn to_integrity_payload(&self) -> String {
-		format!(
-            "quote_id={}|solver_id={}|request_id={}|token_in={}|token_out={}|amount_in={}|amount_out={}|chain_id={}|created_at={}",
-            self.quote_id,
-            self.solver_id,
-            self.request_id,
-            self.token_in,
-            self.token_out,
-            self.amount_in,
-            self.amount_out,
-            self.chain_id,
-            self.created_at.timestamp_millis()
-        )
 	}
 }
 
 #[cfg(test)]
 mod tests {
+	use crate::U256;
+
 	use super::*;
 
 	fn create_test_quote() -> Quote {
+		use crate::{
+			AvailableInput, InteropAddress, QuoteDetails, QuoteOrder, RequestedOutput,
+			SignatureType, U256,
+		};
+
+		let input = AvailableInput {
+			asset: InteropAddress::from_hex("0x01A0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0")
+				.unwrap(),
+			amount: U256::new("1000000000000000000".to_string()),
+			user: InteropAddress::from_hex("0x01A0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0").unwrap(),
+			lock: None,
+		};
+
+		let output = RequestedOutput {
+			asset: InteropAddress::from_hex("0x01C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
+				.unwrap(),
+			amount: U256::new("2500000000000000000000".to_string()),
+			receiver: InteropAddress::from_hex("0x01A0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0")
+				.unwrap(),
+			calldata: None,
+		};
+
+		let details = QuoteDetails {
+			available_inputs: vec![input],
+			requested_outputs: vec![output],
+		};
+
+		let order = QuoteOrder {
+			signature_type: SignatureType::Eip712,
+			domain: InteropAddress::from_hex("0x01A0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0")
+				.unwrap(),
+			primary_type: "Order".to_string(),
+			message: serde_json::json!({}),
+		};
+
 		Quote::new(
 			"test-solver".to_string(),
-			"req-123".to_string(),
-			"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0".to_string(),
-			"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
-			"1000000000000000000".to_string(),    // 1 ETH
-			"2500000000000000000000".to_string(), // 2500 USDC
-			1,
+			vec![order],
+			details,
+			"test-provider".to_string(),
+			"test-checksum".to_string(),
 		)
 	}
 
@@ -277,10 +235,12 @@ mod tests {
 		let quote = create_test_quote();
 
 		assert_eq!(quote.solver_id, "test-solver");
-		assert_eq!(quote.request_id, "req-123");
-		assert_eq!(quote.chain_id, 1);
-		assert_eq!(quote.status, QuoteStatus::Valid);
+		assert_eq!(quote.provider, "test-provider");
+		assert_eq!(quote.integrity_checksum, "test-checksum");
 		assert!(!quote.is_expired());
+		assert_eq!(quote.orders.len(), 1);
+		assert_eq!(quote.details.available_inputs.len(), 1);
+		assert_eq!(quote.details.requested_outputs.len(), 1);
 	}
 
 	#[test]
@@ -294,7 +254,10 @@ mod tests {
 	fn test_quote_comparison() {
 		let quote1 = create_test_quote();
 		let mut quote2 = create_test_quote();
-		quote2.amount_out = "3000000000000000000000".to_string(); // 3000 USDC
+
+		// Update quote2 to have a higher output amount
+		quote2.details.requested_outputs[0].amount =
+			U256::new("3000000000000000000000".to_string()); // 3000 USDC
 
 		assert!(quote2.is_better_than(&quote1).unwrap());
 		assert!(!quote1.is_better_than(&quote2).unwrap());
@@ -303,43 +266,39 @@ mod tests {
 	#[test]
 	fn test_quote_expiration() {
 		let mut quote = create_test_quote();
-		quote.expires_at = Utc::now() - Duration::minutes(1);
+		let past_timestamp = (Utc::now() - chrono::Duration::minutes(1)).timestamp() as u64;
+		quote.valid_until = Some(past_timestamp);
 
 		assert!(quote.is_expired());
+
+		// Test no expiration when valid_until is None
+		quote.valid_until = None;
+		assert!(!quote.is_expired());
 	}
 
 	#[test]
 	fn test_quote_builder_pattern() {
 		let quote = create_test_quote()
-			.with_estimated_gas(21000)
-			.with_price_impact(0.01)
-			.with_response_time(150)
-			.with_confidence_score(0.95);
+			.with_valid_until(1234567890)
+			.with_eta(300);
 
-		assert_eq!(quote.estimated_gas, Some(21000));
-		assert_eq!(quote.price_impact, Some(0.01));
-		assert_eq!(quote.response_time_ms, 150);
-		assert_eq!(quote.confidence_score, Some(0.95));
+		assert_eq!(quote.valid_until, Some(1234567890));
+		assert_eq!(quote.eta, Some(300));
 	}
 
 	#[test]
 	fn test_quote_integrity_payload() {
+		use crate::IntegrityPayload;
+
 		let quote = create_test_quote();
 		let payload = quote.to_integrity_payload();
 
-		// Verify payload contains all critical fields
-		assert!(payload.contains(&format!("quote_id={}", quote.quote_id)));
-		assert!(payload.contains(&format!("solver_id={}", quote.solver_id)));
-		assert!(payload.contains(&format!("request_id={}", quote.request_id)));
-		assert!(payload.contains(&format!("token_in={}", quote.token_in)));
-		assert!(payload.contains(&format!("token_out={}", quote.token_out)));
-		assert!(payload.contains(&format!("amount_in={}", quote.amount_in)));
-		assert!(payload.contains(&format!("amount_out={}", quote.amount_out)));
-		assert!(payload.contains(&format!("chain_id={}", quote.chain_id)));
-		assert!(payload.contains(&format!(
-			"created_at={}",
-			quote.created_at.timestamp_millis()
-		)));
+		// Verify payload contains critical fields
+		assert!(payload.contains(&format!("quote_id:{}", quote.quote_id)));
+		assert!(payload.contains(&format!("solver_id:{}", quote.solver_id)));
+		assert!(payload.contains(&format!("provider:{}", quote.provider)));
+		assert!(payload.contains("orders_count:1"));
+		assert!(payload.contains("details:"));
 
 		// Verify deterministic output
 		let payload2 = quote.to_integrity_payload();
