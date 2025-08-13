@@ -148,7 +148,7 @@ mod tests {
 
 	#[test]
 	fn test_generate_checksum() {
-		let service = IntegrityService::new(SecretString::from_str("test-secret-key-12345"));
+		let service = IntegrityService::new(SecretString::from("test-secret-key-12345"));
 
 		let data = TestData {
 			id: "test-123".to_string(),
@@ -163,7 +163,7 @@ mod tests {
 
 	#[test]
 	fn test_verify_checksum() {
-		let service = IntegrityService::new(SecretString::from_str("test-secret-key-12345"));
+		let service = IntegrityService::new(SecretString::from("test-secret-key-12345"));
 
 		let data = TestData {
 			id: "test-123".to_string(),
@@ -182,7 +182,7 @@ mod tests {
 
 	#[test]
 	fn test_deterministic_checksum() {
-		let service = IntegrityService::new(SecretString::from_str("test-secret-key-12345"));
+		let service = IntegrityService::new(SecretString::from("test-secret-key-12345"));
 
 		let data = TestData {
 			id: "test-123".to_string(),
@@ -197,7 +197,7 @@ mod tests {
 
 	#[test]
 	fn test_convenience_methods() {
-		let service = IntegrityService::new(SecretString::from_str("test-secret-key-12345"));
+		let service = IntegrityService::new(SecretString::from("test-secret-key-12345"));
 
 		let data = TestData {
 			id: "test-123".to_string(),
