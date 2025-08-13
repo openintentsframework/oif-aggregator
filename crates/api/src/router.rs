@@ -11,7 +11,7 @@ use tower_http::{
 use tracing::Level;
 
 use crate::handlers::{
-	get_order_status, get_solver_by_id, get_solvers, health, post_orders, post_quotes, ready,
+	get_order, get_solver_by_id, get_solvers, health, post_orders, post_quotes, ready,
 };
 use crate::security::add_security_headers;
 use crate::state::AppState;
@@ -57,7 +57,7 @@ pub fn create_router() -> Router<AppState> {
 		.route("/ready", get(ready))
 		.route("/v1/quotes", post(post_quotes))
 		.route("/v1/orders", post(post_orders))
-		.route("/v1/orders/{id}", get(get_order_status))
+		.route("/v1/orders/{id}", get(get_order))
 		.route("/v1/solvers", get(get_solvers))
 		.route("/v1/solvers/{id}", get(get_solver_by_id));
 

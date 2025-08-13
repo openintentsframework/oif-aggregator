@@ -8,8 +8,8 @@ use std::sync::Arc;
 use crate::integrity::IntegrityService;
 use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;
-use oif_types::chrono::Utc;
-use oif_types::{Order, OrdersRequest, Quote, Solver, SolverRuntimeConfig};
+use oif_types::adapters::models::SubmitOrderRequest;
+use oif_types::{Order, OrderRequest, Quote, Solver, SolverRuntimeConfig};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -30,6 +30,8 @@ pub enum OrderServiceError {
 	Adapter(String),
 	#[error("quote integrity verification failed")]
 	IntegrityVerificationFailed,
+	#[error("order not found: {0}")]
+	OrderNotFound(String),
 }
 
 #[derive(Clone)]
@@ -56,7 +58,7 @@ impl OrderService {
 	}
 
 	/// Validate, persist and return the created order
-	pub async fn submit_order(&self, request: &OrdersRequest) -> Result<Order, OrderServiceError> {
+	pub async fn submit_order(&self, request: &OrderRequest) -> Result<Order, OrderServiceError> {
 		// 1. Verify quote integrity checksum
 		if request.quote_response.integrity_checksum.is_empty() {
 			return Err(OrderServiceError::Validation(
@@ -100,22 +102,28 @@ impl OrderService {
 				))
 			})?;
 
-		// 5. Create the order object
-		let mut order = Order::new(request.user_address.clone());
-		order.quote_id = Some(request.quote_response.quote_id.clone());
-		order.signature = request.signature.clone();
+		let submit_order_request = SubmitOrderRequest::try_from(request.clone()).map_err(|e| {
+			OrderServiceError::Validation(format!(
+				"Failed to convert OrderRequest to SubmitOrderRequest: {}",
+				e
+			))
+		})?;
 
-		// 6. Submit the order to the solver via its adapter
+		// 5. Submit the order to the solver via its adapter
 		let config = SolverRuntimeConfig::from(solver);
-		let _transaction_hash = adapter
-			.submit_order(&order, &config)
+		let order_response = adapter
+			.submit_order(&submit_order_request, &config)
 			.await
 			.map_err(|e| OrderServiceError::Adapter(e.to_string()))?;
 
-		// 7. Update order status and save to storage
-		order.status = oif_types::OrderStatus::Submitted;
-		order.updated_at = Utc::now();
+		let order: Order = Order::try_from(order_response.order).map_err(|e| {
+			OrderServiceError::Validation(format!(
+				"Failed to convert GetOrderResponse to Order: {}",
+				e
+			))
+		})?;
 
+		// 6. Save the order to storage
 		self.storage
 			.create_order(order.clone())
 			.await

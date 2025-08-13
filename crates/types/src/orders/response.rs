@@ -1,13 +1,49 @@
 //! Order response models for API layer
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
-use crate::orders::OrderResult;
+use crate::{
+	adapters::{AssetAmount, Settlement},
+	orders::OrderResult,
+};
 
 use super::{Order, OrderStatus};
+
+/// Response body for /v1/orders endpoint (order submission)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OrderResponse {
+	/// The order ID
+	pub order_id: String,
+
+	/// Current status of the order
+	pub status: OrderStatus,
+
+	/// Quote ID
+	pub quote_id: Option<String>,
+
+	/// When the response was created
+	pub created_at: DateTime<Utc>,
+
+	/// When the response was last updated
+	pub updated_at: DateTime<Utc>,
+
+	/// Input amount
+	pub input_amount: AssetAmount,
+
+	/// Output amount
+	pub output_amount: AssetAmount,
+
+	/// Settlement information
+	pub settlement: Settlement,
+
+	/// Fill transaction information
+	pub fill_transaction: Option<serde_json::Value>,
+}
 
 /// Response body for /v1/orders endpoint (order submission)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,7 +67,7 @@ pub struct OrdersResponse {
 }
 
 impl OrdersResponse {
-	/// Create response from domain intent
+	/// Create response from domain order
 	pub fn from_domain(order: &Order) -> OrderResult<Self> {
 		Ok(Self {
 			order_id: order.order_id.clone(),
@@ -44,14 +80,12 @@ impl OrdersResponse {
 
 	fn generate_status_message(status: &OrderStatus) -> String {
 		match status {
+			OrderStatus::Created => "Order created".to_string(),
 			OrderStatus::Pending => "Intent received and is being validated".to_string(),
-			OrderStatus::Submitted => "Order has been submitted to solver".to_string(),
-			OrderStatus::Queued => "Order queued for execution".to_string(),
-			OrderStatus::Executing => "Order is currently being executed".to_string(),
-			OrderStatus::Success => "Order executed successfully".to_string(),
+			OrderStatus::Executed => "Order executed".to_string(),
+			OrderStatus::Settled => "Order settled".to_string(),
+			OrderStatus::Finalized => "Order finalized".to_string(),
 			OrderStatus::Failed => "Order execution failed".to_string(),
-			OrderStatus::Cancelled => "Order was cancelled".to_string(),
-			OrderStatus::Expired => "Order expired before execution".to_string(),
 		}
 	}
 }
@@ -59,14 +93,12 @@ impl OrdersResponse {
 impl ToString for OrderStatus {
 	fn to_string(&self) -> String {
 		match self {
+			OrderStatus::Created => "created".to_string(),
 			OrderStatus::Pending => "pending".to_string(),
-			OrderStatus::Submitted => "submitted".to_string(),
-			OrderStatus::Queued => "queued".to_string(),
-			OrderStatus::Executing => "executing".to_string(),
-			OrderStatus::Success => "success".to_string(),
+			OrderStatus::Executed => "executed".to_string(),
+			OrderStatus::Settled => "settled".to_string(),
+			OrderStatus::Finalized => "finalized".to_string(),
 			OrderStatus::Failed => "failed".to_string(),
-			OrderStatus::Cancelled => "cancelled".to_string(),
-			OrderStatus::Expired => "expired".to_string(),
 		}
 	}
 }
@@ -77,6 +109,25 @@ impl TryFrom<Order> for OrdersResponse {
 
 	fn try_from(order: Order) -> Result<Self, Self::Error> {
 		OrdersResponse::from_domain(&order)
+	}
+}
+
+/// Convert domain Order to detailed API OrderResponse
+impl TryFrom<&Order> for OrderResponse {
+	type Error = super::OrderError;
+
+	fn try_from(order: &Order) -> Result<Self, Self::Error> {
+		Ok(OrderResponse {
+			order_id: order.order_id.clone(),
+			status: order.status.clone(),
+			quote_id: order.quote_id.clone(),
+			created_at: order.created_at,
+			updated_at: order.updated_at,
+			input_amount: order.input_amount.clone(),
+			output_amount: order.output_amount.clone(),
+			settlement: order.settlement.clone(),
+			fill_transaction: order.fill_transaction.clone(),
+		})
 	}
 }
 

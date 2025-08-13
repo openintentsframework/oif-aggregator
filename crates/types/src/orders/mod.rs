@@ -1,6 +1,6 @@
 //! Core Order domain model and business logic
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use serde::{Deserialize, Serialize};
 
 pub mod errors;
@@ -9,9 +9,14 @@ pub mod response;
 pub mod storage;
 
 pub use errors::{OrderError, OrderValidationError};
-pub use request::OrdersRequest;
-pub use response::OrdersResponse;
+pub use request::OrderRequest;
+pub use response::{OrderResponse, OrdersResponse};
 pub use storage::OrderStorage;
+#[cfg(feature = "openapi")]
+use utoipa::ToSchema;
+
+use crate::adapters::OrderResponse as AdapterOrderResponse;
+use crate::adapters::{AssetAmount, Settlement};
 
 /// Result types for order operations
 pub type OrderResult<T> = Result<T, OrderError>;
@@ -20,73 +25,78 @@ pub type OrderValidationResult<T> = Result<T, OrderValidationError>;
 /// Core Order domain model
 ///
 /// This represents an order in the domain layer with business logic.
-/// It should be converted from OrdersRequest and to OrderStorage/OrdersResponse.
+/// It should be converted from  and to OrderStorage/OrderResponse.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Order {
+	// Order ID
 	pub order_id: String,
-	pub user_address: String,
+	// Quote ID
 	pub quote_id: Option<String>,
-	pub signature: Option<String>,
+	// Order status
 	pub status: OrderStatus,
+	// When the order was created
 	pub created_at: DateTime<Utc>,
+	// When the order was last updated
 	pub updated_at: DateTime<Utc>,
+	// Input amount
+	pub input_amount: AssetAmount,
+	// Output amount
+	pub output_amount: AssetAmount,
+	// Settlement information
+	pub settlement: Settlement,
+	// Fill transaction information
+	pub fill_transaction: Option<serde_json::Value>,
+}
+
+impl TryFrom<AdapterOrderResponse> for Order {
+	type Error = OrderError;
+
+	fn try_from(src: AdapterOrderResponse) -> Result<Self, Self::Error> {
+		Ok(Order {
+			order_id: src.id,
+			quote_id: src.quote_id,
+			status: src.status.into(),
+			created_at: chrono::Utc.timestamp(src.created_at as i64, 0),
+			updated_at: chrono::Utc.timestamp(src.updated_at as i64, 0),
+			input_amount: src.input_amount,
+			output_amount: src.output_amount,
+			settlement: src.settlement,
+			fill_transaction: src.fill_transaction,
+		})
+	}
 }
 
 /// Order execution status
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub enum OrderStatus {
-	/// Order has been received and is pending validation
+	/// Order has been created but not yet prepared.
+	Created,
+	/// Order is pending execution.
 	Pending,
-	/// Order has been submitted to a solver
-	Submitted,
-	/// Order has been validated and is queued for execution
-	Queued,
-	/// Order is currently being processed
-	Executing,
-	/// Order has been successfully executed
-	Success,
-	/// Order execution failed
+	/// Order has been executed.
+	Executed,
+	/// Order has been settled and is ready to be claimed.
+	Settled,
+	/// Order is finalized and complete (after claim confirmation).
+	Finalized,
+	/// Order execution failed with specific transaction type.
 	Failed,
-	/// Order was cancelled by user or system
-	Cancelled,
-	/// Order expired before execution
-	Expired,
 }
 
-impl Order {
-	pub fn new(user_address: String) -> Self {
-		let now = Utc::now();
-		Self {
-			order_id: uuid::Uuid::new_v4().to_string(),
-			user_address,
-			quote_id: None,
-			signature: None,
-			status: OrderStatus::Pending,
-			created_at: now,
-			updated_at: now,
+impl From<crate::adapters::OrderStatus> for OrderStatus {
+	fn from(s: crate::adapters::OrderStatus) -> Self {
+		match s {
+			crate::adapters::OrderStatus::Created => Self::Created,
+			crate::adapters::OrderStatus::Pending => Self::Pending,
+			crate::adapters::OrderStatus::Executed => Self::Executed,
+			crate::adapters::OrderStatus::Settled => Self::Settled,
+			crate::adapters::OrderStatus::Finalized => Self::Finalized,
+			crate::adapters::OrderStatus::Failed(_) => Self::Failed,
 		}
 	}
 }
-
-/// Order execution response from a solver
-///
-/// This represents the response when submitting an order to a solver adapter.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct OrderResponse {
-	/// The order ID
-	pub order_id: String,
-
-	/// Current status of the order
-	pub status: OrderStatus,
-
-	/// When the response was created
-	pub created_at: DateTime<Utc>,
-
-	/// When the response was last updated
-	pub updated_at: DateTime<Utc>,
-}
-
 #[cfg(test)]
 mod tests {
 	use super::*;

@@ -1,7 +1,10 @@
 //! Core adapter traits for user implementations
 
 use super::{AdapterResult, SolverRuntimeConfig};
-use crate::{adapters::GetOrderResponse, models::{Asset, Network}};
+use crate::{
+	adapters::{models::SubmitOrderRequest, GetOrderResponse},
+	models::{Asset, Network},
+};
 use crate::{Adapter, GetQuoteRequest, GetQuoteResponse, Order};
 use async_trait::async_trait;
 use std::fmt::Debug;
@@ -32,7 +35,7 @@ pub trait SolverAdapter: Send + Sync + Debug {
 	/// Submit an order to the solver using runtime configuration
 	async fn submit_order(
 		&self,
-		order: &Order,
+		order: &SubmitOrderRequest,
 		config: &SolverRuntimeConfig,
 	) -> AdapterResult<GetOrderResponse>;
 

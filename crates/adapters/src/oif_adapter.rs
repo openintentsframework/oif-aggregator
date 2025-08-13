@@ -2,10 +2,9 @@
 //! TODO: Implement OIF adapter
 
 use async_trait::async_trait;
+use oif_types::adapters::models::SubmitOrderRequest;
 use oif_types::adapters::GetOrderResponse;
-use oif_types::{
-	Adapter, Asset, GetQuoteRequest, GetQuoteResponse, Network, Order, SolverRuntimeConfig,
-};
+use oif_types::{Adapter, Asset, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig};
 use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 use reqwest::{
 	header::{HeaderMap, HeaderValue},
@@ -84,12 +83,12 @@ impl SolverAdapter for OifAdapter {
 
 	async fn submit_order(
 		&self,
-		order: &Order,
+		order: &SubmitOrderRequest,
 		config: &SolverRuntimeConfig,
 	) -> AdapterResult<GetOrderResponse> {
 		debug!(
 			"Submitting order {} to OIF adapter {} via solver {}",
-			order.order_id, self.config.adapter_id, config.solver_id
+			order.order, self.config.adapter_id, config.solver_id
 		);
 
 		unimplemented!()

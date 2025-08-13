@@ -2,10 +2,8 @@
 //! TODO: Implement LiFi adapter
 
 use async_trait::async_trait;
-use oif_types::adapters::GetOrderResponse;
-use oif_types::{
-	Adapter, Asset, GetQuoteRequest, GetQuoteResponse, Network, Order, SolverRuntimeConfig,
-};
+use oif_types::adapters::{models::SubmitOrderRequest, GetOrderResponse};
+use oif_types::{Adapter, Asset, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig};
 use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 use reqwest::Client;
 use tracing::debug;
@@ -70,7 +68,7 @@ impl SolverAdapter for LifiAdapter {
 
 	async fn submit_order(
 		&self,
-		order: &Order,
+		order: &SubmitOrderRequest,
 		config: &SolverRuntimeConfig,
 	) -> AdapterResult<GetOrderResponse> {
 		debug!(

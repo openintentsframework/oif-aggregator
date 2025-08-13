@@ -1,19 +1,18 @@
 //! Core Adapter domain model and business logic
 
-
 use std::collections::HashMap;
 
 pub mod errors;
-pub mod traits;
 pub mod models;
+pub mod traits;
 
 pub use errors::{AdapterError, AdapterFactoryError, AdapterValidationError};
-pub use traits::SolverAdapter;
 pub use models::{
-    GetQuoteRequest, GetQuoteResponse, AdapterQuote, QuoteDetails, QuoteOrder,
-    QuotePreference, RequestedOutput, AvailableInput, SignatureType, SettlementType,
-    Settlement, AssetAmount, OrderStatus, OrderResponse, GetOrderResponse,
+	AdapterQuote, AssetAmount, AvailableInput, GetOrderResponse, GetQuoteRequest, GetQuoteResponse,
+	OrderResponse, OrderStatus, QuoteDetails, QuoteOrder, QuotePreference, RequestedOutput,
+	Settlement, SettlementType, SignatureType,
 };
+pub use traits::SolverAdapter;
 
 /// Result types for adapter operations
 pub type AdapterResult<T> = Result<T, AdapterError>;

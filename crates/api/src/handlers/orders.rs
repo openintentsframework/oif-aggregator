@@ -2,21 +2,21 @@
 use axum::{
 	extract::{Path, State},
 	http::StatusCode,
-	response::{Json, NoContent},
+	response::Json,
 };
 use tracing::{debug, info};
 
 use crate::handlers::common::ErrorResponse;
 use crate::state::AppState;
-use oif_types::{OrdersRequest, OrdersResponse};
+use oif_types::{OrderRequest, OrderResponse};
 
 /// Submit a new order
 #[cfg_attr(feature = "openapi", utoipa::path(
     post,
     path = "/v1/orders",
-    request_body = OrdersRequest,
+    request_body = OrderRequest,
     responses(
-        (status = 200, description = "Order created", body = OrdersResponse),
+        (status = 200, description = "Order created", body = OrderResponse),
         (status = 400, description = "Invalid request", body = ErrorResponse),
         (status = 404, description = "Quote not found", body = ErrorResponse),
         (status = 500, description = "Internal error", body = ErrorResponse)
@@ -26,8 +26,8 @@ use oif_types::{OrdersRequest, OrdersResponse};
 /// POST /v1/orders - Submit an order
 pub async fn post_orders(
 	State(state): State<AppState>,
-	Json(request): Json<OrdersRequest>,
-) -> Result<Json<OrdersResponse>, (StatusCode, Json<ErrorResponse>)> {
+	Json(request): Json<OrderRequest>,
+) -> Result<Json<OrderResponse>, (StatusCode, Json<ErrorResponse>)> {
 	info!(
 		"Received order submission for user {}",
 		request.user_address
@@ -101,11 +101,19 @@ pub async fn post_orders(
 						timestamp: chrono::Utc::now().timestamp(),
 					}),
 				),
+				oif_service::OrderServiceError::OrderNotFound(order_id) => (
+					StatusCode::NOT_FOUND,
+					Json(ErrorResponse {
+						error: "ORDER_NOT_FOUND".to_string(),
+						message: format!("Order {} not found", order_id),
+						timestamp: chrono::Utc::now().timestamp(),
+					}),
+				),
 			})
 		},
 	};
 
-	let response = match OrdersResponse::from_domain(&order) {
+	let response = match OrderResponse::try_from(&order) {
 		Ok(resp) => resp,
 		Err(e) => {
 			return Err((
@@ -119,10 +127,7 @@ pub async fn post_orders(
 		},
 	};
 
-	info!(
-		"Created order {} for user {}",
-		order.order_id, order.user_address
-	);
+	info!("Created order {}", order.order_id);
 	Ok(Json(response))
 }
 
@@ -132,17 +137,67 @@ pub async fn post_orders(
     path = "/v1/orders/{id}",
     params(("id" = String, Path, description = "Order ID")),
     responses(
-        (status = 200, description = "Order status", body = OrderStatusResponse),
+        (status = 200, description = "Order details", body = OrderResponse),
         (status = 404, description = "Order not found", body = ErrorResponse),
         (status = 500, description = "Internal error", body = ErrorResponse)
     ),
     tag = "orders"
 ))]
-/// GET /v1/orders/:id - Get order status by ID
-pub async fn get_order_status(
-	State(_state): State<AppState>,
+/// GET /v1/orders/:id - Get order details by ID
+pub async fn get_order(
+	State(state): State<AppState>,
 	Path(order_id): Path<String>,
-) -> Result<NoContent, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<Json<OrderResponse>, (StatusCode, Json<ErrorResponse>)> {
 	debug!("Querying status for order {}", order_id);
-	unimplemented!()
+
+	let order = match state.order_service.get_order(&order_id).await {
+		Ok(Some(order)) => order,
+		Ok(None) => {
+			return Err((
+				StatusCode::NOT_FOUND,
+				Json(ErrorResponse {
+					error: "ORDER_NOT_FOUND".to_string(),
+					message: format!("Order {} not found", order_id),
+					timestamp: chrono::Utc::now().timestamp(),
+				}),
+			))
+		},
+		Err(e) => {
+			return Err(match e {
+				oif_service::OrderServiceError::Storage(msg) => (
+					StatusCode::INTERNAL_SERVER_ERROR,
+					Json(ErrorResponse {
+						error: "STORAGE_ERROR".to_string(),
+						message: msg,
+						timestamp: chrono::Utc::now().timestamp(),
+					}),
+				),
+				_ => (
+					StatusCode::INTERNAL_SERVER_ERROR,
+					Json(ErrorResponse {
+						error: "INTERNAL_ERROR".to_string(),
+						message: format!("Failed to retrieve order: {}", e),
+						timestamp: chrono::Utc::now().timestamp(),
+					}),
+				),
+			})
+		},
+	};
+
+	let response = match OrderResponse::try_from(&order) {
+		Ok(resp) => resp,
+		Err(e) => {
+			return Err((
+				StatusCode::INTERNAL_SERVER_ERROR,
+				Json(ErrorResponse {
+					error: "CONVERSION_ERROR".to_string(),
+					message: format!("Failed to convert order: {}", e),
+					timestamp: chrono::Utc::now().timestamp(),
+				}),
+			))
+		},
+	};
+
+	info!("Retrieved order {}", order.order_id);
+	Ok(Json(response))
 }

@@ -126,22 +126,6 @@ impl oif_types::storage::Repository<Order> for MemoryStore {
 
 #[async_trait]
 impl OrderStorage for MemoryStore {
-	async fn get_by_user(&self, user_address: &str) -> StorageResult<Vec<Order>> {
-		let orders: Vec<Order> = self
-			.orders
-			.iter()
-			.filter_map(|entry| {
-				let order = entry.value();
-				if order.user_address == user_address {
-					Some(order.clone())
-				} else {
-					None
-				}
-			})
-			.collect();
-		Ok(orders)
-	}
-
 	async fn get_by_status(&self, status: oif_types::OrderStatus) -> StorageResult<Vec<Order>> {
 		let orders: Vec<Order> = self
 			.orders

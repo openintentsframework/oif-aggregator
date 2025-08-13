@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::{Order, OrderError, OrderStatus};
+use crate::adapters::{AssetAmount, Settlement};
 
 /// Storage representation of an intent
 ///
@@ -13,25 +14,25 @@ use super::{Order, OrderError, OrderStatus};
 pub struct OrderStorage {
 	pub order_id: String,
 	pub quote_id: Option<String>,
-	pub user_address: String,
-	pub signature: Option<String>,
 	pub status: OrderStatusStorage,
 	pub created_at: DateTime<Utc>,
 	pub updated_at: DateTime<Utc>,
+	pub input_amount: AssetAmount,
+	pub output_amount: AssetAmount,
+	pub settlement: Settlement,
+	pub fill_transaction: Option<serde_json::Value>,
 }
 
 /// Storage-compatible order status
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum OrderStatusStorage {
+	Created,
 	Pending,
-	Submitted,
-	Queued,
-	Executing,
-	Success,
+	Executed,
+	Settled,
+	Finalized,
 	Failed,
-	Cancelled,
-	Expired,
 }
 
 impl OrderStorage {
@@ -45,14 +46,12 @@ impl OrderStorage {
 impl From<OrderStatus> for OrderStatusStorage {
 	fn from(status: OrderStatus) -> Self {
 		match status {
+			OrderStatus::Created => Self::Created,
 			OrderStatus::Pending => Self::Pending,
-			OrderStatus::Submitted => Self::Submitted,
-			OrderStatus::Queued => Self::Queued,
-			OrderStatus::Executing => Self::Executing,
-			OrderStatus::Success => Self::Success,
+			OrderStatus::Executed => Self::Executed,
+			OrderStatus::Settled => Self::Settled,
+			OrderStatus::Finalized => Self::Finalized,
 			OrderStatus::Failed => Self::Failed,
-			OrderStatus::Cancelled => Self::Cancelled,
-			OrderStatus::Expired => Self::Expired,
 		}
 	}
 }
@@ -60,14 +59,12 @@ impl From<OrderStatus> for OrderStatusStorage {
 impl From<OrderStatusStorage> for OrderStatus {
 	fn from(storage: OrderStatusStorage) -> Self {
 		match storage {
+			OrderStatusStorage::Created => Self::Created,
 			OrderStatusStorage::Pending => Self::Pending,
-			OrderStatusStorage::Submitted => Self::Submitted,
-			OrderStatusStorage::Queued => Self::Queued,
-			OrderStatusStorage::Executing => Self::Executing,
-			OrderStatusStorage::Success => Self::Success,
+			OrderStatusStorage::Executed => Self::Executed,
+			OrderStatusStorage::Settled => Self::Settled,
+			OrderStatusStorage::Finalized => Self::Finalized,
 			OrderStatusStorage::Failed => Self::Failed,
-			OrderStatusStorage::Cancelled => Self::Cancelled,
-			OrderStatusStorage::Expired => Self::Expired,
 		}
 	}
 }
@@ -78,11 +75,13 @@ impl From<Order> for OrderStorage {
 		Self {
 			order_id: order.order_id,
 			quote_id: order.quote_id,
-			user_address: order.user_address,
-			signature: order.signature,
 			status: OrderStatusStorage::from(order.status),
 			created_at: order.created_at,
 			updated_at: order.updated_at,
+			input_amount: order.input_amount,
+			output_amount: order.output_amount,
+			settlement: order.settlement,
+			fill_transaction: order.fill_transaction,
 		}
 	}
 }
@@ -93,12 +92,14 @@ impl TryFrom<OrderStorage> for Order {
 	fn try_from(storage: OrderStorage) -> Result<Self, Self::Error> {
 		Ok(Order {
 			order_id: storage.order_id,
-			user_address: storage.user_address,
 			quote_id: storage.quote_id,
-			signature: storage.signature,
 			status: OrderStatus::from(storage.status),
 			created_at: storage.created_at,
 			updated_at: storage.updated_at,
+			input_amount: storage.input_amount,
+			output_amount: storage.output_amount,
+			settlement: storage.settlement,
+			fill_transaction: storage.fill_transaction,
 		})
 	}
 }

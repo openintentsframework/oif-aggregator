@@ -31,9 +31,6 @@ pub trait QuoteStorageTrait: Repository<Quote> + Send + Sync {
 /// Trait for order storage operations (CRUD naming)
 #[async_trait]
 pub trait OrderStorageTrait: Repository<Order> + Send + Sync {
-	/// Get all orders for a user
-	async fn get_by_user(&self, user_address: &str) -> StorageResult<Vec<Order>>;
-
 	/// Get orders with a specific status
 	async fn get_by_status(&self, status: crate::OrderStatus) -> StorageResult<Vec<Order>>;
 }
@@ -143,11 +140,6 @@ pub trait StorageTrait: QuoteStorageTrait + OrderStorageTrait + SolverStorageTra
 	/// Delete an order by ID
 	async fn delete_order(&self, id: &str) -> StorageResult<bool> {
 		<Self as Repository<Order>>::delete(self, id).await
-	}
-
-	/// Get orders by user address
-	async fn get_orders_by_user(&self, user_address: &str) -> StorageResult<Vec<Order>> {
-		<Self as OrderStorageTrait>::get_by_user(self, user_address).await
 	}
 
 	/// Get orders by status

@@ -75,9 +75,6 @@ pub async fn post_quotes(
 		},
 	};
 
-	info!(
-		"Returning {} quotes for request",
-		response.total_quotes
-	);
+	info!("Returning {} quotes for request", response.total_quotes);
 	Ok(Json(response))
 }

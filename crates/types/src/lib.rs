@@ -35,17 +35,15 @@ pub use adapters::{
 };
 
 // Re-export shared domain models
-pub use models::{
-    Asset, InteropAddress, Lock, Network, SecretString, U256,
-};
 pub use adapters::{
-    AdapterQuote, AvailableInput, GetQuoteRequest, GetQuoteResponse, QuoteDetails, QuoteOrder,
-    QuotePreference, RequestedOutput, SettlementType, SignatureType,
+	AdapterQuote, AvailableInput, GetQuoteRequest, GetQuoteResponse, QuoteDetails, QuoteOrder,
+	QuotePreference, RequestedOutput, SettlementType, SignatureType,
 };
+pub use models::{Asset, InteropAddress, Lock, Network, SecretString, U256};
 
 pub use orders::{
-	Order, OrderError, OrderResponse, OrderStatus, OrderStorage, OrderValidationError,
-	OrderValidationResult, OrdersRequest, OrdersResponse,
+	Order, OrderError, OrderRequest, OrderResponse, OrderStatus, OrderStorage,
+	OrderValidationError, OrderValidationResult,
 };
 
 pub use auth::{

@@ -10,10 +10,7 @@ use crate::QuoteResponse;
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct OrdersRequest {
-	/// Order ID
-	pub order_id: String,
-
+pub struct OrderRequest {
 	/// Quote data
 	pub quote_response: QuoteResponse,
 
