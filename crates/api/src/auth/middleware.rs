@@ -48,7 +48,9 @@ where
 	A: Authenticator,
 	R: RateLimiter,
 {
+	#[allow(dead_code)]
 	authenticator: Arc<A>,
+	#[allow(dead_code)]
 	rate_limiter: Arc<R>,
 	config: AuthConfig,
 }

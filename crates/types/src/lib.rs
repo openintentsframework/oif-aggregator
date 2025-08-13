@@ -36,9 +36,11 @@ pub use adapters::{
 
 // Re-export shared domain models
 pub use models::{
-	AdapterQuote, Asset, AvailableInput, GetQuoteRequest, GetQuoteResponse, InteropAddress, Lock,
-	Network, QuoteDetails, QuoteOrder, QuotePreference, RequestedOutput, SecretString,
-	SettlementType, SignatureType, U256,
+    Asset, InteropAddress, Lock, Network, SecretString, U256,
+};
+pub use adapters::{
+    AdapterQuote, AvailableInput, GetQuoteRequest, GetQuoteResponse, QuoteDetails, QuoteOrder,
+    QuotePreference, RequestedOutput, SettlementType, SignatureType,
 };
 
 pub use orders::{

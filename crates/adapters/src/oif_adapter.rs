@@ -2,7 +2,7 @@
 //! TODO: Implement OIF adapter
 
 use async_trait::async_trait;
-use oif_types::models::GetOrderResponse;
+use oif_types::adapters::GetOrderResponse;
 use oif_types::{
 	Adapter, Asset, GetQuoteRequest, GetQuoteResponse, Network, Order, SolverRuntimeConfig,
 };

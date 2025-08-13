@@ -12,19 +12,17 @@ use super::{Quote, QuoteError, QuoteResult};
 /// Response format for individual quotes in the API
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QuoteResponse {
 	/// Unique identifier for the quote
-	#[serde(rename = "quoteId")]
 	pub quote_id: String,
 	/// ID of the solver that provided this quote
-	#[serde(rename = "solverId")]
 	pub solver_id: String,
 	/// Array of EIP-712 compliant orders
 	pub orders: Vec<QuoteOrder>,
 	/// Quote details matching request structure
 	pub details: QuoteDetails,
 	/// Quote validity timestamp
-	#[serde(rename = "validUntil")]
 	pub valid_until: Option<u64>,
 	/// Estimated time to completion in seconds
 	pub eta: Option<u64>,
@@ -32,7 +30,6 @@ pub struct QuoteResponse {
 	pub provider: String,
 	/// HMAC-SHA256 integrity checksum for quote verification
 	/// This ensures the quote originated from the aggregator service
-	#[serde(rename = "integrityChecksum")]
 	pub integrity_checksum: String,
 }
 

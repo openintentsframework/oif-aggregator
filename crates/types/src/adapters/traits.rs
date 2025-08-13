@@ -1,7 +1,7 @@
 //! Core adapter traits for user implementations
 
 use super::{AdapterResult, SolverRuntimeConfig};
-use crate::models::{Asset, GetOrderResponse, Network};
+use crate::{adapters::GetOrderResponse, models::{Asset, Network}};
 use crate::{Adapter, GetQuoteRequest, GetQuoteResponse, Order};
 use async_trait::async_trait;
 use std::fmt::Debug;

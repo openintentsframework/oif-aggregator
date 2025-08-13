@@ -1,14 +1,19 @@
 //! Core Adapter domain model and business logic
 
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+
 use std::collections::HashMap;
 
 pub mod errors;
 pub mod traits;
+pub mod models;
 
 pub use errors::{AdapterError, AdapterFactoryError, AdapterValidationError};
 pub use traits::SolverAdapter;
+pub use models::{
+    GetQuoteRequest, GetQuoteResponse, AdapterQuote, QuoteDetails, QuoteOrder,
+    QuotePreference, RequestedOutput, AvailableInput, SignatureType, SettlementType,
+    Settlement, AssetAmount, OrderStatus, OrderResponse, GetOrderResponse,
+};
 
 /// Result types for adapter operations
 pub type AdapterResult<T> = Result<T, AdapterError>;

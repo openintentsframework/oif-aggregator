@@ -140,7 +140,7 @@ pub async fn post_orders(
 ))]
 /// GET /v1/orders/:id - Get order status by ID
 pub async fn get_order_status(
-	State(state): State<AppState>,
+	State(_state): State<AppState>,
 	Path(order_id): Path<String>,
 ) -> Result<NoContent, (StatusCode, Json<ErrorResponse>)> {
 	debug!("Querying status for order {}", order_id);
