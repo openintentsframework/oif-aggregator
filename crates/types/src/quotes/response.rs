@@ -46,7 +46,7 @@ pub struct QuotesResponse {
 impl QuoteResponse {
 	/// Create a new quote response from a domain quote
 	pub fn from_domain(quote: &Quote) -> QuoteResult<Self> {
-		Self::try_from(quote.clone()).map_err(|e| e)
+		Self::try_from(quote.clone())
 	}
 }
 

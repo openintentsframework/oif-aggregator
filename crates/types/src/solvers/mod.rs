@@ -3,6 +3,8 @@
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+#[cfg(feature = "openapi")]
+use utoipa::ToSchema;
 
 use crate::constants::{MAX_SOLVER_RETRIES, MAX_SOLVER_TIMEOUT_MS, MIN_SOLVER_TIMEOUT_MS};
 use crate::models::{Asset, Network};
@@ -90,6 +92,7 @@ pub struct Solver {
 
 /// Solver operational status
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(rename_all = "lowercase")]
 pub enum SolverStatus {
 	/// Solver is active and available

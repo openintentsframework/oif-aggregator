@@ -1,9 +1,12 @@
 //! Blockchain network models
 
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "openapi")]
+use utoipa::ToSchema;
 
 /// Supported blockchain network
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct Network {
 	/// Chain ID (e.g., 1 for Ethereum mainnet, 137 for Polygon)
 	pub chain_id: u64,

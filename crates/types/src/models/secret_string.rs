@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
+use std::str::FromStr;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
 /// A secure string type that zeroizes its contents when dropped
@@ -37,7 +38,7 @@ impl SecretString {
 	}
 
 	/// Create a new `SecretString` from a string slice
-	pub fn from_str(secret: &str) -> Self {
+	pub fn from_string(secret: &str) -> Self {
 		Self::new(secret.to_string())
 	}
 
@@ -85,7 +86,7 @@ impl From<String> for SecretString {
 
 impl From<&str> for SecretString {
 	fn from(secret: &str) -> Self {
-		Self::from_str(secret)
+		Self::from_string(secret)
 	}
 }
 
@@ -135,6 +136,14 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 
 impl Eq for SecretString {}
 
+impl FromStr for SecretString {
+	type Err = std::convert::Infallible;
+
+	fn from_str(s: &str) -> Result<Self, Self::Err> {
+		Ok(Self::from_string(s))
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
@@ -149,7 +158,7 @@ mod tests {
 
 	#[test]
 	fn test_secret_string_from_str() {
-		let secret = SecretString::from_str("api-key-123");
+		let secret = SecretString::from_string("api-key-123");
 		assert_eq!(secret.expose_secret(), "api-key-123");
 	}
 

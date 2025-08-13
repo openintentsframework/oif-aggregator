@@ -1,12 +1,15 @@
 //! Solver response models for API layer
 
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "openapi")]
+use utoipa::ToSchema;
 
 use super::{Solver, SolverStatus};
 use crate::models::{Asset as AssetResponse, Network as NetworkResponse};
 
 /// Response format for individual solvers in API
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SolverResponse {
 	pub solver_id: String,
@@ -23,6 +26,7 @@ pub struct SolverResponse {
 
 /// Collection of solvers response for API endpoints
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SolversResponse {
 	pub solvers: Vec<SolverResponse>,

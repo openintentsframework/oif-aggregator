@@ -20,9 +20,9 @@ pub use oif_types::{
 	Authenticator,
 	Order,
 	OrderError,
+	OrderRequest,
 	OrderResponse,
 	OrderStatus,
-	OrdersRequest,
 	Permission,
 	// Primary domain entities
 	Quote,
@@ -138,6 +138,12 @@ where
 }
 
 // Default constructor using MemoryStore for convenience
+impl Default for AggregatorBuilder<MemoryStore, NoAuthenticator, MemoryRateLimiter> {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 impl AggregatorBuilder<MemoryStore, NoAuthenticator, MemoryRateLimiter> {
 	/// Create a new aggregator builder with default memory storage
 	pub fn new() -> Self {
@@ -159,7 +165,7 @@ where
 	/// Upsert solvers defined in Settings into storage so that start() can
 	/// load them via `list_all_solvers()`.
 	async fn upsert_solvers_from_settings(&self, settings: &Settings) {
-		for (_, solver_config) in &settings.enabled_solvers() {
+		for solver_config in settings.enabled_solvers().values() {
 			let mut solver = Solver::new(
 				solver_config.solver_id.clone(),
 				solver_config.adapter_id.clone(),
@@ -236,7 +242,7 @@ where
 	pub fn with_adapter(mut self, adapter: Box<dyn SolverAdapter>) -> Result<Self, String> {
 		let mut factory = self
 			.custom_adapter_factory
-			.unwrap_or_else(|| oif_adapters::AdapterRegistry::with_defaults());
+			.unwrap_or_else(oif_adapters::AdapterRegistry::with_defaults);
 		factory.register(adapter)?;
 		self.custom_adapter_factory = Some(factory);
 		Ok(self)
@@ -255,7 +261,7 @@ where
 		storage: S,
 	) -> AggregatorBuilder<S, NoAuthenticator, MemoryRateLimiter> {
 		// Load solvers from configuration into the provided storage
-		for (_, solver_config) in &settings.enabled_solvers() {
+		for solver_config in settings.enabled_solvers().values() {
 			let mut solver = Solver::new(
 				solver_config.solver_id.clone(),
 				solver_config.adapter_id.clone(),
@@ -313,7 +319,7 @@ where
 		// Use custom factory or create with defaults
 		let adapter_factory = Arc::new(
 			self.custom_adapter_factory
-				.unwrap_or_else(|| oif_adapters::AdapterRegistry::with_defaults()),
+				.unwrap_or_else(oif_adapters::AdapterRegistry::with_defaults),
 		);
 
 		// Get integrity secret wrapped in SecretString for secure handling

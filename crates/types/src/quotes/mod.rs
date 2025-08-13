@@ -71,7 +71,7 @@ impl Quote {
 			.details
 			.available_inputs
 			.iter()
-			.map(|input| format!("{}:{}", input.asset.to_string(), input.amount.as_str()))
+			.map(|input| format!("{}:{}", input.asset, input.amount.as_str()))
 			.collect::<Vec<_>>()
 			.join(",");
 
@@ -79,7 +79,7 @@ impl Quote {
 			.details
 			.requested_outputs
 			.iter()
-			.map(|output| format!("{}:{}", output.asset.to_string(), output.amount.as_str()))
+			.map(|output| format!("{}:{}", output.asset, output.amount.as_str()))
 			.collect::<Vec<_>>()
 			.join(",");
 

@@ -56,8 +56,14 @@ impl TryFrom<AdapterOrderResponse> for Order {
 			order_id: src.id,
 			quote_id: src.quote_id,
 			status: src.status.into(),
-			created_at: chrono::Utc.timestamp(src.created_at as i64, 0),
-			updated_at: chrono::Utc.timestamp(src.updated_at as i64, 0),
+			created_at: chrono::Utc
+				.timestamp_opt(src.created_at as i64, 0)
+				.single()
+				.unwrap_or_default(),
+			updated_at: chrono::Utc
+				.timestamp_opt(src.updated_at as i64, 0)
+				.single()
+				.unwrap_or_default(),
 			input_amount: src.input_amount,
 			output_amount: src.output_amount,
 			settlement: src.settlement,

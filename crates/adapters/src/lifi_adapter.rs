@@ -25,7 +25,7 @@ impl LifiAdapter {
 	}
 
 	/// Create default LiFi adapter instance
-	pub fn default() -> AdapterResult<Self> {
+	pub fn with_default_config() -> AdapterResult<Self> {
 		let config = Adapter::new(
 			"lifi-v1".to_string(),
 			"LiFi v1 Protocol".to_string(),

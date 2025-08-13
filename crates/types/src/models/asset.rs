@@ -1,9 +1,12 @@
 //! Blockchain asset/token models
 
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "openapi")]
+use utoipa::ToSchema;
 
 /// Supported blockchain asset/token
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct Asset {
 	/// Contract address (use "0x0" for native tokens)
 	pub address: String,

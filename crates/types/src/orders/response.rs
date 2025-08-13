@@ -90,15 +90,15 @@ impl OrdersResponse {
 	}
 }
 
-impl ToString for OrderStatus {
-	fn to_string(&self) -> String {
+impl std::fmt::Display for OrderStatus {
+	fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
 		match self {
-			OrderStatus::Created => "created".to_string(),
-			OrderStatus::Pending => "pending".to_string(),
-			OrderStatus::Executed => "executed".to_string(),
-			OrderStatus::Settled => "settled".to_string(),
-			OrderStatus::Finalized => "finalized".to_string(),
-			OrderStatus::Failed => "failed".to_string(),
+			OrderStatus::Created => write!(f, "created"),
+			OrderStatus::Pending => write!(f, "pending"),
+			OrderStatus::Executed => write!(f, "executed"),
+			OrderStatus::Settled => write!(f, "settled"),
+			OrderStatus::Finalized => write!(f, "finalized"),
+			OrderStatus::Failed => write!(f, "failed"),
 		}
 	}
 }

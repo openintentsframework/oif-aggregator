@@ -14,6 +14,12 @@ pub struct AdapterRegistry {
 	adapters: std::collections::HashMap<String, Box<dyn SolverAdapter>>,
 }
 
+impl Default for AdapterRegistry {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 impl AdapterRegistry {
 	pub fn new() -> Self {
 		Self {
@@ -26,12 +32,12 @@ impl AdapterRegistry {
 		let mut registry = Self::new();
 
 		// Add default OIF adapter
-		if let Ok(oif_adapter) = OifAdapter::default() {
+		if let Ok(oif_adapter) = OifAdapter::with_default_config() {
 			let _ = registry.register(Box::new(oif_adapter));
 		}
 
 		// Add default LiFi adapter
-		if let Ok(lifi_adapter) = LifiAdapter::default() {
+		if let Ok(lifi_adapter) = LifiAdapter::with_default_config() {
 			let _ = registry.register(Box::new(lifi_adapter));
 		}
 
@@ -59,8 +65,8 @@ impl AdapterRegistry {
 		Ok(())
 	}
 
-	pub fn get(&self, id: &str) -> Option<&Box<dyn SolverAdapter>> {
-		self.adapters.get(id)
+	pub fn get(&self, id: &str) -> Option<&dyn SolverAdapter> {
+		self.adapters.get(id).map(|boxed| boxed.as_ref())
 	}
 
 	pub fn get_all(&self) -> &std::collections::HashMap<String, Box<dyn SolverAdapter>> {

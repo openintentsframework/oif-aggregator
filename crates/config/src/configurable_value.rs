@@ -57,7 +57,7 @@ impl ConfigurableValue {
 	/// Resolve the value for secure handling (returns the string, caller should wrap in SecretString)
 	pub fn resolve_for_secret(&self) -> Result<SecretString, ConfigurableValueError> {
 		let resolved_value = self.resolve()?;
-		Ok(SecretString::from_str(&resolved_value))
+		Ok(SecretString::from_string(&resolved_value))
 	}
 
 	/// Get a default warning message if this is an insecure configuration

@@ -5,7 +5,7 @@ use crate::{
 	adapters::{models::SubmitOrderRequest, GetOrderResponse},
 	models::{Asset, Network},
 };
-use crate::{Adapter, GetQuoteRequest, GetQuoteResponse, Order};
+use crate::{Adapter, GetQuoteRequest, GetQuoteResponse};
 use async_trait::async_trait;
 use std::fmt::Debug;
 

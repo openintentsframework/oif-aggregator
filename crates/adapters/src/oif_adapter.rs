@@ -39,7 +39,7 @@ impl OifAdapter {
 	}
 
 	/// Create default OIF adapter instance
-	pub fn default() -> AdapterResult<Self> {
+	pub fn with_default_config() -> AdapterResult<Self> {
 		let config = Adapter::new(
 			"oif-v1".to_string(),
 			"OIF v1 Protocol".to_string(),
