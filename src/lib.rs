@@ -482,9 +482,6 @@ where
 		info!("Configuration loaded successfully");
 
 		info!("🔧 Configuring OIF Aggregator server");
-		info!("Environment: {:?}", settings.environment.profile);
-		info!("Debug mode: {}", settings.is_debug());
-
 		// Log enabled solvers
 		let enabled_solvers = settings.enabled_solvers();
 		info!("Enabled solvers: {}", enabled_solvers.len());

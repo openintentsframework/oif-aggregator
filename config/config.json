@@ -38,9 +38,6 @@
     "request_ms": 5000
   },
   "environment": {
-    "profile": "development",
-    "debug": true,
-    "metrics_enabled": false,
     "rate_limiting": {
       "enabled": false,
       "requests_per_minute": 100,

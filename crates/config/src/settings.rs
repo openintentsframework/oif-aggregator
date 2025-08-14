@@ -107,20 +107,9 @@ pub struct TimeoutSettings {
 /// Environment-specific settings
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct EnvironmentSettings {
-	pub profile: EnvironmentProfile,
-	pub debug: bool,
-	pub metrics_enabled: bool,
 	pub rate_limiting: RateLimitSettings,
 }
 
-/// Environment profiles
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum EnvironmentProfile {
-	Development,
-	Staging,
-	Production,
-}
 
 /// Rate limiting configuration
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -175,9 +164,6 @@ impl Default for Settings {
 				request_ms: 5000,
 			},
 			environment: EnvironmentSettings {
-				profile: EnvironmentProfile::Development,
-				debug: true,
-				metrics_enabled: false,
 				rate_limiting: RateLimitSettings {
 					enabled: false,
 					requests_per_minute: 100,
@@ -209,16 +195,6 @@ impl Settings {
 			.filter(|(_, config)| config.enabled)
 			.map(|(k, v)| (k.clone(), v.clone()))
 			.collect()
-	}
-
-	/// Check if running in production
-	pub fn is_production(&self) -> bool {
-		self.environment.profile == EnvironmentProfile::Production
-	}
-
-	/// Check if debug mode is enabled
-	pub fn is_debug(&self) -> bool {
-		self.environment.debug && !self.is_production()
 	}
 
 	/// Get integrity secret from configuration

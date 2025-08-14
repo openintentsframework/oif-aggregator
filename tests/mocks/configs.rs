@@ -21,9 +21,6 @@ impl MockConfigs {
 				request_ms: 1000,
 			},
 			environment: EnvironmentSettings {
-				profile: EnvironmentProfile::Development,
-				debug: true,
-				metrics_enabled: false,
 				rate_limiting: RateLimitSettings {
 					enabled: false,
 					requests_per_minute: 60,
@@ -55,9 +52,6 @@ impl MockConfigs {
 	/// Create test settings for production-like environment
 	pub fn test_settings_production() -> Settings {
 		let mut settings = Self::test_settings();
-		settings.environment.profile = EnvironmentProfile::Production;
-		settings.environment.debug = false;
-		settings.environment.metrics_enabled = true;
 		settings.logging.level = "info".to_string();
 		settings.logging.format = LogFormat::Json;
 		settings
