@@ -59,7 +59,6 @@ pub async fn get_solvers(
 	let response = SolversResponse {
 		solvers: responses,
 		total_solvers: total,
-		timestamp: chrono::Utc::now().timestamp(),
 	};
 	Ok(Json(response))
 }

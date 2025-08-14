@@ -31,7 +31,6 @@ pub struct SolverResponse {
 pub struct SolversResponse {
 	pub solvers: Vec<SolverResponse>,
 	pub total_solvers: usize,
-	pub timestamp: i64,
 }
 
 /// Convert from domain Solver to API SolverResponse
@@ -74,7 +73,6 @@ impl TryFrom<Vec<Solver>> for SolversResponse {
 		Ok(Self {
 			solvers: responses?,
 			total_solvers: total,
-			timestamp: chrono::Utc::now().timestamp(),
 		})
 	}
 }

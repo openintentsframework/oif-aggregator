@@ -1,6 +1,5 @@
 //! Quote response model for API layer
 
-use chrono::Utc;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
@@ -38,7 +37,6 @@ pub struct QuoteResponse {
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct QuotesResponse {
 	pub quotes: Vec<QuoteResponse>,
-	pub timestamp: i64,
 	#[serde(rename = "totalQuotes")]
 	pub total_quotes: usize,
 }
@@ -59,7 +57,6 @@ impl QuotesResponse {
 
 		Ok(Self {
 			quotes: quote_responses?,
-			timestamp: Utc::now().timestamp(),
 			total_quotes: total_count,
 		})
 	}
@@ -68,7 +65,6 @@ impl QuotesResponse {
 	pub fn empty() -> Self {
 		Self {
 			quotes: Vec::new(),
-			timestamp: Utc::now().timestamp(),
 			total_quotes: 0,
 		}
 	}

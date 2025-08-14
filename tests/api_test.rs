@@ -128,7 +128,6 @@ async fn test_post_quotes_valid_request() {
 		// Should have empty quotes array since no solvers are configured
 		assert!(response_json["quotes"].is_array());
 		assert_eq!(response_json["totalQuotes"], 0);
-		assert!(response_json["timestamp"].is_number());
 	}
 }
 
@@ -245,7 +244,6 @@ async fn test_solvers_endpoint() {
 
 	assert!(response_json["solvers"].is_array());
 	assert!(response_json["totalSolvers"].is_number());
-	assert!(response_json["timestamp"].is_number());
 }
 
 #[tokio::test]
