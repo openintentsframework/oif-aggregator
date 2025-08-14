@@ -40,17 +40,17 @@ async fn test_health_endpoint() {
 	let body = axum::body::to_bytes(response.into_body(), usize::MAX)
 		.await
 		.unwrap();
-	
+
 	// Parse JSON response
 	let json_body: serde_json::Value = serde_json::from_slice(&body).unwrap();
-	
+
 	// Verify the response structure
 	assert!(json_body.get("status").is_some());
 	assert!(json_body.get("timestamp").is_some());
 	assert!(json_body.get("version").is_some());
 	assert!(json_body.get("solvers").is_some());
 	assert!(json_body.get("storage").is_some());
-	
+
 	// Verify solvers structure contains expected fields
 	let solvers = json_body.get("solvers").unwrap();
 	assert!(solvers.get("total").is_some());
@@ -59,14 +59,17 @@ async fn test_health_endpoint() {
 	assert!(solvers.get("healthy").is_some());
 	assert!(solvers.get("unhealthy").is_some());
 	assert!(solvers.get("health_details").is_some());
-	
+
 	// Verify storage structure
 	let storage = json_body.get("storage").unwrap();
 	assert!(storage.get("healthy").is_some());
 	assert!(storage.get("backend").is_some());
-	
+
 	// Verify version matches package version
-	assert_eq!(json_body["version"].as_str().unwrap(), env!("CARGO_PKG_VERSION"));
+	assert_eq!(
+		json_body["version"].as_str().unwrap(),
+		env!("CARGO_PKG_VERSION")
+	);
 }
 
 #[tokio::test]

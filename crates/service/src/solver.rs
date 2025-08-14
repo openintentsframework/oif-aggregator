@@ -143,7 +143,7 @@ impl SolverService {
 			.list_all_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
-		
+
 		let total = solvers.len();
 
 		// Get active solvers
@@ -152,13 +152,16 @@ impl SolverService {
 			.get_active_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
-		
+
 		let active = active_solvers.len();
 		let inactive = total.saturating_sub(active);
 
 		// Perform health checks
 		let health_details = self.health_check_all().await?;
-		let healthy = health_details.values().filter(|&&is_healthy| is_healthy).count();
+		let healthy = health_details
+			.values()
+			.filter(|&&is_healthy| is_healthy)
+			.count();
 		let unhealthy = total.saturating_sub(healthy);
 
 		Ok(SolverStats {
