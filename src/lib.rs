@@ -103,7 +103,7 @@ pub mod mocks;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing::{error, info, warn};
+use tracing::info;
 
 // Re-export external dependencies for examples
 pub use async_trait;
@@ -311,9 +311,69 @@ where
 		self
 	}
 
+	/// Set custom settings
+	pub fn with_settings(mut self, settings: Settings) -> Self {
+		self.settings = Some(settings);
+		self
+	}
+
 	/// Get the current settings
 	pub fn settings(&self) -> Option<&Settings> {
 		self.settings.as_ref()
+	}
+
+	/// Initialize tracing with configuration-based settings
+	fn init_tracing_from_settings(&self, settings: &Settings) -> Result<(), Box<dyn std::error::Error>> {
+		use oif_config::settings::LogFormat;
+
+		// Create env filter using config level or environment variable
+		let log_level = &settings.logging.level;
+		let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+			.unwrap_or_else(|_| {
+				tracing_subscriber::EnvFilter::new(log_level)
+			});
+
+		// Initialize tracing with the configuration
+		match settings.logging.format {
+			LogFormat::Json => {
+				let subscriber = tracing_subscriber::fmt()
+					.json()
+					.with_env_filter(env_filter);
+				
+				if settings.logging.structured {
+					subscriber.with_target(true).with_thread_ids(true).init();
+				} else {
+					subscriber.init();
+				}
+			},
+			LogFormat::Pretty => {
+				let subscriber = tracing_subscriber::fmt()
+					.pretty()
+					.with_env_filter(env_filter);
+				
+				if settings.logging.structured {
+					subscriber.with_target(true).with_thread_ids(true).init();
+				} else {
+					subscriber.init();
+				}
+			},
+			LogFormat::Compact => {
+				let subscriber = tracing_subscriber::fmt()
+					.compact()
+					.with_env_filter(env_filter);
+				
+				if settings.logging.structured {
+					subscriber.with_target(true).with_thread_ids(true).init();
+				} else {
+					subscriber.init();
+				}
+			},
+		}
+
+		info!("Logging configuration applied: level={}, format={:?}, structured={}", 
+			settings.logging.level, settings.logging.format, settings.logging.structured);
+
+		Ok(())
 	}
 
 	/// Start the aggregator and return the configured router with state
@@ -400,39 +460,26 @@ where
 		// Load .env file if it exists
 		dotenvy::dotenv().ok();
 
-		// Initialize basic tracing early so we can see startup logs
-		// This can be overridden later based on configuration
-		// Use try_init() to avoid panic if already initialized
-		let _ = tracing_subscriber::fmt()
-			.with_env_filter(
-				tracing_subscriber::EnvFilter::try_from_default_env()
-					.unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-			)
-			.try_init();
-
-		// Log comprehensive service startup information
-		log_service_info();
-
 		// Use provided settings or load from config with defaults
-		let settings = if self.settings.is_some() {
-			info!("Using provided configuration");
+		let using_provided_settings = self.settings.is_some();
+		let settings = if using_provided_settings {
 			self.settings.take().unwrap()
 		} else {
 			match load_config() {
-				Ok(config) => {
-					info!("Configuration loaded successfully");
-					config
-				},
-				Err(e) => {
-					error!("Failed to load configuration: {}", e);
-					warn!("Using default configuration");
-					Settings::default()
-				},
+				Ok(config) => config,
+				Err(_) => Settings::default(),
 			}
 		};
 
-		// Note: Basic tracing was already initialized above to capture startup logs
-		// Advanced tracing configuration based on settings could be added here if needed
+		// Initialize tracing with configuration-based settings
+		self.init_tracing_from_settings(&settings)?;
+
+		// Log comprehensive service startup information
+		log_service_info();
+		
+		info!("Using configuration: loaded from {}", 
+			if using_provided_settings { "provided settings" } else { "config file or defaults" });
+		info!("Configuration loaded successfully");
 
 		info!("🔧 Configuring OIF Aggregator server");
 		info!("Environment: {:?}", settings.environment.profile);

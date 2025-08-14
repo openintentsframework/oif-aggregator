@@ -49,7 +49,7 @@
   },
   "logging": {
     "level": "info",
-    "format": "pretty",
+    "format": "compact",
     "structured": false
   },
   "security": {
