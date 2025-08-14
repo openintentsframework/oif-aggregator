@@ -43,8 +43,19 @@ async fn test_health_endpoint() {
 		.expect("Failed to get health endpoint");
 
 	assert_eq!(response.status(), 200);
-	let body = response.text().await.expect("Failed to read response body");
-	assert_eq!(body, "OK");
+	
+	// Parse JSON response
+	let json_body: serde_json::Value = response.json().await.expect("Failed to parse JSON response");
+	
+	// Verify the response structure
+	assert!(json_body.get("status").is_some());
+	assert!(json_body.get("timestamp").is_some());
+	assert!(json_body.get("version").is_some());
+	assert!(json_body.get("solvers").is_some());
+	assert!(json_body.get("storage").is_some());
+	
+	// Verify version matches package version
+	assert_eq!(json_body["version"].as_str().unwrap(), env!("CARGO_PKG_VERSION"));
 
 	handle.abort();
 }
