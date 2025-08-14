@@ -6,8 +6,7 @@ use reqwest;
 use tokio::time::{sleep, Duration};
 
 // Import mock adapter from src/mocks.rs
-use oif_aggregator::mocks::{mock_solver, mock_quote_request, MockDemoAdapter};
-
+use oif_aggregator::mocks::{mock_quote_request, mock_solver, MockDemoAdapter};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -21,7 +20,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let (app, _state) = AggregatorBuilder::default()
 		.with_adapter(Box::new(mock_adapter))?
 		.with_solver(mock_solver)
-		.await
 		.start()
 		.await?;
 
@@ -49,18 +47,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	}
 
 	println!("\n2. Solvers");
-	let solvers = client.get(&format!("{}/v1/solvers", base_url)).send().await?;
+	let solvers = client
+		.get(&format!("{}/v1/solvers", base_url))
+		.send()
+		.await?;
 
 	let solvers_json: serde_json::Value = solvers.json().await?;
-	println!("   Solvers:\n{}", serde_json::to_string_pretty(&solvers_json)?);
-	
+	println!(
+		"   Solvers:\n{}",
+		serde_json::to_string_pretty(&solvers_json)?
+	);
 
 	// Get quotes (ERC-7930 compliant request)
 	println!("\n3. Get Quotes");
 
-	let (quote_request, user_addr, _ , _) = mock_quote_request();
+	let (quote_request, user_addr, _, _) = mock_quote_request();
 
-	println!("Quote request:\n{}", serde_json::to_string_pretty(&quote_request)?);
+	println!(
+		"Quote request:\n{}",
+		serde_json::to_string_pretty(&quote_request)?
+	);
 
 	let quotes_response = client
 		.post(&format!("{}/v1/quotes", base_url))
@@ -87,7 +93,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 				"signature": null
 			});
 
-			println!("Order request:\n{}", serde_json::to_string_pretty(&order_request)?);
+			println!(
+				"Order request:\n{}",
+				serde_json::to_string_pretty(&order_request)?
+			);
 
 			let order_response = client
 				.post(&format!("{}/v1/orders", base_url))

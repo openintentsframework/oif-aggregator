@@ -90,7 +90,6 @@ pub mod adapters {
 
 pub mod api {
 	pub use oif_api::*;
-	// Back-compat shim for older imports oif_aggregator::api::routes::{create_router, AppState}
 	pub mod routes {
 		pub use oif_api::{create_router, AppState};
 	}
@@ -122,6 +121,7 @@ where
 	authenticator: A,
 	rate_limiter: R,
 	adapter_registry: Option<oif_adapters::AdapterRegistry>,
+	solvers: Vec<Solver>,
 }
 
 impl<S> AggregatorBuilder<S, NoAuthenticator, MemoryRateLimiter>
@@ -136,6 +136,7 @@ where
 			authenticator: NoAuthenticator,
 			rate_limiter: MemoryRateLimiter::new(),
 			adapter_registry: None,
+			solvers: Vec::new(),
 		}
 	}
 }
@@ -213,6 +214,15 @@ where
 			let _ = self.storage.create_solver(solver).await;
 		}
 	}
+
+	/// Upsert collected solvers into storage
+	async fn upsert_collected_solvers(&self) {
+		for solver in &self.solvers {
+			// Upsert into storage (ignore individual errors on duplicates)
+			let _ = self.storage.create_solver(solver.clone()).await;
+		}
+	}
+
 	/// Set custom authenticator
 	pub fn with_auth<NewA>(self, authenticator: NewA) -> AggregatorBuilder<S, NewA, R>
 	where
@@ -224,6 +234,7 @@ where
 			authenticator,
 			rate_limiter: self.rate_limiter,
 			adapter_registry: self.adapter_registry,
+			solvers: self.solvers,
 		}
 	}
 
@@ -238,6 +249,7 @@ where
 			authenticator: self.authenticator,
 			rate_limiter,
 			adapter_registry: self.adapter_registry,
+			solvers: self.solvers,
 		}
 	}
 
@@ -290,14 +302,12 @@ where
 			authenticator: NoAuthenticator,
 			rate_limiter: MemoryRateLimiter::new(),
 			adapter_registry: None,
+			solvers: Vec::new(),
 		}
 	}
 	/// Add a solver to the aggregator
-	pub async fn with_solver(self, solver: Solver) -> Self {
-		self.storage
-			.create_solver(solver.clone())
-			.await
-			.expect("Failed to add solver");
+	pub fn with_solver(mut self, solver: Solver) -> Self {
+		self.solvers.push(solver);
 		self
 	}
 
@@ -312,6 +322,8 @@ where
 		let settings = self.settings.clone().unwrap_or_default();
 		// Upsert solvers from settings into storage first
 		self.upsert_solvers_from_settings(&settings).await;
+		// Upsert collected solvers from with_solver() calls
+		self.upsert_collected_solvers().await;
 		// Use base repository listing for solvers
 		let solvers = self
 			.storage

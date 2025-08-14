@@ -386,11 +386,15 @@ pub fn mock_solver() -> Solver {
 
 #[allow(dead_code)]
 pub fn mock_quote_request() -> (Value, InteropAddress, InteropAddress, InteropAddress) {
-
-  let user_addr = InteropAddress::from_chain_and_address(1, "0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03").unwrap();
-  let eth_addr = InteropAddress::from_chain_and_address(1, "0x0000000000000000000000000000000000000000").unwrap();
-  let usdc_addr = InteropAddress::from_chain_and_address(1, "0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0").unwrap();
-
+	let user_addr =
+		InteropAddress::from_chain_and_address(1, "0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03")
+			.unwrap();
+	let eth_addr =
+		InteropAddress::from_chain_and_address(1, "0x0000000000000000000000000000000000000000")
+			.unwrap();
+	let usdc_addr =
+		InteropAddress::from_chain_and_address(1, "0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0")
+			.unwrap();
 
 	let quote_request = json!({
 		"user": user_addr.to_hex(),
@@ -415,5 +419,5 @@ pub fn mock_quote_request() -> (Value, InteropAddress, InteropAddress, InteropAd
 		"solverOptions": null
 	});
 
-  (quote_request, user_addr, eth_addr, usdc_addr)
+	(quote_request, user_addr, eth_addr, usdc_addr)
 }
