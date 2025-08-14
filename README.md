@@ -14,6 +14,8 @@ cd oif-aggregator
 # Set required environment variable (generate a secure random string)
 export INTEGRITY_SECRET="your-secure-random-string-minimum-32-chars"
 
+See [`docs/configuration.md`](docs/configuration.md) for complete configuration options.
+
 # Run with OpenAPI documentation
 cargo run --features openapi
 
@@ -65,20 +67,7 @@ Set the required integrity secret:
 export INTEGRITY_SECRET="your-secure-random-string-minimum-32-chars"
 ```
 
-# Option 1: Using openssl
-```bash
-export INTEGRITY_SECRET=$(openssl rand -base64 32)
-```
-
-# Option 2: Using system random
-```bash
-export INTEGRITY_SECRET=$(head -c 32 /dev/urandom | base64)
-```
-
-# Option 3: Manual (replace with your own secure random string, minimum 32 characters)
-```bash
-export INTEGRITY_SECRET="your-secure-random-string-minimum-32-chars"
-```
+See [`docs/configuration.md`](docs/configuration.md) for complete configuration options.
 
 ### Configuration Files
 
@@ -91,18 +80,43 @@ Configuration can be provided via JSON file in the `config/` directory:
     "port": 3000
   },
   "solvers": {
-    "my-solver": {
-      "solver_id": "my-solver",
+    "example-solver": {
+      "solver_id": "example-solver",
       "adapter_id": "oif-v1",
-      "endpoint": "https://api.solver.com/v1",
-      "timeout_ms": 2000,
+      "endpoint": "https://api.example.com/v1",
+      "timeout_ms": 1500,
       "enabled": true,
-      "max_retries": 3
+      "max_retries": 1,
+      "headers": null,
+      "name": "Example Solver",
+      "description": "Example Solver Description",
+      "supported_networks": [
+        {
+          "chain_id": 1,
+          "name": "Ethereum",
+          "is_testnet": false
+        }
+      ],
+      "supported_assets": [
+        {
+          "address": "0x0000000000000000000000000000000000000000",
+          "symbol": "ETH",
+          "name": "Ethereum",
+          "decimals": 18,
+          "chain_id": 1
+        }
+      ]
     }
   },
   "timeouts": {
     "per_solver_ms": 2000,
     "global_ms": 4000
+  },
+  "security": {
+    "integrity_secret": {
+      "type": "env",
+      "value": "INTEGRITY_SECRET"
+    }
   }
 }
 ```
@@ -188,7 +202,7 @@ The OIF Aggregator follows a modular, crate-based architecture:
 ```
 oif-aggregator/
 ├── crates/
-│   ├── types/       # Core domain models and ERC-7930 types
+│   ├── types/       # Core domain models and types
 │   ├── service/     # Business logic and aggregation
 │   ├── api/         # HTTP API and routing  
 │   ├── storage/     # Storage abstractions and implementations
@@ -255,8 +269,6 @@ cargo run --example simple_server
 # Builder pattern demo  
 cargo run --example builder_demo
 
-# Custom adapter demo
-cargo run --example trait_architecture_demo
 ```
 
 
@@ -275,9 +287,18 @@ Response:
   "timestamp": 1703123456,
   "version": "0.1.0",
   "solvers": {
-    "total": 2,
-    "active": 2,
-    "inactive": 0
+    "total": 1,
+    "active": 1,
+    "inactive": 0,
+    "healthy": 1,
+    "unhealthy": 0,
+    "health_details": {
+      "example-solver": false
+    }
+  },
+  "storage": {
+    "healthy": true,
+    "backend": "memory"
   }
 }
 ```

@@ -323,23 +323,22 @@ where
 	}
 
 	/// Initialize tracing with configuration-based settings
-	fn init_tracing_from_settings(&self, settings: &Settings) -> Result<(), Box<dyn std::error::Error>> {
+	fn init_tracing_from_settings(
+		&self,
+		settings: &Settings,
+	) -> Result<(), Box<dyn std::error::Error>> {
 		use oif_config::settings::LogFormat;
 
 		// Create env filter using config level or environment variable
 		let log_level = &settings.logging.level;
 		let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-			.unwrap_or_else(|_| {
-				tracing_subscriber::EnvFilter::new(log_level)
-			});
+			.unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level));
 
 		// Initialize tracing with the configuration
 		match settings.logging.format {
 			LogFormat::Json => {
-				let subscriber = tracing_subscriber::fmt()
-					.json()
-					.with_env_filter(env_filter);
-				
+				let subscriber = tracing_subscriber::fmt().json().with_env_filter(env_filter);
+
 				if settings.logging.structured {
 					subscriber.with_target(true).with_thread_ids(true).init();
 				} else {
@@ -350,7 +349,7 @@ where
 				let subscriber = tracing_subscriber::fmt()
 					.pretty()
 					.with_env_filter(env_filter);
-				
+
 				if settings.logging.structured {
 					subscriber.with_target(true).with_thread_ids(true).init();
 				} else {
@@ -361,7 +360,7 @@ where
 				let subscriber = tracing_subscriber::fmt()
 					.compact()
 					.with_env_filter(env_filter);
-				
+
 				if settings.logging.structured {
 					subscriber.with_target(true).with_thread_ids(true).init();
 				} else {
@@ -370,8 +369,10 @@ where
 			},
 		}
 
-		info!("Logging configuration applied: level={}, format={:?}, structured={}", 
-			settings.logging.level, settings.logging.format, settings.logging.structured);
+		info!(
+			"Logging configuration applied: level={}, format={:?}, structured={}",
+			settings.logging.level, settings.logging.format, settings.logging.structured
+		);
 
 		Ok(())
 	}
@@ -476,9 +477,15 @@ where
 
 		// Log comprehensive service startup information
 		log_service_info();
-		
-		info!("Using configuration: loaded from {}", 
-			if using_provided_settings { "provided settings" } else { "config file or defaults" });
+
+		info!(
+			"Using configuration: loaded from {}",
+			if using_provided_settings {
+				"provided settings"
+			} else {
+				"config file or defaults"
+			}
+		);
 		info!("Configuration loaded successfully");
 
 		info!("🔧 Configuring OIF Aggregator server");

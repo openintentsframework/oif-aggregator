@@ -31,7 +31,6 @@ impl Default for AuthConfig {
 			protected_paths: vec![],
 			public_paths: vec![
 				"/health".to_string(),
-				"/ready".to_string(),
 				"/v1/solvers".to_string(),
 				"/v1/orders".to_string(),
 				"/v1/quotes".to_string(),

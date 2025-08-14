@@ -110,7 +110,6 @@ pub struct EnvironmentSettings {
 	pub rate_limiting: RateLimitSettings,
 }
 
-
 /// Rate limiting configuration
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RateLimitSettings {

@@ -1585,6 +1585,7 @@ dependencies = [
  "oif-config",
  "oif-storage",
  "oif-types",
+ "serde",
  "serde_json",
  "sha2",
  "thiserror",

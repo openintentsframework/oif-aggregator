@@ -9,6 +9,7 @@ use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;
 use oif_types::solvers::Solver;
 use oif_types::SolverRuntimeConfig;
+use serde::Serialize;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -17,6 +18,17 @@ pub enum SolverServiceError {
 	Storage(String),
 	#[error("not found: {0}")]
 	NotFound(String),
+}
+
+/// Solver statistics for health checks and monitoring
+#[derive(Debug, Serialize, Clone)]
+pub struct SolverStats {
+	pub total: usize,
+	pub active: usize,
+	pub inactive: usize,
+	pub healthy: usize,
+	pub unhealthy: usize,
+	pub health_details: HashMap<String, bool>,
 }
 
 #[derive(Clone)]
@@ -121,5 +133,41 @@ impl SolverService {
 		}
 
 		Ok(results)
+	}
+
+	/// Get comprehensive solver statistics including health status
+	pub async fn get_stats(&self) -> Result<SolverStats, SolverServiceError> {
+		// Get all solvers
+		let solvers = self
+			.storage
+			.list_all_solvers()
+			.await
+			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
+		
+		let total = solvers.len();
+
+		// Get active solvers
+		let active_solvers = self
+			.storage
+			.get_active_solvers()
+			.await
+			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
+		
+		let active = active_solvers.len();
+		let inactive = total.saturating_sub(active);
+
+		// Perform health checks
+		let health_details = self.health_check_all().await?;
+		let healthy = health_details.values().filter(|&&is_healthy| is_healthy).count();
+		let unhealthy = total.saturating_sub(healthy);
+
+		Ok(SolverStats {
+			total,
+			active,
+			inactive,
+			healthy,
+			unhealthy,
+			health_details,
+		})
 	}
 }

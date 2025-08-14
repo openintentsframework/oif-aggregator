@@ -11,7 +11,6 @@ use oif_types::solvers::response::{SolverResponse, SolversResponse};
 #[openapi(
     paths(
         health::health,
-        health::ready,
         quotes::post_quotes,
         orders::post_orders,
         orders::get_order,

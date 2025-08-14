@@ -11,4 +11,4 @@ pub use aggregator::{AggregatorResult, AggregatorService, AggregatorServiceError
 pub use integrity::IntegrityService;
 pub use oif_types::IntegrityPayload;
 pub use order::{OrderService, OrderServiceError};
-pub use solver::{SolverService, SolverServiceError};
+pub use solver::{SolverService, SolverServiceError, SolverStats};
