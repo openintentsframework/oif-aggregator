@@ -526,8 +526,12 @@ where
 		info!("  POST /v1/quotes");
 		info!("  POST /v1/orders");
 		info!("  GET  /v1/orders/{{id}}");
-		info!("  GET /v1/solvers/");
+		info!("  GET  /v1/solvers");
 		info!("  GET  /v1/solvers/{{id}}");
+		if cfg!(feature = "openapi") {
+			info!("  GET  /swagger-ui");
+			info!("  GET  /api-docs/openapi.json");
+		}
 
 		// Apply global rate limiting based on settings at the make_service level
 		let rate_cfg = &settings.environment.rate_limiting;

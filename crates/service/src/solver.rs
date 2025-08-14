@@ -11,6 +11,8 @@ use oif_types::solvers::Solver;
 use oif_types::SolverRuntimeConfig;
 use serde::Serialize;
 use thiserror::Error;
+#[cfg(feature = "openapi")]
+use utoipa::ToSchema;
 
 #[derive(Debug, Error)]
 pub enum SolverServiceError {
@@ -22,6 +24,7 @@ pub enum SolverServiceError {
 
 /// Solver statistics for health checks and monitoring
 #[derive(Debug, Serialize, Clone)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct SolverStats {
 	pub total: usize,
 	pub active: usize,

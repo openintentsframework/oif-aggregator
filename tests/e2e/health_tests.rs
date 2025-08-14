@@ -22,7 +22,6 @@ async fn test_health_endpoint() {
     
     // Verify the response structure
     assert!(json_body.get("status").is_some());
-    assert!(json_body.get("timestamp").is_some());
     assert!(json_body.get("version").is_some());
     assert!(json_body.get("solvers").is_some());
     assert!(json_body.get("storage").is_some());

@@ -5,15 +5,17 @@
 
 use axum::{extract::State, http::StatusCode, response::Json};
 use serde::Serialize;
+#[cfg(feature = "openapi")]
+use utoipa::ToSchema;
 
 use crate::state::AppState;
 use oif_service::SolverStats;
 
 /// Comprehensive health response
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct HealthResponse {
 	pub status: String,
-	pub timestamp: u64,
 	pub version: String,
 	pub solvers: SolverStats,
 	pub storage: StorageHealthInfo,
@@ -21,6 +23,7 @@ pub struct HealthResponse {
 
 /// Storage health information
 #[derive(Debug, Serialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct StorageHealthInfo {
 	pub healthy: bool,
 	pub backend: String,
@@ -62,10 +65,6 @@ pub async fn health(State(state): State<AppState>) -> (StatusCode, Json<HealthRe
 
 	let response = HealthResponse {
 		status: status.to_string(),
-		timestamp: std::time::SystemTime::now()
-			.duration_since(std::time::UNIX_EPOCH)
-			.unwrap_or_default()
-			.as_secs(),
 		version: env!("CARGO_PKG_VERSION").to_string(),
 		solvers: solver_stats,
 		storage: StorageHealthInfo {

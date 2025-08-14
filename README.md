@@ -35,6 +35,9 @@ Once running, the following endpoints are available:
 - **`GET /v1/orders/{id}`** - Get order
 - **`GET /v1/solvers`** - List all solvers
 - **`GET /v1/solvers/{id}`** - Get solver details
+- **`GET /swagger-ui`** - Swagger UI - Available when run with openapi feature
+- **`GET /api-docs/openapi.json`** - OpenAPI specification - Available when run with openapi feature
+
 
 ## 📖 Features
 

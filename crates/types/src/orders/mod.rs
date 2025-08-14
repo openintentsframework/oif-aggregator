@@ -27,6 +27,7 @@ pub type OrderValidationResult<T> = Result<T, OrderValidationError>;
 /// This represents an order in the domain layer with business logic.
 /// It should be converted from  and to OrderStorage/OrderResponse.
 #[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct Order {
 	// Order ID
 	pub order_id: String,

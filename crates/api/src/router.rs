@@ -17,9 +17,9 @@ use crate::state::AppState;
 #[cfg(feature = "openapi")]
 use crate::openapi::ApiDoc;
 #[cfg(feature = "openapi")]
-use axum::response::IntoResponse;
-#[cfg(feature = "openapi")]
 use utoipa::OpenApi;
+#[cfg(feature = "openapi")]
+use utoipa_swagger_ui::SwaggerUi;
 
 pub fn create_router() -> Router<AppState> {
 	// Layers prepared first so they're in scope for all cfg paths
@@ -58,18 +58,12 @@ pub fn create_router() -> Router<AppState> {
 		.route("/v1/solvers", get(get_solvers))
 		.route("/v1/solvers/{id}", get(get_solver_by_id));
 
-	// Conditionally add OpenAPI endpoint
+	// Conditionally add OpenAPI endpoints
 	#[cfg(feature = "openapi")]
 	let router = {
-		async fn openapi_json() -> impl IntoResponse {
-			let doc = ApiDoc::openapi();
-			let body = serde_json::to_string(&doc).unwrap_or_else(|_| "{}".to_string());
-			axum::response::Response::builder()
-				.header(axum::http::header::CONTENT_TYPE, "application/json")
-				.body(axum::body::Body::from(body))
-				.unwrap()
-		}
-		base_router.route("/api-docs/openapi.json", get(openapi_json))
+		// SwaggerUI automatically provides the OpenAPI JSON endpoint
+		base_router
+			.merge(SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()))
 	};
 
 	#[cfg(not(feature = "openapi"))]
