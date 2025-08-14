@@ -16,6 +16,7 @@ use oif_types::{
 /// Common test addresses and tokens
 pub struct TestConstants;
 
+#[allow(dead_code)]
 impl TestConstants {
 	pub const WETH_ADDRESS: &'static str = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
 	pub const USDC_ADDRESS: &'static str = "0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0";
@@ -26,8 +27,10 @@ impl TestConstants {
 }
 
 /// Entity builders for tests
+#[allow(dead_code)]
 pub struct MockEntities;
 
+#[allow(dead_code)]
 impl MockEntities {
 	/// Create a basic test quote using current Quote::new signature
 	pub fn quote() -> Quote {

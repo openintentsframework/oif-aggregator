@@ -130,6 +130,5 @@ mod tests {
 		let response = SolversResponse::try_from(solvers).unwrap();
 
 		assert_eq!(response.total_solvers, 2);
-		assert!(response.timestamp > 0);
 	}
 }

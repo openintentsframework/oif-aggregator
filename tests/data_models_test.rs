@@ -3,7 +3,7 @@
 use oif_types::{chrono::Utc, orders::OrderStatus};
 
 mod mocks;
-use mocks::{MockEntities, TestConstants};
+use mocks::{entities::MockEntities, entities::TestConstants};
 
 #[test]
 fn test_quote_creation() {

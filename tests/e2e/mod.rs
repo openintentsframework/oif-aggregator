@@ -87,7 +87,7 @@ impl TestServer {
 
 /// Re-export API fixtures for backward compatibility
 pub mod fixtures {
-	use crate::mocks::ApiFixtures;
+	use crate::mocks::api_fixtures::ApiFixtures;
 	use oif_types::{serde_json::Value, InteropAddress};
 
 	// Re-export key fixtures for backward compatibility

@@ -9,7 +9,7 @@ use oif_types::orders::OrderStatus;
 
 mod mocks;
 
-use mocks::{MockConfigs, MockEntities};
+use mocks::{configs::MockConfigs, entities::MockEntities};
 
 #[test]
 fn test_adapter_registry_creation() {

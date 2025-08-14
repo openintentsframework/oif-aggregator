@@ -5,7 +5,7 @@ use oif_aggregator::{api::routes::create_router, AggregatorBuilder};
 use tokio::task::JoinHandle;
 
 mod mocks;
-use mocks::ApiFixtures;
+use mocks::api_fixtures::ApiFixtures;
 
 async fn spawn_server() -> Result<(String, JoinHandle<()>), Box<dyn std::error::Error>> {
 	// Set required environment variable for tests

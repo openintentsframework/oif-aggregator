@@ -11,7 +11,7 @@ use tower::ServiceExt;
 
 mod mocks;
 
-use mocks::{ApiFixtures, AppStateBuilder};
+use mocks::{api_fixtures::ApiFixtures, api_fixtures::AppStateBuilder};
 
 /// Create test router with async state builder
 async fn create_test_router() -> Router {

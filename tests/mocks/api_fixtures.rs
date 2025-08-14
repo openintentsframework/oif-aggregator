@@ -9,8 +9,10 @@ use oif_types::{
 use super::entities::{MockEntities, TestConstants};
 
 /// API test data fixtures
+#[allow(dead_code)]
 pub struct ApiFixtures;
 
+#[allow(dead_code)]
 impl ApiFixtures {
 	/// Valid ERC-7930 compliant quote request
 	pub fn valid_quote_request() -> Value {
@@ -195,8 +197,10 @@ impl ApiFixtures {
 }
 
 /// Application state builders for tests
+#[allow(dead_code)]
 pub struct AppStateBuilder;
 
+#[allow(dead_code)]
 impl AppStateBuilder {
 	/// Create minimal test app state with dependencies
 	pub async fn minimal() -> Result<AppState, Box<dyn std::error::Error>> {

@@ -4,8 +4,10 @@ use oif_config::settings::*;
 use std::collections::HashMap;
 
 /// Configuration builders for tests
+#[allow(dead_code)]
 pub struct MockConfigs;
 
+#[allow(dead_code)]
 impl MockConfigs {
 	/// Create minimal test settings with sensible defaults
 	pub fn test_settings() -> Settings {
@@ -91,10 +93,12 @@ impl MockConfigs {
 }
 
 /// Builder for creating custom solver configurations
+#[allow(dead_code)]
 pub struct SolverConfigBuilder {
 	config: SolverConfig,
 }
 
+#[allow(dead_code)]
 impl SolverConfigBuilder {
 	pub fn new() -> Self {
 		Self {
