@@ -1,178 +1,235 @@
 //! Domain entity mocks for testing
 
-use oif_types::chrono::{Duration, Utc};
 use oif_types::{
-	orders::{Order, OrderStatus},
-	quotes::{Quote, QuoteRequest},
-	solvers::{Solver, SolverStatus},
+    adapters::models::{AdapterQuote, AssetAmount, AvailableInput, QuoteDetails, QuoteOrder, RequestedOutput, Settlement, SettlementType, SignatureType},
+    chrono::{Duration, Utc},
+    orders::{Order, OrderStatus},
+    quotes::{Quote, QuoteRequest},
+    solvers::{Solver, SolverStatus},
+    serde_json::json,
+    InteropAddress, U256,
 };
 
 /// Common test addresses and tokens
 pub struct TestConstants;
 
 impl TestConstants {
-	pub const WETH_ADDRESS: &'static str = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
-	pub const USDC_ADDRESS: &'static str = "0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0";
-	pub const TEST_USER_ADDRESS: &'static str = "0x1234567890123456789012345678901234567890";
-	pub const ETHEREUM_CHAIN_ID: u64 = 1;
-	pub const ONE_ETH_WEI: &'static str = "1000000000000000000";
-	pub const TWO_THOUSAND_USDC: &'static str = "2000000000"; // 2000 USDC (6 decimals)
+    pub const WETH_ADDRESS: &'static str = "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2";
+    pub const USDC_ADDRESS: &'static str = "0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0";
+    pub const TEST_USER_ADDRESS: &'static str = "0x1234567890123456789012345678901234567890";
+    pub const ETHEREUM_CHAIN_ID: u64 = 1;
+    pub const ONE_ETH_WEI: &'static str = "1000000000000000000";
+    pub const TWO_THOUSAND_USDC: &'static str = "2000000000"; // 2000 USDC (6 decimals)
 }
 
 /// Entity builders for tests
 pub struct MockEntities;
 
 impl MockEntities {
-	/// Create a basic test quote
-	pub fn quote() -> Quote {
-		Quote::new(
-			"test-solver-1".to_string(),
-			"request-123".to_string(),
-			TestConstants::WETH_ADDRESS.to_string(),
-			TestConstants::USDC_ADDRESS.to_string(),
-			TestConstants::ONE_ETH_WEI.to_string(),
-			TestConstants::TWO_THOUSAND_USDC.to_string(),
-			TestConstants::ETHEREUM_CHAIN_ID,
-		)
-	}
+    /// Create a basic test quote using current Quote::new signature
+    pub fn quote() -> Quote {
+        let orders = vec![QuoteOrder {
+            signature_type: SignatureType::Eip712,
+            domain: InteropAddress::from_chain_and_address(1, TestConstants::TEST_USER_ADDRESS).unwrap(),
+            primary_type: "Order".to_string(),
+            message: json!({
+                "orderType": "swap",
+                "inputAsset": TestConstants::WETH_ADDRESS,
+                "outputAsset": TestConstants::USDC_ADDRESS
+            }),
+        }];
 
-	/// Create a quote with custom parameters
-	pub fn quote_with_params(
-		solver_id: &str,
-		request_id: &str,
-		token_in: &str,
-		token_out: &str,
-		amount_in: &str,
-		amount_out: &str,
-		chain_id: u64,
-	) -> Quote {
-		Quote::new(
-			solver_id.to_string(),
-			request_id.to_string(),
-			token_in.to_string(),
-			token_out.to_string(),
-			amount_in.to_string(),
-			amount_out.to_string(),
-			chain_id,
-		)
-	}
+        let details = QuoteDetails {
+            available_inputs: vec![AvailableInput {
+                user: InteropAddress::from_chain_and_address(1, TestConstants::TEST_USER_ADDRESS).unwrap(),
+                asset: InteropAddress::from_chain_and_address(1, TestConstants::WETH_ADDRESS).unwrap(),
+                amount: U256::new(TestConstants::ONE_ETH_WEI.to_string()),
+                lock: None,
+            }],
+            requested_outputs: vec![RequestedOutput {
+                asset: InteropAddress::from_chain_and_address(1, TestConstants::USDC_ADDRESS).unwrap(),
+                amount: U256::new(TestConstants::TWO_THOUSAND_USDC.to_string()),
+                receiver: InteropAddress::from_chain_and_address(1, TestConstants::TEST_USER_ADDRESS).unwrap(),
+                calldata: None,
+            }],
+        };
 
-	/// Create a quote that expires soon (for TTL testing)
-	pub fn expiring_quote(ttl_seconds: i64) -> Quote {
-		let mut quote = Self::quote();
-		quote.expires_at = Utc::now() + Duration::seconds(ttl_seconds);
-		quote
-	}
+        Quote::new(
+            "test-solver-1".to_string(),
+            orders,
+            details,
+            "Test Provider".to_string(),
+            "test-checksum".to_string(),
+        )
+    }
 
-	/// Create an expired quote
-	pub fn expired_quote() -> Quote {
-		let mut quote = Self::quote();
-		quote.expires_at = Utc::now() - Duration::minutes(1);
-		quote
-	}
+    /// Create a quote with custom parameters
+    pub fn quote_with_solver(solver_id: &str, provider: &str) -> Quote {
+        let mut quote = Self::quote();
+        quote.solver_id = solver_id.to_string();
+        quote.provider = provider.to_string();
+        quote
+    }
 
-	/// Create a quote with all optional fields populated
-	pub fn complete_quote() -> Quote {
-		Self::quote()
-			.with_estimated_gas(150000)
-			.with_price_impact(0.02)
-	}
+    /// Create a quote that expires soon (for TTL testing)
+    pub fn expiring_quote(ttl_seconds: i64) -> Quote {
+        let mut quote = Self::quote();
+        quote.valid_until = Some(Utc::now().timestamp() as u64 + ttl_seconds as u64);
+        quote
+    }
 
-	/// Create a basic test order
-	pub fn order() -> Order {
-		Order::new(TestConstants::TEST_USER_ADDRESS.to_string())
-	}
+    /// Create an expired quote
+    pub fn expired_quote() -> Quote {
+        let mut quote = Self::quote();
+        quote.valid_until = Some((Utc::now() - Duration::minutes(1)).timestamp() as u64);
+        quote
+    }
 
-	/// Create an order with custom user address
-	pub fn order_for_user(user_address: &str) -> Order {
-		Order::new(user_address.to_string())
-	}
+    /// Create a basic test order using current Order structure
+    pub fn order() -> Order {
+        Order {
+            order_id: "test-order-123".to_string(),
+            quote_id: Some("test-quote-123".to_string()),
+            status: OrderStatus::Created,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            input_amount: AssetAmount {
+                asset: InteropAddress::from_chain_and_address(1, TestConstants::WETH_ADDRESS).unwrap(),
+                amount: U256::new("1000000000000000000".to_string()),
+            },
+            output_amount: AssetAmount {
+                asset: InteropAddress::from_chain_and_address(1, TestConstants::USDC_ADDRESS).unwrap(),
+                amount: U256::new("1000000".to_string()),
+            },
+            settlement: Settlement {
+                settlement_type: SettlementType::Escrow,
+                data: json!({}),
+            },
+            fill_transaction: None,
+        }
+    }
 
-	/// Create an order with specific status
-	pub fn order_with_status(status: OrderStatus) -> Order {
-		let mut order = Self::order();
-		order.status = status;
-		order
-	}
+    /// Create an order with custom amounts
+    pub fn order_with_amounts(input_amount: &str, output_amount: &str) -> Order {
+        let mut order = Self::order();
+        order.input_amount.amount = U256::new(input_amount.to_string());
+        order.output_amount.amount = U256::new(output_amount.to_string());
+        order
+    }
 
-	/// Create a test solver
-	pub fn solver() -> Solver {
-		let mut solver = Solver::new(
-			"test-solver".to_string(),
-			"test-adapter".to_string(),
-			"http://localhost:8080".to_string(),
-			1000,
-		);
-		solver.status = SolverStatus::Active;
-		solver
-	}
+    /// Create an order with specific status
+    pub fn order_with_status(status: OrderStatus) -> Order {
+        let mut order = Self::order();
+        order.status = status;
+        order
+    }
 
-	/// Create solver with custom parameters
-	pub fn solver_with_params(
-		solver_id: &str,
-		adapter_id: &str,
-		endpoint: &str,
-		timeout_ms: u64,
-	) -> Solver {
-		let mut solver = Solver::new(
-			solver_id.to_string(),
-			adapter_id.to_string(),
-			endpoint.to_string(),
-			timeout_ms,
-		);
-		solver.status = SolverStatus::Active;
-		solver
-	}
+    /// Create a test solver
+    pub fn solver() -> Solver {
+        let mut solver = Solver::new(
+            "test-solver".to_string(),
+            "test-adapter".to_string(),
+            "http://localhost:8080".to_string(),
+            1000,
+        );
+        solver.status = SolverStatus::Active;
+        solver
+    }
 
-	/// Create inactive solver
-	pub fn inactive_solver() -> Solver {
-		let mut solver = Self::solver();
-		solver.status = SolverStatus::Inactive;
-		solver
-	}
+    /// Create solver with custom parameters
+    pub fn solver_with_params(
+        solver_id: &str,
+        adapter_id: &str,
+        endpoint: &str,
+        timeout_ms: u64,
+    ) -> Solver {
+        let mut solver = Solver::new(
+            solver_id.to_string(),
+            adapter_id.to_string(),
+            endpoint.to_string(),
+            timeout_ms,
+        );
+        solver.status = SolverStatus::Active;
+        solver
+    }
 
-	/// Create multiple test solvers
-	pub fn multiple_solvers(count: usize) -> Vec<Solver> {
-		(1..=count)
-			.map(|i| {
-				Self::solver_with_params(
-					&format!("test-solver-{}", i),
-					&format!("test-adapter-{}", i),
-					&format!("http://localhost:808{}", i),
-					1000 + (i as u64) * 100,
-				)
-			})
-			.collect()
-	}
+    /// Create inactive solver
+    pub fn inactive_solver() -> Solver {
+        let mut solver = Self::solver();
+        solver.status = SolverStatus::Inactive;
+        solver
+    }
 
-	/// Create a basic quote request
-	pub fn quote_request() -> QuoteRequest {
-		QuoteRequest {
-			request_id: "test-request-123".to_string(),
-			token_in: TestConstants::WETH_ADDRESS.to_string(),
-			token_out: TestConstants::USDC_ADDRESS.to_string(),
-			amount_in: TestConstants::ONE_ETH_WEI.to_string(),
-			chain_id: TestConstants::ETHEREUM_CHAIN_ID,
-			slippage_tolerance: Some(0.005),
-			deadline: None,
-			recipient: None,
-			referrer: None,
-		}
-	}
+    /// Create multiple test solvers
+    pub fn multiple_solvers(count: usize) -> Vec<Solver> {
+        (1..=count)
+            .map(|i| {
+                Self::solver_with_params(
+                    &format!("test-solver-{}", i),
+                    &format!("test-adapter-{}", i),
+                    &format!("http://localhost:808{}", i),
+                    1000 + (i as u64) * 100,
+                )
+            })
+            .collect()
+    }
 
-	/// Create quote request with custom slippage
-	pub fn quote_request_with_slippage(slippage: f64) -> QuoteRequest {
-		QuoteRequest {
-			slippage_tolerance: Some(slippage),
-			..Self::quote_request()
-		}
-	}
+    /// Create a basic ERC-7930 compliant quote request
+    pub fn quote_request() -> QuoteRequest {
+        let user_addr = InteropAddress::from_chain_and_address(1, TestConstants::TEST_USER_ADDRESS).unwrap();
+        let eth_addr = InteropAddress::from_chain_and_address(1, TestConstants::WETH_ADDRESS).unwrap();
+        let usdc_addr = InteropAddress::from_chain_and_address(1, TestConstants::USDC_ADDRESS).unwrap();
 
-	/// Create quote request with deadline
-	pub fn quote_request_with_deadline(deadline_seconds: i64) -> QuoteRequest {
-		QuoteRequest {
-			deadline: Some(Utc::now() + Duration::seconds(deadline_seconds)),
-			..Self::quote_request()
-		}
-	}
+        QuoteRequest {
+            user: user_addr.clone(),
+            available_inputs: vec![AvailableInput {
+                user: user_addr.clone(),
+                asset: eth_addr,
+                amount: U256::new(TestConstants::ONE_ETH_WEI.to_string()),
+                lock: None,
+            }],
+            requested_outputs: vec![RequestedOutput {
+                asset: usdc_addr,
+                amount: U256::new(TestConstants::TWO_THOUSAND_USDC.to_string()),
+                receiver: user_addr,
+                calldata: None,
+            }],
+            min_valid_until: Some(300),
+            preference: None,
+            solver_options: None,
+        }
+    }
+
+    /// Create quote request with custom min_valid_until
+    pub fn quote_request_with_min_valid_until(min_valid_until: u64) -> QuoteRequest {
+        let mut request = Self::quote_request();
+        request.min_valid_until = Some(min_valid_until);
+        request
+    }
+
+    /// Create quote request for different tokens
+    pub fn quote_request_custom_tokens(token_in_addr: &str, token_out_addr: &str) -> QuoteRequest {
+        let user_addr = InteropAddress::from_chain_and_address(1, TestConstants::TEST_USER_ADDRESS).unwrap();
+        let in_addr = InteropAddress::from_chain_and_address(1, token_in_addr).unwrap();
+        let out_addr = InteropAddress::from_chain_and_address(1, token_out_addr).unwrap();
+
+        QuoteRequest {
+            user: user_addr.clone(),
+            available_inputs: vec![AvailableInput {
+                user: user_addr.clone(),
+                asset: in_addr,
+                amount: U256::new(TestConstants::ONE_ETH_WEI.to_string()),
+                lock: None,
+            }],
+            requested_outputs: vec![RequestedOutput {
+                asset: out_addr,
+                amount: U256::new(TestConstants::TWO_THOUSAND_USDC.to_string()),
+                receiver: user_addr,
+                calldata: None,
+            }],
+            min_valid_until: Some(300),
+            preference: None,
+            solver_options: None,
+        }
+    }
 }

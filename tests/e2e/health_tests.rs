@@ -5,7 +5,7 @@ use reqwest::Client;
 
 #[tokio::test]
 async fn test_health_endpoint() {
-    let server = TestServer::spawn().await;
+    let server = TestServer::spawn().await.expect("Failed to start test server");
     let client = Client::new();
 
     let resp = client
@@ -23,7 +23,7 @@ async fn test_health_endpoint() {
 
 #[tokio::test]
 async fn test_readiness_endpoint() {
-    let server = TestServer::spawn().await;
+    let server = TestServer::spawn().await.expect("Failed to start test server");
     let client = Client::new();
 
     let resp = client
@@ -43,7 +43,7 @@ async fn test_readiness_endpoint() {
 
 #[tokio::test]
 async fn test_unknown_endpoint_404() {
-    let server = TestServer::spawn().await;
+    let server = TestServer::spawn().await.expect("Failed to start test server");
     let client = Client::new();
 
     let resp = client

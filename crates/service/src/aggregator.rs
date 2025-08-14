@@ -217,38 +217,6 @@ impl AggregatorService {
 
 		Ok(quotes)
 	}
-
-	/// Perform health checks on all adapters
-	pub async fn health_check_all(&self) -> HashMap<String, bool> {
-		let mut results = HashMap::new();
-
-		for (solver_id, solver) in &self.solvers {
-			if let Some(adapter) = self.adapter_registry.get(&solver.adapter_id) {
-				let config = SolverRuntimeConfig::from(solver);
-				match adapter.health_check(&config).await {
-					Ok(is_healthy) => {
-						results.insert(solver_id.to_string(), is_healthy);
-					},
-					Err(_) => {
-						results.insert(solver_id.to_string(), false);
-					},
-				}
-			} else {
-				results.insert(solver_id.to_string(), false);
-			}
-		}
-
-		results
-	}
-
-	/// Get aggregation statistics
-	pub fn get_stats(&self) -> AggregationStats {
-		AggregationStats {
-			total_solvers: self.solvers.len(),
-			initialized_adapters: self.adapter_registry.get_all().len(),
-			global_timeout_ms: self.global_timeout_ms,
-		}
-	}
 }
 
 #[cfg(test)]
@@ -327,12 +295,4 @@ mod tests {
 			AggregatorServiceError::ValidationError(_)
 		));
 	}
-}
-
-/// Aggregation service statistics
-#[derive(Debug, Clone)]
-pub struct AggregationStats {
-	pub total_solvers: usize,
-	pub initialized_adapters: usize,
-	pub global_timeout_ms: u64,
 }

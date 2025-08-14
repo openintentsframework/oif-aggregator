@@ -1,12 +1,14 @@
 //! API request/response fixtures for e2e and integration tests
 
 use oif_aggregator::{
-	api::routes::AppState,
-	service::{aggregator::AggregatorService, OrderService, SolverService},
-	storage::MemoryStore,
+    api::routes::AppState,
+    service::{AggregatorService, IntegrityService, OrderService, SolverService},
+    AggregatorBuilder,
 };
-use serde_json::{json, Value};
-use std::sync::Arc;
+use oif_adapters::AdapterRegistry;
+use oif_storage::MemoryStore;
+use oif_types::{serde_json::{json, Value}, InteropAddress, U256};
+use std::{collections::HashMap, sync::Arc};
 
 use super::entities::{MockEntities, TestConstants};
 
@@ -14,193 +16,220 @@ use super::entities::{MockEntities, TestConstants};
 pub struct ApiFixtures;
 
 impl ApiFixtures {
-	/// Valid quote request with all fields
-	pub fn valid_quote_request() -> Value {
-		json!({
-			"token_in": TestConstants::WETH_ADDRESS,
-			"token_out": TestConstants::USDC_ADDRESS,
-			"amount_in": TestConstants::ONE_ETH_WEI,
-			"chain_id": TestConstants::ETHEREUM_CHAIN_ID,
-			"slippage_tolerance": 0.005
-		})
-	}
+    /// Valid ERC-7930 compliant quote request
+    pub fn valid_quote_request() -> Value {
+        let user_addr = InteropAddress::from_chain_and_address(1, TestConstants::TEST_USER_ADDRESS).unwrap();
+        let eth_addr = InteropAddress::from_chain_and_address(1, TestConstants::WETH_ADDRESS).unwrap();
+        let usdc_addr = InteropAddress::from_chain_and_address(1, TestConstants::USDC_ADDRESS).unwrap();
+        
+        json!({
+            "user": user_addr.to_hex(),
+            "availableInputs": [
+                {
+                    "user": user_addr.to_hex(),
+                    "asset": eth_addr.to_hex(),
+                    "amount": TestConstants::ONE_ETH_WEI,
+                    "lock": null
+                }
+            ],
+            "requestedOutputs": [
+                {
+                    "asset": usdc_addr.to_hex(),
+                    "amount": TestConstants::TWO_THOUSAND_USDC,
+                    "receiver": user_addr.to_hex(),
+                    "calldata": null
+                }
+            ],
+            "minValidUntil": 300,
+            "preference": null,
+            "solverOptions": null
+        })
+    }
 
-	/// Valid quote request with minimal fields
-	pub fn minimal_quote_request() -> Value {
-		json!({
-			"token_in": TestConstants::WETH_ADDRESS,
-			"token_out": TestConstants::USDC_ADDRESS,
-			"amount_in": TestConstants::ONE_ETH_WEI,
-			"chain_id": TestConstants::ETHEREUM_CHAIN_ID
-		})
-	}
+    /// Valid quote request with minimal fields
+    pub fn minimal_quote_request() -> Value {
+        let user_addr = InteropAddress::from_chain_and_address(1, TestConstants::TEST_USER_ADDRESS).unwrap();
+        let eth_addr = InteropAddress::from_chain_and_address(1, TestConstants::WETH_ADDRESS).unwrap();
+        let usdc_addr = InteropAddress::from_chain_and_address(1, TestConstants::USDC_ADDRESS).unwrap();
+        
+        json!({
+            "user": user_addr.to_hex(),
+            "availableInputs": [
+                {
+                    "user": user_addr.to_hex(),
+                    "asset": eth_addr.to_hex(),
+                    "amount": TestConstants::ONE_ETH_WEI,
+                    "lock": null
+                }
+            ],
+            "requestedOutputs": [
+                {
+                    "asset": usdc_addr.to_hex(),
+                    "amount": TestConstants::TWO_THOUSAND_USDC,
+                    "receiver": user_addr.to_hex(),
+                    "calldata": null
+                }
+            ]
+        })
+    }
 
-	/// Quote request with custom parameters
-	pub fn quote_request_with_params(
-		token_in: &str,
-		token_out: &str,
-		amount_in: &str,
-		chain_id: u64,
-	) -> Value {
-		json!({
-			"token_in": token_in,
-			"token_out": token_out,
-			"amount_in": amount_in,
-			"chain_id": chain_id
-		})
-	}
+    /// Invalid quote request - missing required field
+    pub fn invalid_quote_request_missing_user() -> Value {
+        let eth_addr = InteropAddress::from_chain_and_address(1, TestConstants::WETH_ADDRESS).unwrap();
+        let usdc_addr = InteropAddress::from_chain_and_address(1, TestConstants::USDC_ADDRESS).unwrap();
+        
+        json!({
+            "availableInputs": [
+                {
+                    "asset": eth_addr.to_hex(),
+                    "amount": TestConstants::ONE_ETH_WEI,
+                    "lock": null
+                }
+            ],
+            "requestedOutputs": [
+                {
+                    "asset": usdc_addr.to_hex(),
+                    "amount": TestConstants::TWO_THOUSAND_USDC,
+                    "calldata": null
+                }
+            ]
+        })
+    }
 
-	/// Invalid quote request - empty token_in
-	pub fn invalid_quote_request_empty_token() -> Value {
-		json!({
-			"token_in": "",
-			"token_out": TestConstants::USDC_ADDRESS,
-			"amount_in": TestConstants::ONE_ETH_WEI,
-			"chain_id": TestConstants::ETHEREUM_CHAIN_ID
-		})
-	}
+    /// Valid order request (with quote response)
+    pub fn valid_order_request() -> Value {
+        let user_addr = InteropAddress::from_chain_and_address(1, TestConstants::TEST_USER_ADDRESS).unwrap();
+        
+        json!({
+            "userAddress": user_addr.to_hex(),
+            "quoteResponse": {
+                "quoteId": "test-quote-123",
+                "solverId": "test-solver",
+                "orders": [],
+                "details": {
+                    "availableInputs": [],
+                    "requestedOutputs": []
+                },
+                "validUntil": 1700000000,
+                "eta": 30,
+                "provider": "Test Provider",
+                "integrityChecksum": "test-checksum"
+            },
+            "signature": null
+        })
+    }
 
-	/// Invalid quote request - missing required field
-	pub fn invalid_quote_request_missing_token_out() -> Value {
-		json!({
-			"token_in": TestConstants::WETH_ADDRESS,
-			"amount_in": TestConstants::ONE_ETH_WEI,
-			"chain_id": TestConstants::ETHEREUM_CHAIN_ID
-		})
-	}
+    /// Invalid order request - missing user address
+    pub fn invalid_order_request_missing_user() -> Value {
+        json!({
+            "quoteResponse": {
+                "quoteId": "test-quote-123"
+            }
+        })
+    }
 
-	/// Invalid quote request - invalid chain ID
-	pub fn invalid_quote_request_invalid_chain() -> Value {
-		json!({
-			"token_in": TestConstants::WETH_ADDRESS,
-			"token_out": TestConstants::USDC_ADDRESS,
-			"amount_in": TestConstants::ONE_ETH_WEI,
-			"chain_id": 999999 // Invalid chain
-		})
-	}
+    /// Large payload for testing body size limits
+    pub fn large_quote_request() -> Value {
+        let large_payload = "x".repeat(2 * 1024 * 1024); // 2MB
+        let user_addr = InteropAddress::from_chain_and_address(1, TestConstants::TEST_USER_ADDRESS).unwrap();
+        
+        json!({
+            "user": user_addr.to_hex(),
+            "availableInputs": [
+                {
+                    "user": user_addr.to_hex(),
+                    "asset": large_payload,
+                    "amount": TestConstants::ONE_ETH_WEI,
+                    "lock": null
+                }
+            ],
+            "requestedOutputs": []
+        })
+    }
 
-	/// Valid order request (stateless with quote_response)
-	pub fn valid_order_request_stateless() -> Value {
-		json!({
-			"user_address": TestConstants::TEST_USER_ADDRESS,
-			"quote_response": {
-				"token_in": TestConstants::WETH_ADDRESS,
-				"token_out": TestConstants::USDC_ADDRESS,
-				"amount_in": TestConstants::ONE_ETH_WEI,
-				"amount_out": TestConstants::TWO_THOUSAND_USDC,
-				"chain_id": TestConstants::ETHEREUM_CHAIN_ID,
-				"price_impact": 0.02,
-				"estimated_gas": 150000
-			},
-			"slippage_tolerance": 0.01,
-			"deadline": (chrono::Utc::now().timestamp() + 3600)
-		})
-	}
+    /// Large quote request with custom payload for body size limit testing
+    pub fn large_quote_request_with_payload(large_payload: String) -> Value {
+        let user_addr = InteropAddress::from_chain_and_address(1, "0x1234567890123456789012345678901234567890").unwrap();
+        let eth_addr = InteropAddress::from_chain_and_address(1, "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2").unwrap();
+        let usdc_addr = InteropAddress::from_chain_and_address(1, "0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0").unwrap();
 
-	/// Valid order request using quote_id
-	pub fn valid_order_request_with_quote_id(quote_id: &str) -> Value {
-		json!({
-			"user_address": TestConstants::TEST_USER_ADDRESS,
-			"quote_id": quote_id,
-			"slippage_tolerance": 0.01,
-			"deadline": (chrono::Utc::now().timestamp() + 3600)
-		})
-	}
+        json!({
+            "user": user_addr.to_hex(),
+            "availableInputs": [
+                {
+                    "user": user_addr.to_hex(),
+                    "asset": eth_addr.to_hex(),
+                    "amount": "1000000000000000000",
+                    "lock": null,
+                    "largeData": large_payload  // Embed large payload here
+                }
+            ],
+            "requestedOutputs": [
+                {
+                    "asset": usdc_addr.to_hex(),
+                    "amount": "2000000000",
+                    "receiver": user_addr.to_hex(),
+                    "calldata": null
+                }
+            ],
+            "minValidUntil": 300
+        })
+    }
 
-	/// Order request with custom user address
-	pub fn order_request_for_user(user_address: &str) -> Value {
-		json!({
-			"user_address": user_address,
-			"quote_response": {
-				"token_in": TestConstants::WETH_ADDRESS,
-				"token_out": TestConstants::USDC_ADDRESS,
-				"amount_in": TestConstants::ONE_ETH_WEI,
-				"amount_out": TestConstants::TWO_THOUSAND_USDC,
-				"chain_id": TestConstants::ETHEREUM_CHAIN_ID,
-				"price_impact": 0.02,
-				"estimated_gas": 150000
-			},
-			"slippage_tolerance": 0.01
-		})
-	}
-
-	/// Invalid order request - missing user_address
-	pub fn invalid_order_request_missing_user() -> Value {
-		json!({
-			"quote_id": "test-quote-id"
-		})
-	}
-
-	/// Invalid order request - missing quote data
-	pub fn invalid_order_request_missing_quote() -> Value {
-		json!({
-			"user_address": TestConstants::TEST_USER_ADDRESS
-		})
-	}
-
-	/// Order request with non-existent quote_id
-	pub fn order_request_with_invalid_quote_id() -> Value {
-		json!({
-			"user_address": TestConstants::TEST_USER_ADDRESS,
-			"quote_id": "non-existent-quote-id"
-		})
-	}
-
-	/// Large payload for testing body size limits
-	pub fn large_quote_request() -> Value {
-		let large_payload = "x".repeat(2 * 1024 * 1024); // 2MB
-		json!({
-			"token_in": large_payload,
-			"token_out": TestConstants::USDC_ADDRESS,
-			"amount_in": TestConstants::ONE_ETH_WEI,
-			"chain_id": TestConstants::ETHEREUM_CHAIN_ID
-		})
-	}
-
-	/// Malformed JSON string for testing error handling
-	pub fn malformed_json() -> &'static str {
-		"{ invalid json structure"
-	}
+    /// Malformed JSON string for testing error handling
+    pub fn malformed_json() -> &'static str {
+        "{ invalid json structure"
+    }
 }
 
 /// Application state builders for tests
 pub struct AppStateBuilder;
 
 impl AppStateBuilder {
-	/// Create minimal test app state (no solvers)
-	pub fn minimal() -> AppState {
-		let aggregator_service = AggregatorService::new(vec![], 5000);
-		let storage = Arc::new(MemoryStore::new());
-		AppState {
-			aggregator_service: Arc::new(aggregator_service),
-			storage: storage.clone(),
-			order_service: Arc::new(OrderService::new(storage.clone())),
-			solver_service: Arc::new(SolverService::new(storage.clone())),
-		}
-	}
+    /// Create minimal test app state with dependencies
+    pub async fn minimal() -> Result<AppState, Box<dyn std::error::Error>> {
+        // Set required environment variable for tests
+        std::env::set_var("INTEGRITY_SECRET", "test-secret-for-api-tests-12345678901234567890");
+        
+        let (_app, state) = AggregatorBuilder::default()
+            .start()
+            .await?;
+        Ok(state)
+    }
 
-	/// Create app state with test solvers
-	pub fn with_solvers(solver_count: usize) -> AppState {
-		let solvers = MockEntities::multiple_solvers(solver_count);
-		let aggregator_service = AggregatorService::new(solvers, 5000);
-		let storage = Arc::new(MemoryStore::new());
-		AppState {
-			aggregator_service: Arc::new(aggregator_service),
-			storage: storage.clone(),
-			order_service: Arc::new(OrderService::new(storage.clone())),
-			solver_service: Arc::new(SolverService::new(storage.clone())),
-		}
-	}
+    /// Create app state with mock solvers
+    pub async fn with_mock_solvers(solver_count: usize) -> Result<AppState, Box<dyn std::error::Error>> {
+        // Set required environment variable for tests
+        std::env::set_var("INTEGRITY_SECRET", "test-secret-for-api-tests-12345678901234567890");
+        
+        let solvers = MockEntities::multiple_solvers(solver_count);
+        let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
+        
+        let mut builder = AggregatorBuilder::default()
+            .with_adapter(Box::new(mock_adapter))?;
+            
+        for solver in solvers {
+            builder = builder.with_solver(solver).await;
+        }
+        
+        let (_app, state) = builder.start().await?;
+        Ok(state)
+    }
 
-	/// Create app state with custom timeout
-	pub fn with_timeout(timeout_ms: u64) -> AppState {
-		let aggregator_service = AggregatorService::new(vec![], timeout_ms);
-		let storage = Arc::new(MemoryStore::new());
-		AppState {
-			aggregator_service: Arc::new(aggregator_service),
-			storage: storage.clone(),
-			order_service: Arc::new(OrderService::new(storage.clone())),
-			solver_service: Arc::new(SolverService::new(storage.clone())),
-		}
-	}
+    /// Create app state for testing with custom settings
+    pub async fn with_custom_settings() -> Result<AppState, Box<dyn std::error::Error>> {
+        // Set required environment variable for tests
+        std::env::set_var("INTEGRITY_SECRET", "test-secret-for-api-tests-12345678901234567890");
+        
+        let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
+        let mock_solver = oif_aggregator::mocks::mock_solver();
+        
+        let (_app, state) = AggregatorBuilder::default()
+            .with_adapter(Box::new(mock_adapter))?
+            .with_solver(mock_solver)
+            .await
+            .start()
+            .await?;
+        Ok(state)
+    }
 }

@@ -2,167 +2,189 @@
 
 use std::sync::Arc;
 
+use oif_aggregator::{AggregatorBuilder, service::IntegrityService};
 use oif_adapters::AdapterRegistry;
-use oif_types::chrono::{Duration, Utc};
-// use oif_adapters::AdapterError; // Use the adapter-specific error type
 use oif_service::aggregator::AggregatorService;
-use oif_types::adapters::{AdapterConfig, AdapterType};
 use oif_types::orders::OrderStatus;
-use oif_types::serde_json::json;
-use oif_types::{Network, Order, QuoteRequest};
 
 mod mocks;
 
-use mocks::MockConfigs;
+use mocks::{MockEntities, MockConfigs};
 
 #[test]
 fn test_adapter_registry_creation() {
-	let registry = AdapterRegistry::new();
-	assert_eq!(registry.get_all().len(), 0);
+    let registry = AdapterRegistry::new();
+    // Registry starts with default adapters (OIF and LiFi)
+    assert!(registry.get_all().len() == 0);
 }
 
 #[test]
-fn test_adapter_config_creation() {
-	let config = MockConfigs::oif_adapter_config();
-	assert_eq!(config.adapter_id, "test-oif-adapter");
-	// Test basic config fields since other fields were removed
-	assert_eq!(config.adapter_id, "test-oif-adapter");
-	assert_eq!(config.name, "Test OIF Adapter");
+fn test_adapter_registry_with_defaults() {
+    let registry = AdapterRegistry::with_defaults();
+    // Should have default OIF and LiFi adapters
+    assert!(registry.get_all().len() >= 2);
 }
 
 #[tokio::test]
-async fn test_oif_adapter_creation() {
-	let config = MockConfigs::oif_adapter_config();
-
-	let adapter_result = AdapterRegistry::new().create_from_config(&config);
-	assert!(adapter_result.is_ok());
-
-	let adapter = adapter_result.unwrap();
-	assert_eq!(adapter.adapter_info().adapter_id, "test-oif-adapter");
-}
-
-#[tokio::test]
-async fn test_adapter_health_check() {
-	let config = MockConfigs::oif_adapter_config();
-
-	if let Ok(adapter) = AdapterRegistry::create_from_config(&config) {
-		// Health check to httpbin.org should fail (no /health endpoint)
-		let health_result = adapter.health_check().await;
-		assert!(health_result.is_ok());
-		// httpbin.org/health doesn't exist, so should return false
-		assert!(!health_result.unwrap());
-	}
+async fn test_aggregator_builder_with_mock_adapter() {
+    // Set required environment variable for tests
+    std::env::set_var("INTEGRITY_SECRET", "test-secret-for-adapter-tests-12345678901234567890");
+    
+    let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
+    let mock_solver = oif_aggregator::mocks::mock_solver();
+    
+    let result = AggregatorBuilder::default()
+        .with_adapter(Box::new(mock_adapter))
+        .expect("Failed to add adapter")
+        .with_solver(mock_solver)
+        .await
+        .start()
+        .await;
+        
+    assert!(result.is_ok());
+    
+    let (_app, state) = result.unwrap();
+    // Verify we can get solver count
+    let (_solvers, total_count, _, _) = state.solver_service.list_solvers_paginated(None, None).await.unwrap();
+    assert_eq!(total_count, 1);
 }
 
 #[test]
 fn test_quote_request_creation() {
-	let request = QuoteRequest::new(
-		"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(), // WETH
-		"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0".to_string(), // USDC
-		"1000000000000000000".to_string(),                        // 1 ETH
-		1,                                                        // Ethereum mainnet
-	);
+    // Use mock quote request from fixtures
+    let request = MockEntities::quote_request();
 
-	assert!(!request.request_id.is_empty());
-	assert_eq!(request.chain_id, 1);
-	assert_eq!(request.slippage_tolerance, Some(0.005));
+    assert_eq!(request.available_inputs.len(), 1);
+    assert_eq!(request.requested_outputs.len(), 1);
+    assert!(request.min_valid_until.is_some());
 }
 
 #[test]
 fn test_order_creation() {
-	let order = Order::new("0x1234567890123456789012345678901234567890".to_string());
+    // Use mock order from fixtures
+    let order = MockEntities::order();
 
-	assert!(!order.order_id.is_empty());
-	assert_eq!(order.status, OrderStatus::Pending);
+    assert!(order.order_id.starts_with("test-order-"));
+    assert!(order.quote_id.is_some());
+    assert_eq!(order.status, OrderStatus::Created);
 }
 
-#[test]
-fn test_aggregation_service_creation() {
-	let solvers = vec![];
-	let service = AggregatorService::new(solvers, Arc::new(AdapterRegistry::new()), 5000);
+#[tokio::test]
+async fn test_aggregation_service_creation() {
+    let solvers = vec![];
+    let adapter_registry = Arc::new(AdapterRegistry::new());
+    let integrity_service = Arc::new(IntegrityService::new(oif_types::SecretString::from_string("test-secret")));
+    
+    let service = AggregatorService::new(
+        solvers,
+        adapter_registry,
+        5000,
+        integrity_service,
+    );
 
-	let stats = service.get_stats();
-	assert_eq!(stats.total_solvers, 0);
-	assert_eq!(stats.global_timeout_ms, 5000);
+    // Just verify service was created successfully
+    // We can't format debug or get stats, so just verify it exists
+    let _ = service; // Service created successfully
 }
 
 #[test]
 fn test_adapter_error_types() {
-	let config_error = oif_adapters::AdapterError::ConfigError {
-		reason: "Test config error".to_string(),
-	};
-	assert!(config_error.to_string().contains("Configuration error"));
+    use oif_adapters::AdapterError;
+    
+    let not_found_error = AdapterError::NotFound {
+        adapter_id: "missing-adapter".to_string(),
+    };
+    assert!(not_found_error.to_string().contains("Adapter not found"));
 
-	let not_found_error = oif_adapters::AdapterError::NotFound {
-		adapter_id: "missing-adapter".to_string(),
-	};
-	assert!(not_found_error.to_string().contains("Adapter not found"));
+    let timeout_error = AdapterError::Timeout { timeout_ms: 5000 };
+    assert!(timeout_error.to_string().contains("Timeout occurred"));
 
-	let timeout_error = oif_adapters::AdapterError::Timeout { timeout_ms: 5000 };
-	assert!(timeout_error.to_string().contains("Timeout occurred"));
-}
-
-#[test]
-fn test_unsupported_adapter_types() {
-	let config = MockConfigs::oif_adapter_config();
-
-	// With simplified config, both OifV1 and LifiV1 are supported
-	// Test that supported adapter types work correctly
-	assert!(config.adapter_type == AdapterType::OifV1);
-	let result = AdapterRegistry::create_from_config(&config);
-	assert!(result.is_ok());
-
-	// Test LifiV1 adapter creation
-	let mut lifi_config = config.clone();
-	lifi_config.adapter_type = AdapterType::LifiV1;
-	let result = AdapterRegistry::create_from_config(&lifi_config);
-	assert!(result.is_ok());
-}
-
-#[test]
-fn test_adapter_config_validation() {
-	let config = MockConfigs::oif_adapter_config();
-
-	// Remove required endpoint
-	// Configuration removed in simplified config, test other functionality
-	let _config_backup = config.clone();
-	if false {
-		// Dead code to avoid compilation error
-		let _ = json!({
-			"timeout_ms": 5000
-		});
-	}
-
-	let result = AdapterRegistry::create_from_config(&config);
-	// With simplified config, creation should succeed since all required fields are present
-	assert!(result.is_ok());
+    let disabled_error = AdapterError::Disabled {
+        adapter_id: "disabled-adapter".to_string(),
+    };
+    assert!(disabled_error.to_string().contains("Adapter is disabled"));
 }
 
 #[tokio::test]
-async fn test_empty_quote_aggregation() {
-	let solvers = vec![];
-	let service = AggregatorService::new(solvers, 5000);
+async fn test_quote_aggregation_with_mock() {
+    // Set required environment variable for tests
+    std::env::set_var("INTEGRITY_SECRET", "test-secret-for-adapter-tests-12345678901234567890");
+    
+    let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
+    let mock_solver = oif_aggregator::mocks::mock_solver();
+    
+    let builder_result = AggregatorBuilder::default()
+        .with_adapter(Box::new(mock_adapter))
+        .expect("Failed to add adapter")
+        .with_solver(mock_solver)
+        .await
+        .start()
+        .await;
+        
+    assert!(builder_result.is_ok());
+    
+    let (_app, state) = builder_result.unwrap();
+    
+    // Use mock quote request from fixtures
+    let request = MockEntities::quote_request();
 
-	let request = QuoteRequest::new(
-		"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
-		"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0".to_string(),
-		"1000000000000000000".to_string(),
-		1,
-	);
-
-	let quotes = service.fetch_quotes(request).await;
-	assert_eq!(quotes.len(), 0);
+    let quotes_result = state.aggregator_service.fetch_quotes(request).await;
+    assert!(quotes_result.is_ok());
+    
+    let quotes = quotes_result.unwrap();
+    // Should get at least one quote from mock adapter
+    assert!(quotes.len() >= 1);
 }
 
 #[tokio::test]
-async fn test_health_check_empty_service() {
-	let solvers = vec![];
-	let service = AggregatorService::new(solvers, 5000);
-
-	let health_results = service.health_check_all().await;
-	assert_eq!(health_results.len(), 0);
+async fn test_health_check_with_solver_service() {
+    // Set required environment variable for tests
+    std::env::set_var("INTEGRITY_SECRET", "test-secret-for-adapter-tests-12345678901234567890");
+    
+    let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
+    let mock_solver = oif_aggregator::mocks::mock_solver();
+    
+    let builder_result = AggregatorBuilder::default()
+        .with_adapter(Box::new(mock_adapter))
+        .expect("Failed to add adapter")
+        .with_solver(mock_solver)
+        .await
+        .start()
+        .await;
+        
+    assert!(builder_result.is_ok());
+    
+    let (_app, state) = builder_result.unwrap();
+    
+    // Test health check through solver service
+    let health_result = state.solver_service.health_check_all().await;
+    assert!(health_result.is_ok());
+    
+    let health_statuses = health_result.unwrap();
+    assert_eq!(health_statuses.len(), 1); // One solver configured
 }
 
-// Integration test with mock HTTP server would go here
-// This would require a test HTTP server like wiremock
-// For now, we test the structure and error handling
+#[tokio::test]
+async fn test_adapter_registry_duplicate_prevention() {
+    let mock_adapter1 = oif_aggregator::mocks::MockDemoAdapter::new();
+    let mock_adapter2 = oif_aggregator::mocks::MockDemoAdapter::new(); // Same ID
+    
+    let result = AggregatorBuilder::default()
+        .with_adapter(Box::new(mock_adapter1))
+        .expect("Failed to add first adapter")
+        .with_adapter(Box::new(mock_adapter2)); // Should fail
+        
+    assert!(result.is_err());
+    // Duplicate adapter should be rejected
+}
+
+#[test]
+fn test_solver_config_creation() {
+    let config = MockConfigs::test_solver_config();
+    
+    assert_eq!(config.solver_id, "test-solver");
+    assert_eq!(config.adapter_id, "test-adapter");
+    assert_eq!(config.endpoint, "http://localhost:8080");
+    assert_eq!(config.timeout_ms, 1000);
+    assert!(config.enabled);
+}

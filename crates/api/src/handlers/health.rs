@@ -1,7 +1,15 @@
+//! Health check endpoints
+//!
+//! This module contains the health check endpoints for the aggregator.
+//!
+//! The health check endpoint is used to check if the aggregator is healthy.
+//! The readiness endpoint is used to check if the aggregator is ready to serve requests.
+
 use axum::{extract::State, http::StatusCode, response::Json};
 use serde::Serialize;
 
 use crate::state::AppState;
+use std::collections::HashMap;
 
 /// Health check endpoint
 #[cfg_attr(feature = "openapi", utoipa::path(
@@ -19,7 +27,7 @@ pub async fn health() -> &'static str {
 pub struct ReadinessResponse {
 	pub status: String,
 	pub storage_healthy: bool,
-	pub adapters: std::collections::HashMap<String, bool>,
+	pub solvers: HashMap<String, bool>,
 }
 
 /// GET /ready - Readiness probe with storage and adapter checks
@@ -31,16 +39,20 @@ pub struct ReadinessResponse {
 ))]
 pub async fn ready(State(state): State<AppState>) -> (StatusCode, Json<ReadinessResponse>) {
 	let storage_healthy = state.storage.health_check().await.unwrap_or(false);
-	let adapters = state.aggregator_service.health_check_all().await;
-	let adapters_healthy = adapters.values().all(|v| *v) || adapters.is_empty();
+	// Delegate health checking to solver service to avoid adapter coupling in aggregator
+	let solvers: HashMap<String, bool> = match state.solver_service.health_check_all().await {
+		Ok(map) => map,
+		Err(_) => HashMap::new(),
+	};
+	let solvers_healthy = solvers.values().all(|v| *v) || solvers.is_empty();
 
-	let overall = storage_healthy && adapters_healthy;
+	let overall = storage_healthy && solvers_healthy;
 	let status = if overall { "ready" } else { "degraded" };
 
 	let body = ReadinessResponse {
 		status: status.to_string(),
 		storage_healthy,
-		adapters,
+		solvers,
 	};
 	let code = if overall {
 		StatusCode::OK

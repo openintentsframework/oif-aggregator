@@ -2,10 +2,13 @@
 //!
 //! Service for retrieving solvers.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
+use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;
 use oif_types::solvers::Solver;
+use oif_types::SolverRuntimeConfig;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -19,11 +22,15 @@ pub enum SolverServiceError {
 #[derive(Clone)]
 pub struct SolverService {
 	storage: Arc<dyn Storage>,
+	adapter_registry: Arc<AdapterRegistry>,
 }
 
 impl SolverService {
-	pub fn new(storage: Arc<dyn Storage>) -> Self {
-		Self { storage }
+	pub fn new(storage: Arc<dyn Storage>, adapter_registry: Arc<AdapterRegistry>) -> Self {
+		Self {
+			storage,
+			adapter_registry,
+		}
 	}
 
 	pub async fn list_solvers(&self) -> Result<Vec<Solver>, SolverServiceError> {
@@ -85,5 +92,34 @@ impl SolverService {
 			Some(s) => Ok(s),
 			None => Err(SolverServiceError::NotFound(solver_id.to_string())),
 		}
+	}
+
+	/// Perform health checks on all registered solvers using their adapters
+	pub async fn health_check_all(&self) -> Result<HashMap<String, bool>, SolverServiceError> {
+		let mut results = HashMap::new();
+
+		let solvers = self
+			.storage
+			.list_all_solvers()
+			.await
+			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
+
+		for solver in &solvers {
+			if let Some(adapter) = self.adapter_registry.get(&solver.adapter_id) {
+				let config = SolverRuntimeConfig::from(solver);
+				match adapter.health_check(&config).await {
+					Ok(is_healthy) => {
+						results.insert(solver.solver_id.clone(), is_healthy);
+					},
+					Err(_) => {
+						results.insert(solver.solver_id.clone(), false);
+					},
+				}
+			} else {
+				results.insert(solver.solver_id.clone(), false);
+			}
+		}
+
+		Ok(results)
 	}
 }

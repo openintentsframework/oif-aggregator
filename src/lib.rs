@@ -5,6 +5,7 @@
 
 use oif_service::IntegrityService;
 use oif_types::{Asset, Network};
+
 // Core domain types - the most commonly used types
 pub use oif_types::{
 	chrono,
@@ -99,6 +100,8 @@ pub mod service {
 	pub use oif_service::*;
 }
 
+pub mod mocks;
+
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tracing::{error, info, warn};
@@ -118,7 +121,7 @@ where
 	storage: S,
 	authenticator: A,
 	rate_limiter: R,
-	custom_adapter_factory: Option<oif_adapters::AdapterRegistry>,
+	adapter_registry: Option<oif_adapters::AdapterRegistry>,
 }
 
 impl<S> AggregatorBuilder<S, NoAuthenticator, MemoryRateLimiter>
@@ -132,7 +135,7 @@ where
 			storage,
 			authenticator: NoAuthenticator,
 			rate_limiter: MemoryRateLimiter::new(),
-			custom_adapter_factory: None,
+			adapter_registry: None,
 		}
 	}
 }
@@ -220,7 +223,7 @@ where
 			storage: self.storage,
 			authenticator,
 			rate_limiter: self.rate_limiter,
-			custom_adapter_factory: self.custom_adapter_factory,
+			adapter_registry: self.adapter_registry,
 		}
 	}
 
@@ -234,17 +237,17 @@ where
 			storage: self.storage,
 			authenticator: self.authenticator,
 			rate_limiter,
-			custom_adapter_factory: self.custom_adapter_factory,
+			adapter_registry: self.adapter_registry,
 		}
 	}
 
 	/// Register a custom adapter (uses adapter's own ID)
 	pub fn with_adapter(mut self, adapter: Box<dyn SolverAdapter>) -> Result<Self, String> {
-		let mut factory = self
-			.custom_adapter_factory
+		let mut registry = self
+			.adapter_registry
 			.unwrap_or_else(oif_adapters::AdapterRegistry::with_defaults);
-		factory.register(adapter)?;
-		self.custom_adapter_factory = Some(factory);
+		registry.register(adapter)?;
+		self.adapter_registry = Some(registry);
 		Ok(self)
 	}
 }
@@ -286,7 +289,7 @@ where
 			storage,
 			authenticator: NoAuthenticator,
 			rate_limiter: MemoryRateLimiter::new(),
-			custom_adapter_factory: None,
+			adapter_registry: None,
 		}
 	}
 	/// Add a solver to the aggregator
@@ -317,8 +320,8 @@ where
 			.map_err(|e| format!("Failed to get solvers: {}", e))?;
 
 		// Use custom factory or create with defaults
-		let adapter_factory = Arc::new(
-			self.custom_adapter_factory
+		let adapter_registry = Arc::new(
+			self.adapter_registry
 				.unwrap_or_else(oif_adapters::AdapterRegistry::with_defaults),
 		);
 
@@ -334,7 +337,7 @@ where
 		let integrity_service = Arc::new(IntegrityService::new(integrity_secret));
 		let aggregator_service = AggregatorService::new(
 			solvers.clone(),
-			Arc::clone(&adapter_factory),
+			Arc::clone(&adapter_registry),
 			settings.timeouts.global_ms,
 			Arc::clone(&integrity_service),
 		);
@@ -356,11 +359,14 @@ where
 			aggregator_service: Arc::new(aggregator_service),
 			order_service: Arc::new(OrderService::new(
 				Arc::clone(&storage_arc),
-				Arc::clone(&adapter_factory),
+				Arc::clone(&adapter_registry),
 				solver_map,
 				Arc::clone(&integrity_service),
 			)),
-			solver_service: Arc::new(SolverService::new(Arc::clone(&storage_arc))),
+			solver_service: Arc::new(SolverService::new(
+				Arc::clone(&storage_arc),
+				Arc::clone(&adapter_registry),
+			)),
 			storage: storage_arc,
 			integrity_service,
 		};
@@ -442,14 +448,7 @@ where
 		}
 
 		// Create the router using the builder pattern
-		let (app, app_state) = self.start().await?;
-
-		// Log application startup info
-		let stats = app_state.aggregator_service.get_stats();
-		info!(
-			"Aggregator service initialized with {} solvers, {} adapters",
-			stats.total_solvers, stats.initialized_adapters
-		);
+		let (app, _) = self.start().await?;
 
 		// TTL cleanup is storage-specific and should be handled by the storage implementation
 		info!("Storage backend initialized successfully");
