@@ -1,5 +1,4 @@
 /// E2E tests for middleware functionality (CORS, request ID, compression, body limits, rate limiting)
-
 use crate::e2e::TestServer;
 use crate::mocks::api_fixtures::ApiFixtures;
 use reqwest::Client;

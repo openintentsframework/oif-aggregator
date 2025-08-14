@@ -2,6 +2,7 @@
 
 use axum::Router;
 use oif_aggregator::{api::routes::create_router, AggregatorBuilder};
+use reqwest::{get, Client};
 use tokio::task::JoinHandle;
 
 mod mocks;
@@ -38,7 +39,7 @@ async fn spawn_server() -> Result<(String, JoinHandle<()>), Box<dyn std::error::
 async fn test_health_endpoint() {
 	let (base_url, handle) = spawn_server().await.expect("Failed to start server");
 
-	let response = reqwest::get(&format!("{}/health", base_url))
+	let response = get(&format!("{}/health", base_url))
 		.await
 		.expect("Failed to get health endpoint");
 
@@ -72,9 +73,9 @@ async fn test_quotes_endpoint_empty() {
 	// Use mock quote request for consistency
 	let request_body = ApiFixtures::valid_quote_request();
 
-	let client = reqwest::Client::new();
+	let client = Client::new();
 	let response = client
-		.post(&format!("{}/v1/quotes", base_url))
+		.post(format!("{}/v1/quotes", base_url))
 		.json(&request_body)
 		.send()
 		.await
@@ -95,9 +96,9 @@ async fn test_quotes_endpoint_empty() {
 async fn test_orders_endpoint_invalid() {
 	let (base_url, handle) = spawn_server().await.expect("Failed to start server");
 
-	let client = reqwest::Client::new();
+	let client = Client::new();
 	let response = client
-        .post(&format!("{}/v1/orders", base_url))
+        .post(format!("{}/v1/orders", base_url))
         .json(&ApiFixtures::invalid_order_request_missing_user())  // Use mock invalid request
         .send()
         .await
@@ -129,9 +130,9 @@ async fn test_solvers_endpoint() {
 async fn test_orders_endpoint_with_mock_data() {
 	let (base_url, handle) = spawn_server().await.expect("Failed to start server");
 
-	let client = reqwest::Client::new();
+	let client = Client::new();
 	let response = client
-        .post(&format!("{}/v1/orders", base_url))
+        .post(format!("{}/v1/orders", base_url))
         .json(&ApiFixtures::valid_order_request())  // Use mock valid request
         .send()
         .await

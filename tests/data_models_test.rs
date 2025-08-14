@@ -12,9 +12,9 @@ fn test_quote_creation() {
 	assert_eq!(quote.solver_id, "test-solver-1");
 	assert_eq!(quote.provider, "Test Provider");
 	assert_eq!(quote.integrity_checksum, "test-checksum");
-	assert!(quote.orders.len() > 0);
-	assert!(quote.details.available_inputs.len() > 0);
-	assert!(quote.details.requested_outputs.len() > 0);
+	assert!(!quote.orders.is_empty());
+	assert!(!quote.details.available_inputs.is_empty());
+	assert!(!quote.details.requested_outputs.is_empty());
 }
 
 #[test]

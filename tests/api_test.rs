@@ -277,7 +277,7 @@ async fn test_order_workflow() {
 		let status_response = app
 			.oneshot(
 				Request::builder()
-					.uri(&format!("/v1/orders/{}", order_id))
+					.uri(format!("/v1/orders/{}", order_id))
 					.body(Body::empty())
 					.unwrap(),
 			)

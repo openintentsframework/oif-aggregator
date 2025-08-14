@@ -2,7 +2,7 @@
 //! Run with: INTEGRITY_SECRET=demo-secret-key cargo run --example api_demo
 
 use oif_aggregator::{serde_json::json, AggregatorBuilder};
-use reqwest;
+use reqwest::Client;
 use tokio::time::{sleep, Duration};
 
 // Import mock adapter from src/mocks.rs
@@ -34,12 +34,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	sleep(Duration::from_secs(2)).await;
 	println!("   ✅ Server started successfully");
 
-	let client = reqwest::Client::new();
+	let client = Client::new();
 	let base_url = "http://localhost:3000";
 
 	// Health check
 	println!("\n1. Health Check");
-	let health = client.get(&format!("{}/health", base_url)).send().await?;
+	let health = client.get(format!("{}/health", base_url)).send().await?;
 	println!("   Status: {}", health.status());
 	if health.status().is_success() {
 		let body = health.text().await?;
@@ -48,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 	println!("\n2. Solvers");
 	let solvers = client
-		.get(&format!("{}/v1/solvers", base_url))
+		.get(format!("{}/v1/solvers", base_url))
 		.send()
 		.await?;
 
@@ -69,7 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	);
 
 	let quotes_response = client
-		.post(&format!("{}/v1/quotes", base_url))
+		.post(format!("{}/v1/quotes", base_url))
 		.json(&quote_request)
 		.send()
 		.await?;
@@ -99,7 +99,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 			);
 
 			let order_response = client
-				.post(&format!("{}/v1/orders", base_url))
+				.post(format!("{}/v1/orders", base_url))
 				.json(&order_request)
 				.send()
 				.await?;
@@ -114,7 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 				// Query order status
 				println!("\n4. Query Order Status");
 				let status_response = client
-					.get(&format!("{}/v1/orders/{}", base_url, order_id))
+					.get(format!("{}/v1/orders/{}", base_url, order_id))
 					.send()
 					.await?;
 

@@ -1,5 +1,4 @@
 /// E2E tests for orders endpoints
-
 use crate::e2e::{fixtures, TestServer};
 use reqwest::Client;
 

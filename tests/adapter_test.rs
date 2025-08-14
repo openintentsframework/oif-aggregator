@@ -15,7 +15,7 @@ use mocks::{configs::MockConfigs, entities::MockEntities};
 fn test_adapter_registry_creation() {
 	let registry = AdapterRegistry::new();
 	// Registry starts with default adapters (OIF and LiFi)
-	assert!(registry.get_all().len() == 0);
+	assert!(registry.get_all().is_empty());
 }
 
 #[test]
@@ -138,7 +138,7 @@ async fn test_quote_aggregation_with_mock() {
 
 	let quotes = quotes_result.unwrap();
 	// Should get at least one quote from mock adapter
-	assert!(quotes.len() >= 1);
+	assert!(!quotes.is_empty());
 }
 
 #[tokio::test]

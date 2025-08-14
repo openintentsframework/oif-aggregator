@@ -466,10 +466,7 @@ where
 		let settings = if using_provided_settings {
 			self.settings.take().unwrap()
 		} else {
-			match load_config() {
-				Ok(config) => config,
-				Err(_) => Settings::default(),
-			}
+			load_config().unwrap_or_default()
 		};
 
 		// Initialize tracing with configuration-based settings

@@ -1,5 +1,4 @@
 /// E2E tests for health endpoint
-
 use crate::e2e::TestServer;
 use reqwest::Client;
 use serde_json::Value;
