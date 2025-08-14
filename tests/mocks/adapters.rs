@@ -3,6 +3,8 @@
 //! This module provides simple, working mock adapters that can be used
 //! in examples and tests without complex dependencies.
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use oif_types::chrono::Utc;
 
@@ -23,6 +25,7 @@ use oif_types::{models::Asset, models::Network, InteropAddress, SolverRuntimeCon
 pub struct MockDemoAdapter {
 	pub id: String,
 	pub name: String,
+	pub adapter: oif_types::Adapter,
 }
 
 impl MockDemoAdapter {
@@ -31,13 +34,30 @@ impl MockDemoAdapter {
 		Self {
 			id: "mock-demo-v1".to_string(),
 			name: "Mock Demo Adapter".to_string(),
+			adapter: oif_types::Adapter {
+				adapter_id: "mock-demo-v1".to_string(),
+				name: "Mock Demo Adapter".to_string(),
+				description: Some("Mock Demo Adapter".to_string()),
+				version: "1.0.0".to_string(),
+				configuration: HashMap::new(),
+			},
 		}
 	}
 
 	/// Create a mock adapter with custom ID and name
 	#[allow(dead_code)]
 	pub fn with_config(id: String, name: String) -> Self {
-		Self { id, name }
+		Self {
+			id: id.clone(),
+			name: name.clone(),
+			adapter: oif_types::Adapter {
+				adapter_id: id,
+				name: name.clone(),
+				description: Some(name.clone()),
+				version: "1.0.0".to_string(),
+				configuration: HashMap::new(),
+			},
+		}
 	}
 }
 
@@ -58,7 +78,7 @@ impl SolverAdapter for MockDemoAdapter {
 	}
 
 	fn adapter_info(&self) -> &oif_types::Adapter {
-		todo!("Mock adapters don't need full adapter info")
+		&self.adapter
 	}
 
 	async fn get_quotes(
@@ -225,6 +245,7 @@ pub struct MockTestAdapter {
 	pub id: String,
 	pub name: String,
 	pub should_fail: bool,
+	pub adapter: oif_types::Adapter,
 }
 
 impl MockTestAdapter {
@@ -233,6 +254,13 @@ impl MockTestAdapter {
 			id: "mock-test-v1".to_string(),
 			name: "Mock Test Adapter".to_string(),
 			should_fail: false,
+			adapter: oif_types::Adapter {
+				adapter_id: "mock-test-v1".to_string(),
+				name: "Mock Test Adapter".to_string(),
+				description: Some("Mock Test Adapter".to_string()),
+				version: "1.0.0".to_string(),
+				configuration: HashMap::new(),
+			},
 		}
 	}
 
@@ -242,6 +270,13 @@ impl MockTestAdapter {
 			id: "mock-test-v1".to_string(),
 			name: "Mock Test Adapter".to_string(),
 			should_fail: true,
+			adapter: oif_types::Adapter {
+				adapter_id: "mock-test-v1".to_string(),
+				name: "Mock Test Adapter".to_string(),
+				description: Some("Mock Test Adapter".to_string()),
+				version: "1.0.0".to_string(),
+				configuration: HashMap::new(),
+			},
 		}
 	}
 }
@@ -263,7 +298,7 @@ impl SolverAdapter for MockTestAdapter {
 	}
 
 	fn adapter_info(&self) -> &oif_types::Adapter {
-		todo!("Mock adapters don't need full adapter info")
+		&self.adapter
 	}
 
 	async fn get_quotes(

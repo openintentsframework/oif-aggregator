@@ -168,7 +168,9 @@ where
 {
 	/// Upsert solvers defined in Settings into storage so that start() can
 	/// load them via `list_all_solvers()`.
-	async fn upsert_solvers_from_settings(&self, settings: &Settings) {
+	async fn upsert_solvers_from_settings(&self, settings: &Settings) -> Result<(), String> {
+		let mut errors = Vec::new();
+
 		for solver_config in settings.enabled_solvers().values() {
 			let mut solver = Solver::new(
 				solver_config.solver_id.clone(),
@@ -210,17 +212,62 @@ where
 			}
 			solver.status = SolverStatus::Active;
 
-			// Upsert into storage (ignore individual errors on duplicates)
-			let _ = self.storage.create_solver(solver).await;
+			// Validate solver before creating
+			if let Err(validation_error) = solver.validate() {
+				errors.push(format!(
+					"Solver '{}' validation failed: {}",
+					solver.solver_id, validation_error
+				));
+				continue;
+			}
+
+			// Try to create solver in storage
+			if let Err(storage_error) = self.storage.create_solver(solver.clone()).await {
+				errors.push(format!(
+					"Failed to create solver '{}': {}",
+					solver.solver_id, storage_error
+				));
+			}
 		}
+
+		if !errors.is_empty() {
+			return Err(format!(
+				"Configuration errors found:\n{}",
+				errors.join("\n")
+			));
+		}
+
+		Ok(())
 	}
 
 	/// Upsert collected solvers into storage
-	async fn upsert_collected_solvers(&self) {
+	async fn upsert_collected_solvers(&self) -> Result<(), String> {
+		let mut errors = Vec::new();
+
 		for solver in &self.solvers {
-			// Upsert into storage (ignore individual errors on duplicates)
-			let _ = self.storage.create_solver(solver.clone()).await;
+			// Validate solver before creating
+			if let Err(validation_error) = solver.validate() {
+				errors.push(format!(
+					"Solver '{}' validation failed: {}",
+					solver.solver_id, validation_error
+				));
+				continue;
+			}
+
+			// Try to create solver in storage
+			if let Err(storage_error) = self.storage.create_solver(solver.clone()).await {
+				errors.push(format!(
+					"Failed to create solver '{}': {}",
+					solver.solver_id, storage_error
+				));
+			}
 		}
+
+		if !errors.is_empty() {
+			return Err(format!("Solver creation errors:\n{}", errors.join("\n")));
+		}
+
+		Ok(())
 	}
 
 	/// Set custom authenticator
@@ -381,16 +428,25 @@ where
 	pub async fn start(self) -> Result<(axum::Router, AppState), Box<dyn std::error::Error>> {
 		// Initialize the aggregator service
 		let settings = self.settings.clone().unwrap_or_default();
-		// Upsert solvers from settings into storage first
-		self.upsert_solvers_from_settings(&settings).await;
-		// Upsert collected solvers from with_solver() calls
-		self.upsert_collected_solvers().await;
+		// Upsert solvers from settings into storage first - fail on any configuration errors
+		self.upsert_solvers_from_settings(&settings).await?;
+		// Upsert collected solvers from with_solver() calls - fail on any validation/creation errors
+		self.upsert_collected_solvers().await?;
 		// Use base repository listing for solvers
 		let solvers = self
 			.storage
 			.list_all_solvers()
 			.await
 			.map_err(|e| format!("Failed to get solvers: {}", e))?;
+
+		// Fail fast if no solvers were successfully created
+		if solvers.is_empty() {
+			return Err(
+				"No solvers available. Please check your configuration and ensure at least one solver can be created successfully.".into()
+			);
+		}
+
+		info!("Successfully initialized with {} solver(s)", solvers.len());
 
 		// Use custom factory or create with defaults
 		let adapter_registry = Arc::new(

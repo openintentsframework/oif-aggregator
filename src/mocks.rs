@@ -3,6 +3,8 @@
 //! This module provides simple, working mock adapters that can be used
 //! in examples and tests without complex dependencies.
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use oif_types::chrono::Utc;
 
@@ -24,14 +26,24 @@ use oif_types::{models::Asset, models::Network, InteropAddress, SolverRuntimeCon
 pub struct MockDemoAdapter {
 	pub id: String,
 	pub name: String,
+	pub adapter: oif_types::Adapter,
 }
 
 impl MockDemoAdapter {
 	/// Create a new mock demo adapter
 	pub fn new() -> Self {
+		let id = "mock-demo-v1".to_string();
+		let name = "Mock Demo Adapter".to_string();
 		Self {
-			id: "mock-demo-v1".to_string(),
-			name: "Mock Demo Adapter".to_string(),
+			adapter: oif_types::Adapter {
+				adapter_id: id.clone(),
+				name: name.clone(),
+				description: Some("Mock Demo Adapter".to_string()),
+				version: "1.0.0".to_string(),
+				configuration: HashMap::new(),
+			},
+			id,
+			name,
 		}
 	}
 }
@@ -53,7 +65,7 @@ impl SolverAdapter for MockDemoAdapter {
 	}
 
 	fn adapter_info(&self) -> &oif_types::Adapter {
-		todo!("Mock adapters don't need full adapter info")
+		&self.adapter
 	}
 
 	async fn get_quotes(
