@@ -26,18 +26,19 @@ pub struct MockDemoAdapter {
 }
 
 impl MockDemoAdapter {
-	/// Create a new mock demo adapter
-	pub fn new() -> Self {
-		Self {
-			id: "mock-demo-v1".to_string(),
-			name: "Mock Demo Adapter".to_string(),
-		}
-	}
+    /// Create a new mock demo adapter
+    pub fn new() -> Self {
+        Self {
+            id: "mock-demo-v1".to_string(),
+            name: "Mock Demo Adapter".to_string(),
+        }
+    }
 
-	/// Create a mock adapter with custom ID and name
-	pub fn with_config(id: String, name: String) -> Self {
-		Self { id, name }
-	}
+    /// Create a mock adapter with custom ID and name
+    #[allow(dead_code)]
+    pub fn with_config(id: String, name: String) -> Self {
+        Self { id, name }
+    }
 }
 
 impl Default for MockDemoAdapter {
@@ -235,13 +236,14 @@ impl MockTestAdapter {
 		}
 	}
 
-	pub fn with_failure() -> Self {
-		Self {
-			id: "mock-test-v1".to_string(),
-			name: "Mock Test Adapter".to_string(),
-			should_fail: true,
-		}
-	}
+	    #[allow(dead_code)]
+    pub fn with_failure() -> Self {
+        Self {
+            id: "mock-test-v1".to_string(),
+            name: "Mock Test Adapter".to_string(),
+            should_fail: true,
+        }
+    }
 }
 
 impl Default for MockTestAdapter {

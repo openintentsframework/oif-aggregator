@@ -86,22 +86,16 @@ pub mod fixtures {
     use crate::mocks::ApiFixtures;
     use oif_types::{InteropAddress, serde_json::Value};
 
-    // Re-export as functions for backward compatibility
+    // Re-export key fixtures for backward compatibility
     pub fn valid_quote_request() -> Value {
         ApiFixtures::valid_quote_request()
     }
 
-    pub fn minimal_quote_request() -> Value {
-        ApiFixtures::minimal_quote_request()
-    }
-
     pub fn invalid_quote_request_empty_token() -> Value {
-        // Create an invalid request with empty user
         ApiFixtures::invalid_quote_request_missing_user()
     }
 
     pub fn valid_order_request_stateless() -> Value {
-        // Use the standard valid order request
         ApiFixtures::valid_order_request()
     }
 
@@ -130,13 +124,5 @@ pub mod fixtures {
         })
     }
 
-    pub fn large_quote_request() -> Value {
-        ApiFixtures::large_quote_request()
-    }
 
-
-
-    pub fn malformed_json() -> &'static str {
-        ApiFixtures::malformed_json()
-    }
 }

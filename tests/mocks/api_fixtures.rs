@@ -1,14 +1,7 @@
 //! API request/response fixtures for e2e and integration tests
 
-use oif_aggregator::{
-    api::routes::AppState,
-    service::{AggregatorService, IntegrityService, OrderService, SolverService},
-    AggregatorBuilder,
-};
-use oif_adapters::AdapterRegistry;
-use oif_storage::MemoryStore;
-use oif_types::{serde_json::{json, Value}, InteropAddress, U256};
-use std::{collections::HashMap, sync::Arc};
+use oif_aggregator::{api::routes::AppState, AggregatorBuilder};
+use oif_types::{serde_json::{json, Value}, InteropAddress};
 
 use super::entities::{MockEntities, TestConstants};
 

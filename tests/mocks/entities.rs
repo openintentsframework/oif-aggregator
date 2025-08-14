@@ -1,7 +1,7 @@
 //! Domain entity mocks for testing
 
 use oif_types::{
-    adapters::models::{AdapterQuote, AssetAmount, AvailableInput, QuoteDetails, QuoteOrder, RequestedOutput, Settlement, SettlementType, SignatureType},
+    adapters::models::{AssetAmount, AvailableInput, QuoteDetails, QuoteOrder, RequestedOutput, Settlement, SettlementType, SignatureType},
     chrono::{Duration, Utc},
     orders::{Order, OrderStatus},
     quotes::{Quote, QuoteRequest},

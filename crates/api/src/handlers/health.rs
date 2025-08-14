@@ -40,10 +40,7 @@ pub struct ReadinessResponse {
 pub async fn ready(State(state): State<AppState>) -> (StatusCode, Json<ReadinessResponse>) {
 	let storage_healthy = state.storage.health_check().await.unwrap_or(false);
 	// Delegate health checking to solver service to avoid adapter coupling in aggregator
-	let solvers: HashMap<String, bool> = match state.solver_service.health_check_all().await {
-		Ok(map) => map,
-		Err(_) => HashMap::new(),
-	};
+	let solvers: HashMap<String, bool> = (state.solver_service.health_check_all().await).unwrap_or_default();
 	let solvers_healthy = solvers.values().all(|v| *v) || solvers.is_empty();
 
 	let overall = storage_healthy && solvers_healthy;

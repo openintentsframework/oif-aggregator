@@ -1,7 +1,6 @@
 //! Configuration mocks and builders for tests
 
 use oif_config::settings::*;
-use oif_types::{Asset, Network};
 use std::collections::HashMap;
 
 /// Configuration builders for tests
