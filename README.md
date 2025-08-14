@@ -46,7 +46,7 @@ Once running, the following endpoints are available:
 - **ERC-7930 Compliance** - Full support for the Open Intent Framework standard
 - **Intent-Based Architecture** - Submit intents and track execution through to settlement
 - **Integrity Verification** - HMAC-SHA256 checksums prevent quote tampering
-- **Flexible Storage** - In-memory or Redis storage backends
+- **Flexible Storage** - In-memory storage backend
 - **Rate Limiting** - Built-in IP-based rate limiting
 
 ### 🔧 Extensibility

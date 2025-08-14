@@ -18,7 +18,7 @@ edition = "2021"
 oif-types = { path = "crates/types" }
 oif-config = { path = "crates/config" }
 oif-service = { path = "crates/service" }
-oif-storage = { path = "crates/storage", features = ["redis"] }
+oif-storage = { path = "crates/storage" }
 oif-adapters = { path = "crates/adapters" }
 oif-api = { path = "crates/api" }
 tracing = "0.1"
@@ -38,5 +38,4 @@ async-trait = "0.1"
 
 [features]
 default = []
-redis = ["oif-storage/redis"]
 openapi = ["oif-api/openapi", "oif-types/openapi"]
