@@ -8,9 +8,9 @@ use async_trait::async_trait;
 /// Object-safe variant with `&str` identifiers so it works with trait objects.
 #[async_trait]
 pub trait Repository<Entity>: Send + Sync {
-	async fn create(&self, entity: Entity) -> StorageResult<()>;
+	async fn create(&self, entity: Entity) -> StorageResult<Entity>;
 	async fn get(&self, id: &str) -> StorageResult<Option<Entity>>;
-	async fn update(&self, entity: Entity) -> StorageResult<()>;
+	async fn update(&self, entity: Entity) -> StorageResult<Entity>;
 	async fn delete(&self, id: &str) -> StorageResult<bool>;
 	async fn count(&self) -> StorageResult<usize>;
 
@@ -80,12 +80,12 @@ pub trait StorageTrait: QuoteStorageTrait + OrderStorageTrait + SolverStorageTra
 	}
 
 	/// Create a new solver
-	async fn create_solver(&self, solver: Solver) -> StorageResult<()> {
+	async fn create_solver(&self, solver: Solver) -> StorageResult<Solver> {
 		<Self as Repository<Solver>>::create(self, solver).await
 	}
 
 	/// Update an existing solver
-	async fn update_solver(&self, solver: Solver) -> StorageResult<()> {
+	async fn update_solver(&self, solver: Solver) -> StorageResult<Solver> {
 		<Self as Repository<Solver>>::update(self, solver).await
 	}
 
@@ -128,12 +128,12 @@ pub trait StorageTrait: QuoteStorageTrait + OrderStorageTrait + SolverStorageTra
 	}
 
 	/// Create a new order
-	async fn create_order(&self, order: Order) -> StorageResult<()> {
+	async fn create_order(&self, order: Order) -> StorageResult<Order> {
 		<Self as Repository<Order>>::create(self, order).await
 	}
 
 	/// Update an existing order
-	async fn update_order(&self, order: Order) -> StorageResult<()> {
+	async fn update_order(&self, order: Order) -> StorageResult<Order> {
 		<Self as Repository<Order>>::update(self, order).await
 	}
 
@@ -176,12 +176,12 @@ pub trait StorageTrait: QuoteStorageTrait + OrderStorageTrait + SolverStorageTra
 	}
 
 	/// Create a new quote
-	async fn create_quote(&self, quote: Quote) -> StorageResult<()> {
+	async fn create_quote(&self, quote: Quote) -> StorageResult<Quote> {
 		<Self as Repository<Quote>>::create(self, quote).await
 	}
 
 	/// Update an existing quote
-	async fn update_quote(&self, quote: Quote) -> StorageResult<()> {
+	async fn update_quote(&self, quote: Quote) -> StorageResult<Quote> {
 		<Self as Repository<Quote>>::update(self, quote).await
 	}
 

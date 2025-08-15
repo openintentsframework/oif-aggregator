@@ -150,7 +150,7 @@ pub async fn get_order(
 ) -> Result<Json<OrderResponse>, (StatusCode, Json<ErrorResponse>)> {
 	debug!("Querying status for order {}", order_id);
 
-	let order = match state.order_service.get_order(&order_id).await {
+	let order = match state.order_service.refresh_order_status(&order_id).await {
 		Ok(Some(order)) => order,
 		Ok(None) => {
 			return Err((

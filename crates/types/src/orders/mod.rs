@@ -33,6 +33,8 @@ pub struct Order {
 	pub order_id: String,
 	// Quote ID
 	pub quote_id: Option<String>,
+	// Solver ID
+	pub solver_id: String,
 	// Order status
 	pub status: OrderStatus,
 	// When the order was created
@@ -49,13 +51,14 @@ pub struct Order {
 	pub fill_transaction: Option<serde_json::Value>,
 }
 
-impl TryFrom<AdapterOrderResponse> for Order {
+impl TryFrom<(AdapterOrderResponse, String)> for Order {
 	type Error = OrderError;
 
-	fn try_from(src: AdapterOrderResponse) -> Result<Self, Self::Error> {
+	fn try_from((src, solver_id): (AdapterOrderResponse, String)) -> Result<Self, Self::Error> {
 		Ok(Order {
 			order_id: src.id,
 			quote_id: src.quote_id,
+			solver_id,
 			status: src.status.into(),
 			created_at: chrono::Utc
 				.timestamp_opt(src.created_at as i64, 0)

@@ -36,9 +36,9 @@ impl Default for MemoryStore {
 
 #[async_trait]
 impl oif_types::storage::Repository<Quote> for MemoryStore {
-	async fn create(&self, quote: Quote) -> StorageResult<()> {
-		self.quotes.insert(quote.quote_id.clone(), quote);
-		Ok(())
+	async fn create(&self, quote: Quote) -> StorageResult<Quote> {
+		self.quotes.insert(quote.quote_id.clone(), quote.clone());
+		Ok(quote)
 	}
 
 	async fn get(&self, quote_id: &str) -> StorageResult<Option<Quote>> {
@@ -48,9 +48,9 @@ impl oif_types::storage::Repository<Quote> for MemoryStore {
 	async fn delete(&self, quote_id: &str) -> StorageResult<bool> {
 		Ok(self.quotes.remove(quote_id).is_some())
 	}
-	async fn update(&self, quote: Quote) -> StorageResult<()> {
-		self.quotes.insert(quote.quote_id.clone(), quote);
-		Ok(())
+	async fn update(&self, quote: Quote) -> StorageResult<Quote> {
+		self.quotes.insert(quote.quote_id.clone(), quote.clone());
+		Ok(quote)
 	}
 
 	async fn count(&self) -> StorageResult<usize> {
@@ -90,18 +90,18 @@ impl QuoteStorage for MemoryStore {
 
 #[async_trait]
 impl oif_types::storage::Repository<Order> for MemoryStore {
-	async fn create(&self, order: Order) -> StorageResult<()> {
-		self.orders.insert(order.order_id.clone(), order);
-		Ok(())
+	async fn create(&self, order: Order) -> StorageResult<Order> {
+		self.orders.insert(order.order_id.clone(), order.clone());
+		Ok(order)
 	}
 
 	async fn get(&self, order_id: &str) -> StorageResult<Option<Order>> {
 		Ok(self.orders.get(order_id).map(|i| i.clone()))
 	}
 
-	async fn update(&self, order: Order) -> StorageResult<()> {
-		self.orders.insert(order.order_id.clone(), order);
-		Ok(())
+	async fn update(&self, order: Order) -> StorageResult<Order> {
+		self.orders.insert(order.order_id.clone(), order.clone());
+		Ok(order)
 	}
 
 	async fn delete(&self, order_id: &str) -> StorageResult<bool> {
@@ -145,18 +145,20 @@ impl OrderStorage for MemoryStore {
 
 #[async_trait]
 impl oif_types::storage::Repository<Solver> for MemoryStore {
-	async fn create(&self, solver: Solver) -> StorageResult<()> {
-		self.solvers.insert(solver.solver_id.clone(), solver);
-		Ok(())
+	async fn create(&self, solver: Solver) -> StorageResult<Solver> {
+		self.solvers
+			.insert(solver.solver_id.clone(), solver.clone());
+		Ok(solver)
 	}
 
 	async fn get(&self, solver_id: &str) -> StorageResult<Option<Solver>> {
 		Ok(self.solvers.get(solver_id).map(|s| s.clone()))
 	}
 
-	async fn update(&self, solver: Solver) -> StorageResult<()> {
-		self.solvers.insert(solver.solver_id.clone(), solver);
-		Ok(())
+	async fn update(&self, solver: Solver) -> StorageResult<Solver> {
+		self.solvers
+			.insert(solver.solver_id.clone(), solver.clone());
+		Ok(solver)
 	}
 
 	async fn delete(&self, solver_id: &str) -> StorageResult<bool> {

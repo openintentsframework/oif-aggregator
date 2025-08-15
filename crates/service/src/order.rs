@@ -116,12 +116,13 @@ impl OrderService {
 			.await
 			.map_err(|e| OrderServiceError::Adapter(e.to_string()))?;
 
-		let order: Order = Order::try_from(order_response.order).map_err(|e| {
-			OrderServiceError::Validation(format!(
-				"Failed to convert GetOrderResponse to Order: {}",
-				e
-			))
-		})?;
+		let order: Order = Order::try_from((order_response.order, solver.solver_id.clone()))
+			.map_err(|e| {
+				OrderServiceError::Validation(format!(
+					"Failed to convert GetOrderResponse to Order: {}",
+					e
+				))
+			})?;
 
 		// 6. Save the order to storage
 		self.storage
@@ -138,5 +139,106 @@ impl OrderService {
 			.get_order(order_id)
 			.await
 			.map_err(|e| OrderServiceError::Storage(e.to_string()))
+	}
+
+	/// Check if an order status is in a final state
+	fn is_final_status(status: &oif_types::OrderStatus) -> bool {
+		matches!(
+			status,
+			oif_types::OrderStatus::Finalized | oif_types::OrderStatus::Failed
+		)
+	}
+
+	/// Refresh order status from the solver and update storage if status changed
+	pub async fn refresh_order_status(
+		&self,
+		order_id: &str,
+	) -> Result<Option<Order>, OrderServiceError> {
+		// 1. Get current order from storage
+		let mut current_order = match self
+			.storage
+			.get_order(order_id)
+			.await
+			.map_err(|e| OrderServiceError::Storage(e.to_string()))?
+		{
+			Some(order) => order,
+			None => return Ok(None),
+		};
+
+		// 2. If order is already in final state, return as-is
+		if Self::is_final_status(&current_order.status) {
+			return Ok(Some(current_order));
+		}
+
+		// 3. Find the solver that originally processed this order by looking up associated quote
+		let solver = self.solvers.get(&current_order.solver_id).cloned();
+
+		let solver = match solver {
+			Some(s) => s,
+			None => {
+				// Can't determine which solver to query, return current order
+				return Ok(Some(current_order));
+			},
+		};
+
+		// 4. Get the adapter for this solver
+		let adapter = self
+			.adapter_registry
+			.get(&solver.adapter_id)
+			.ok_or_else(|| {
+				OrderServiceError::AdapterNotFound(format!(
+					"No adapter found for solver {} (adapter_id: {})",
+					solver.solver_id, solver.adapter_id
+				))
+			})?;
+
+		// 5. Get updated order details from the solver
+		let config = SolverRuntimeConfig::from(&solver);
+		let updated_order_response = match adapter.get_order_details(order_id, &config).await {
+			Ok(response) => response,
+			Err(e) => {
+				// Log the error but don't fail - return current order from storage
+				tracing::warn!(
+					"Failed to get order details from solver {} for order {}: {}",
+					solver.solver_id,
+					order_id,
+					e
+				);
+				return Ok(Some(current_order));
+			},
+		};
+
+		// 6. Convert adapter response to domain order
+		let updated_order: Order =
+			Order::try_from((updated_order_response.order, solver.solver_id.clone())).map_err(
+				|e| {
+					OrderServiceError::Validation(format!(
+						"Failed to convert GetOrderResponse to Order: {}",
+						e
+					))
+				},
+			)?;
+
+		// 7. Check if status actually changed
+		if updated_order.status != current_order.status {
+			// Update the order in storage with new status and timestamp
+			current_order.status = updated_order.status.clone();
+			current_order.updated_at = updated_order.updated_at;
+			current_order.fill_transaction = updated_order.fill_transaction.clone();
+
+			self.storage
+				.update_order(current_order.clone())
+				.await
+				.map_err(|e| OrderServiceError::Storage(e.to_string()))?;
+
+			tracing::info!(
+				"Updated order {} status from {:?} to {:?}",
+				order_id,
+				current_order.status,
+				updated_order.status
+			);
+		}
+
+		Ok(Some(current_order))
 	}
 }

@@ -14,6 +14,7 @@ use crate::adapters::{AssetAmount, Settlement};
 pub struct OrderStorage {
 	pub order_id: String,
 	pub quote_id: Option<String>,
+	pub solver_id: String,
 	pub status: OrderStatusStorage,
 	pub created_at: DateTime<Utc>,
 	pub updated_at: DateTime<Utc>,
@@ -75,6 +76,7 @@ impl From<Order> for OrderStorage {
 		Self {
 			order_id: order.order_id,
 			quote_id: order.quote_id,
+			solver_id: order.solver_id,
 			status: OrderStatusStorage::from(order.status),
 			created_at: order.created_at,
 			updated_at: order.updated_at,
@@ -93,6 +95,7 @@ impl TryFrom<OrderStorage> for Order {
 		Ok(Order {
 			order_id: storage.order_id,
 			quote_id: storage.quote_id,
+			solver_id: storage.solver_id,
 			status: OrderStatus::from(storage.status),
 			created_at: storage.created_at,
 			updated_at: storage.updated_at,

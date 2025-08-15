@@ -104,6 +104,7 @@ impl MockEntities {
 		Order {
 			order_id: "test-order-123".to_string(),
 			quote_id: Some("test-quote-123".to_string()),
+			solver_id: "test-solver-123".to_string(),
 			status: OrderStatus::Created,
 			created_at: Utc::now(),
 			updated_at: Utc::now(),
