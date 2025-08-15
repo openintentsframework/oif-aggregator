@@ -88,6 +88,7 @@ impl TestServer {
 		Ok(Self { base_url, handle })
 	}
 
+	#[allow(dead_code)]
 	pub fn abort(self) {
 		self.handle.abort();
 	}
