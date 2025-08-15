@@ -12,7 +12,7 @@ use super::entities::TestConstants;
 #[allow(dead_code)]
 pub struct ApiFixtures;
 
-pub static INTEGRITY_SECRET: &str = "test-secret-for-api-tests-12345678901234567890";
+pub static INTEGRITY_SECRET: &str = "test-secret-for-e2e-tests-12345678901234567890";
 
 #[allow(dead_code)]
 impl ApiFixtures {

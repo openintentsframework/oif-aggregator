@@ -33,7 +33,7 @@ pub async fn post_orders(
 		request.user_address
 	);
 
-	let order = match state.order_service.submit_order(&request).await {
+	let order: oif_types::Order = match state.order_service.submit_order(&request).await {
 		Ok(order) => order,
 		Err(e) => {
 			return Err(match e {
@@ -69,43 +69,19 @@ pub async fn post_orders(
 						timestamp: chrono::Utc::now().timestamp(),
 					}),
 				),
-				oif_service::OrderServiceError::SolverNotFound(solver_id) => (
-					StatusCode::NOT_FOUND,
-					Json(ErrorResponse {
-						error: "SOLVER_NOT_FOUND".to_string(),
-						message: format!("Solver {} not found", solver_id),
-						timestamp: chrono::Utc::now().timestamp(),
-					}),
-				),
-				oif_service::OrderServiceError::AdapterNotFound(msg) => (
-					StatusCode::INTERNAL_SERVER_ERROR,
-					Json(ErrorResponse {
-						error: "ADAPTER_NOT_FOUND".to_string(),
-						message: msg,
-						timestamp: chrono::Utc::now().timestamp(),
-					}),
-				),
-				oif_service::OrderServiceError::Adapter(msg) => (
+				oif_service::OrderServiceError::SolverAdapter(e) => (
 					StatusCode::BAD_GATEWAY,
 					Json(ErrorResponse {
-						error: "ADAPTER_ERROR".to_string(),
-						message: msg,
+						error: "SOLVER_ADAPTER_ERROR".to_string(),
+						message: e.to_string(),
 						timestamp: chrono::Utc::now().timestamp(),
 					}),
 				),
-				oif_service::OrderServiceError::IntegrityVerificationFailed => (
-					StatusCode::BAD_REQUEST,
+				_ => (
+					StatusCode::INTERNAL_SERVER_ERROR,
 					Json(ErrorResponse {
-						error: "INTEGRITY_VERIFICATION_FAILED".to_string(),
-						message: "Quote integrity verification failed. The quote may have been tampered with.".to_string(),
-						timestamp: chrono::Utc::now().timestamp(),
-					}),
-				),
-				oif_service::OrderServiceError::OrderNotFound(order_id) => (
-					StatusCode::NOT_FOUND,
-					Json(ErrorResponse {
-						error: "ORDER_NOT_FOUND".to_string(),
-						message: format!("Order {} not found", order_id),
+						error: "INTERNAL_ERROR".to_string(),
+						message: format!("Failed to submit order: {}", e),
 						timestamp: chrono::Utc::now().timestamp(),
 					}),
 				),
@@ -169,6 +145,14 @@ pub async fn get_order(
 					Json(ErrorResponse {
 						error: "STORAGE_ERROR".to_string(),
 						message: msg,
+						timestamp: chrono::Utc::now().timestamp(),
+					}),
+				),
+				oif_service::OrderServiceError::SolverAdapter(e) => (
+					StatusCode::BAD_GATEWAY,
+					Json(ErrorResponse {
+						error: "SOLVER_ADAPTER_ERROR".to_string(),
+						message: e.to_string(),
 						timestamp: chrono::Utc::now().timestamp(),
 					}),
 				),

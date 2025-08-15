@@ -7,7 +7,7 @@ async fn test_aggregator_builder_default() {
 	// Set required environment variable for tests
 	std::env::set_var(
 		"INTEGRITY_SECRET",
-		"test-secret-for-builder-tests-12345678901234567890",
+		"test-secret-for-e2e-tests-12345678901234567890",
 	);
 
 	let result = AggregatorBuilder::default().start().await;
@@ -22,7 +22,7 @@ async fn test_aggregator_builder_with_mock_adapter() {
 	// Set required environment variable for tests
 	std::env::set_var(
 		"INTEGRITY_SECRET",
-		"test-secret-for-builder-tests-12345678901234567890",
+		"test-secret-for-e2e-tests-12345678901234567890",
 	);
 
 	let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
@@ -66,7 +66,7 @@ async fn test_aggregator_builder_multiple_adapters() {
 	// Set required environment variable for tests
 	std::env::set_var(
 		"INTEGRITY_SECRET",
-		"test-secret-for-builder-tests-12345678901234567890",
+		"test-secret-for-e2e-tests-12345678901234567890",
 	);
 
 	let demo_adapter = oif_aggregator::mocks::MockDemoAdapter::new();

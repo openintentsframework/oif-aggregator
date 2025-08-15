@@ -1,11 +1,10 @@
 //! Core aggregation service logic
 
 use crate::integrity::IntegrityService;
+use crate::solver_adapter_service::{SolverAdapterService, SolverAdapterTrait};
 use futures::future::join_all;
 use oif_adapters::AdapterRegistry;
-use oif_types::{
-	GetQuoteRequest, IntegrityPayload, Quote, QuoteRequest, Solver, SolverRuntimeConfig,
-};
+use oif_types::{GetQuoteRequest, IntegrityPayload, Quote, QuoteRequest, Solver};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::time::{timeout, Duration};
@@ -102,18 +101,19 @@ impl AggregatorService {
 			tokio::spawn(async move {
 				debug!("Starting quote fetch from solver {}", solver_id);
 
-				let adapter = match adapter_registry.get(&solver.adapter_id) {
-					Some(adapter) => adapter,
-					None => {
-						warn!(
-							"No adapter found for solver {} (adapter_id: {})",
-							solver_id, solver.adapter_id
-						);
-						return None;
-					},
-				};
+				// Create solver adapter service for this solver
+				let solver_adapter =
+					match SolverAdapterService::from_solver(solver.clone(), adapter_registry) {
+						Ok(service) => service,
+						Err(e) => {
+							warn!(
+								"Failed to create solver adapter service for solver {}: {}",
+								solver_id, e
+							);
+							return None;
+						},
+					};
 
-				let config = SolverRuntimeConfig::from(&solver);
 				let get_quote_request = GetQuoteRequest::try_from(request.clone())
 					.map_err(|e| {
 						tracing::warn!(
@@ -124,7 +124,8 @@ impl AggregatorService {
 						e
 					})
 					.ok()?;
-				match adapter.get_quotes(&get_quote_request, &config).await {
+
+				match solver_adapter.get_quotes(&get_quote_request).await {
 					Ok(response) => {
 						// Convert adapter quotes to domain quotes with integrity checksums
 						let mut domain_quotes = Vec::new();

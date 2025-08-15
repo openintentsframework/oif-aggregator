@@ -67,7 +67,7 @@ impl TestServer {
 		// Set required environment variable for tests
 		std::env::set_var(
 			"INTEGRITY_SECRET",
-			"test-secret-for-e2e-mod-tests-12345678901234567890",
+			"test-secret-for-e2e-tests-12345678901234567890",
 		);
 
 		let (_router, state) = AggregatorBuilder::default().start().await?;

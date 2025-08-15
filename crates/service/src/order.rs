@@ -2,14 +2,14 @@
 //!
 //! Service for submitting and retrieving orders.
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::integrity::IntegrityService;
+use crate::solver_adapter_service::{SolverAdapterError, SolverAdapterService, SolverAdapterTrait};
 use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;
 use oif_types::adapters::models::SubmitOrderRequest;
-use oif_types::{Order, OrderRequest, Quote, Solver, SolverRuntimeConfig};
+use oif_types::{Order, OrderRequest, Quote};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -22,12 +22,8 @@ pub enum OrderServiceError {
 	QuoteExpired(String),
 	#[error("storage error: {0}")]
 	Storage(String),
-	#[error("solver not found: {0}")]
-	SolverNotFound(String),
-	#[error("adapter not found for solver: {0}")]
-	AdapterNotFound(String),
-	#[error("adapter error: {0}")]
-	Adapter(String),
+	#[error("solver adapter error: {0}")]
+	SolverAdapter(#[from] SolverAdapterError),
 	#[error("quote integrity verification failed")]
 	IntegrityVerificationFailed,
 	#[error("order not found: {0}")]
@@ -38,7 +34,6 @@ pub enum OrderServiceError {
 pub struct OrderService {
 	storage: Arc<dyn Storage>,
 	adapter_registry: Arc<AdapterRegistry>,
-	solvers: HashMap<String, Solver>,
 	integrity_service: Arc<IntegrityService>,
 }
 
@@ -46,13 +41,11 @@ impl OrderService {
 	pub fn new(
 		storage: Arc<dyn Storage>,
 		adapter_registry: Arc<AdapterRegistry>,
-		solvers: HashMap<String, Solver>,
 		integrity_service: Arc<IntegrityService>,
 	) -> Self {
 		Self {
 			storage,
 			adapter_registry,
-			solvers,
 			integrity_service,
 		}
 	}
@@ -83,25 +76,7 @@ impl OrderService {
 			return Err(OrderServiceError::IntegrityVerificationFailed);
 		}
 
-		// 3. Find the solver that generated this quote
-		let solver = self
-			.solvers
-			.get(&request.quote_response.solver_id)
-			.ok_or_else(|| {
-				OrderServiceError::SolverNotFound(request.quote_response.solver_id.clone())
-			})?;
-
-		// 4. Get the adapter for this solver
-		let adapter = self
-			.adapter_registry
-			.get(&solver.adapter_id)
-			.ok_or_else(|| {
-				OrderServiceError::AdapterNotFound(format!(
-					"No adapter found for solver {} (adapter_id: {})",
-					solver.solver_id, solver.adapter_id
-				))
-			})?;
-
+		// 3. Prepare the submit order request
 		let submit_order_request = SubmitOrderRequest::try_from(request.clone()).map_err(|e| {
 			OrderServiceError::Validation(format!(
 				"Failed to convert OrderRequest to SubmitOrderRequest: {}",
@@ -109,22 +84,28 @@ impl OrderService {
 			))
 		})?;
 
-		// 5. Submit the order to the solver via its adapter
-		let config = SolverRuntimeConfig::from(solver);
-		let order_response = adapter
-			.submit_order(&submit_order_request, &config)
-			.await
-			.map_err(|e| OrderServiceError::Adapter(e.to_string()))?;
+		// 4. Create solver adapter service and submit the order
+		let solver_adapter = SolverAdapterService::new(
+			&request.quote_response.solver_id,
+			self.adapter_registry.clone(),
+			self.storage.clone(),
+		)
+		.await?;
 
-		let order: Order = Order::try_from((order_response.order, solver.solver_id.clone()))
-			.map_err(|e| {
-				OrderServiceError::Validation(format!(
-					"Failed to convert GetOrderResponse to Order: {}",
-					e
-				))
-			})?;
+		let order_response = solver_adapter.submit_order(&submit_order_request).await?;
 
-		// 6. Save the order to storage
+		let order: Order = Order::try_from((
+			order_response.order,
+			request.quote_response.solver_id.clone(),
+		))
+		.map_err(|e| {
+			OrderServiceError::Validation(format!(
+				"Failed to convert GetOrderResponse to Order: {}",
+				e
+			))
+		})?;
+
+		// 5. Save the order to storage
 		self.storage
 			.create_order(order.clone())
 			.await
@@ -170,37 +151,33 @@ impl OrderService {
 			return Ok(Some(current_order));
 		}
 
-		// 3. Find the solver that originally processed this order by looking up associated quote
-		let solver = self.solvers.get(&current_order.solver_id).cloned();
-
-		let solver = match solver {
-			Some(s) => s,
-			None => {
-				// Can't determine which solver to query, return current order
+		// 3. Create solver adapter service for this order's solver
+		let solver_adapter = match SolverAdapterService::new(
+			&current_order.solver_id,
+			self.adapter_registry.clone(),
+			self.storage.clone(),
+		)
+		.await
+		{
+			Ok(adapter) => adapter,
+			Err(e) => {
+				tracing::warn!(
+					"Failed to create solver adapter for solver {}: {}",
+					current_order.solver_id,
+					e
+				);
 				return Ok(Some(current_order));
 			},
 		};
 
-		// 4. Get the adapter for this solver
-		let adapter = self
-			.adapter_registry
-			.get(&solver.adapter_id)
-			.ok_or_else(|| {
-				OrderServiceError::AdapterNotFound(format!(
-					"No adapter found for solver {} (adapter_id: {})",
-					solver.solver_id, solver.adapter_id
-				))
-			})?;
-
-		// 5. Get updated order details from the solver
-		let config = SolverRuntimeConfig::from(&solver);
-		let updated_order_response = match adapter.get_order_details(order_id, &config).await {
+		// 4. Get updated order details from the solver
+		let updated_order_response = match solver_adapter.get_order_details(order_id).await {
 			Ok(response) => response,
 			Err(e) => {
 				// Log the error but don't fail - return current order from storage
 				tracing::warn!(
 					"Failed to get order details from solver {} for order {}: {}",
-					solver.solver_id,
+					current_order.solver_id,
 					order_id,
 					e
 				);
@@ -208,18 +185,19 @@ impl OrderService {
 			},
 		};
 
-		// 6. Convert adapter response to domain order
-		let updated_order: Order =
-			Order::try_from((updated_order_response.order, solver.solver_id.clone())).map_err(
-				|e| {
-					OrderServiceError::Validation(format!(
-						"Failed to convert GetOrderResponse to Order: {}",
-						e
-					))
-				},
-			)?;
+		// 5. Convert adapter response to domain order
+		let updated_order: Order = Order::try_from((
+			updated_order_response.order,
+			current_order.solver_id.clone(),
+		))
+		.map_err(|e| {
+			OrderServiceError::Validation(format!(
+				"Failed to convert GetOrderResponse to Order: {}",
+				e
+			))
+		})?;
 
-		// 7. Check if status actually changed
+		// 6. Check if status actually changed
 		if updated_order.status != current_order.status {
 			// Update the order in storage with new status and timestamp
 			current_order.status = updated_order.status.clone();

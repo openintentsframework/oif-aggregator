@@ -5,13 +5,20 @@ use axum::{
 	http::{Request, StatusCode},
 	Router,
 };
-use oif_aggregator::serde_json::{self, json};
+use oif_aggregator::{
+	serde_json::{self, json},
+	AggregatorBuilder,
+};
 use oif_types::serde_json::Value;
 use tower::ServiceExt;
 
 mod mocks;
 
 use mocks::{api_fixtures::ApiFixtures, api_fixtures::AppStateBuilder};
+
+// Import e2e fixtures for proper integrity testing
+mod e2e;
+use e2e::fixtures;
 
 /// Create test router with async state builder
 async fn create_test_router() -> Router {
@@ -22,11 +29,28 @@ async fn create_test_router() -> Router {
 }
 
 /// Create test router with mock adapters for quote/order tests
-async fn create_test_router_with_mock_adapters() -> Router {
-	let state = AppStateBuilder::with_mock_solvers(1)
-		.await
-		.expect("Failed to create app state");
-	oif_aggregator::create_router().with_state(state)
+async fn create_test_router_with_mock_adapters() -> Result<Router, Box<dyn std::error::Error>> {
+	// Set required environment variable for tests - use same secret as e2e fixtures
+	std::env::set_var(
+		"INTEGRITY_SECRET",
+		"test-secret-for-e2e-tests-12345678901234567890",
+	);
+
+	let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
+	let mock_solver = oif_aggregator::mocks::mock_solver();
+
+	let mut settings = oif_config::Settings::default();
+	settings.security.integrity_secret =
+		oif_config::ConfigurableValue::from_env("INTEGRITY_SECRET");
+
+	let (router, _) = AggregatorBuilder::new()
+		.with_settings(settings)
+		.with_solver(mock_solver)
+		.with_adapter(Box::new(mock_adapter))?
+		.start()
+		.await?;
+
+	Ok(router)
 }
 
 #[tokio::test]
@@ -190,7 +214,9 @@ async fn test_post_orders_missing_quote() {
 
 #[tokio::test]
 async fn test_post_orders_with_quote_response() {
-	let app = create_test_router_with_mock_adapters().await;
+	let app = create_test_router_with_mock_adapters()
+		.await
+		.expect("Failed to create test router");
 
 	// Step 1: First get a real quote from the server
 	let quote_request = ApiFixtures::valid_quote_request();
@@ -298,10 +324,12 @@ async fn test_solvers_endpoint() {
 
 #[tokio::test]
 async fn test_order_workflow() {
-	let app = create_test_router().await;
+	let app = create_test_router_with_mock_adapters()
+		.await
+		.expect("Failed to create test router");
 
-	// Use mock order request for workflow test
-	let order_request = ApiFixtures::valid_order_request();
+	// Use proper order request with valid integrity checksum
+	let order_request = fixtures::valid_order_request_with_integrity();
 
 	let create_response = app
 		.clone()
@@ -316,46 +344,50 @@ async fn test_order_workflow() {
 		.await
 		.unwrap();
 
-	// Handle both success and integrity verification failure
-	if create_response.status() == StatusCode::OK {
-		let create_body = axum::body::to_bytes(create_response.into_body(), usize::MAX)
-			.await
-			.unwrap();
-		let create_json: serde_json::Value = serde_json::from_slice(&create_body).unwrap();
-		let order_id = create_json["orderId"].as_str().unwrap();
+	// Should succeed with proper integrity checksum
+	assert_eq!(create_response.status(), StatusCode::OK);
 
-		// Then query the order status
-		let status_response = app
-			.oneshot(
-				Request::builder()
-					.uri(format!("/v1/orders/{}", order_id))
-					.body(Body::empty())
-					.unwrap(),
-			)
-			.await
-			.unwrap();
+	let create_body = axum::body::to_bytes(create_response.into_body(), usize::MAX)
+		.await
+		.unwrap();
+	let create_json: serde_json::Value = serde_json::from_slice(&create_body).unwrap();
+	let order_id = create_json["orderId"].as_str().unwrap();
 
-		assert_eq!(status_response.status(), StatusCode::OK);
+	// Verify order creation response
+	assert!(create_json["orderId"].is_string());
+	assert!(create_json["status"].is_string());
 
-		let status_body = axum::body::to_bytes(status_response.into_body(), usize::MAX)
-			.await
-			.unwrap();
-		let status_json: serde_json::Value = serde_json::from_slice(&status_body).unwrap();
+	// Then query the order status to test refresh_order_status functionality
+	let status_response = app
+		.oneshot(
+			Request::builder()
+				.uri(format!("/v1/orders/{}", order_id))
+				.body(Body::empty())
+				.unwrap(),
+		)
+		.await
+		.unwrap();
 
-		assert_eq!(status_json["orderId"], order_id);
-		assert!(status_json["status"].is_string());
-	} else {
-		// Order creation failed (likely due to integrity verification)
-		assert!(create_response.status() == StatusCode::BAD_REQUEST);
-	}
+	assert_eq!(status_response.status(), StatusCode::OK);
+
+	let status_body = axum::body::to_bytes(status_response.into_body(), usize::MAX)
+		.await
+		.unwrap();
+	let status_json: serde_json::Value = serde_json::from_slice(&status_body).unwrap();
+
+	// Verify order status response
+	assert_eq!(status_json["orderId"], order_id);
+	assert!(status_json["status"].is_string());
 }
 
 #[tokio::test]
 async fn test_quote_and_order_workflow() {
-	let app = create_test_router().await;
+	let app = create_test_router_with_mock_adapters()
+		.await
+		.expect("Failed to create test router");
 
 	// Use mock quote request for workflow test
-	let quote_request = ApiFixtures::valid_quote_request();
+	let quote_request = fixtures::valid_quote_request();
 
 	let quote_response = app
 		.clone()
@@ -370,13 +402,28 @@ async fn test_quote_and_order_workflow() {
 		.await
 		.unwrap();
 
-	// Status might be 400 due to validation or 200 with empty results
-	assert!(
-		quote_response.status().is_success() || quote_response.status() == StatusCode::BAD_REQUEST
-	);
+	assert!(quote_response.status().is_success());
 
-	// Use mock order request for the second part of workflow
-	let order_request = ApiFixtures::valid_order_request();
+	let quote_body = axum::body::to_bytes(quote_response.into_body(), usize::MAX)
+		.await
+		.unwrap();
+	let quotes_json: serde_json::Value = serde_json::from_slice(&quote_body).unwrap();
+	let quotes = quotes_json["quotes"].as_array().expect("No quotes array");
+
+	if quotes.is_empty() {
+		println!("No quotes returned from mock adapter");
+		assert!(false);
+	}
+
+	let first_quote = &quotes[0];
+	let user_addr = quote_request["user"]
+		.as_str()
+		.expect("No user in quote request");
+
+	let order_request = serde_json::json!({
+			"userAddress": user_addr,
+			"quoteResponse": first_quote
+	});
 
 	let order_response = app
 		.oneshot(
@@ -391,8 +438,5 @@ async fn test_quote_and_order_workflow() {
 		.unwrap();
 
 	// Order might succeed or fail due to integrity verification
-	assert!(
-		order_response.status() == StatusCode::OK
-			|| order_response.status() == StatusCode::BAD_REQUEST
-	);
+	assert!(order_response.status() == StatusCode::OK);
 }

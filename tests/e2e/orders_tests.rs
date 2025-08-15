@@ -64,6 +64,18 @@ async fn test_orders_stateless_flow() {
     assert!(status_json["status"].is_string());
     println!("Order status: {:?}", status_json);
 
+    // retrieve the order
+    let order_resp = client
+        .get(format!("{}/v1/orders/{}", server.base_url, order_id))
+        .send()
+        .await
+        .expect("Failed to get order");
+        
+    let order_json: serde_json::Value = order_resp.json().await.expect("Failed to parse order");
+    println!("Order: {:?}", order_json);
+    assert_eq!(order_json["orderId"], order_id);
+    assert_eq!(order_json["status"], "finalized");
+
     server.abort();
 }
 

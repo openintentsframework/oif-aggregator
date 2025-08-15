@@ -186,7 +186,7 @@ impl SolverAdapter for MockDemoAdapter {
 			order: OrderResponse {
 				id: order_id.to_string(),
 				quote_id: Some("mock-quote-123".to_string()),
-				status: OrderStatus::Pending,
+				status: OrderStatus::Finalized,
 				created_at: Utc::now().timestamp() as u64 - 60,
 				updated_at: Utc::now().timestamp() as u64,
 				input_amount: AssetAmount {
@@ -374,7 +374,7 @@ impl SolverAdapter for MockTestAdapter {
 			order: OrderResponse {
 				id: order_id.to_string(),
 				quote_id: None,
-				status: OrderStatus::Created,
+				status: OrderStatus::Finalized,
 				created_at: Utc::now().timestamp() as u64,
 				updated_at: Utc::now().timestamp() as u64,
 				input_amount: AssetAmount {

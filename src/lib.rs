@@ -469,12 +469,6 @@ where
 			.validate_solvers()
 			.map_err(|e| format!("Solver validation failed: {}", e))?;
 
-		// Create solver HashMap for OrderService
-		let solver_map: std::collections::HashMap<String, Solver> = solvers
-			.into_iter()
-			.map(|solver| (solver.solver_id.clone(), solver))
-			.collect();
-
 		// Create application state
 		let storage_arc: Arc<dyn Storage> = Arc::new(self.storage.clone());
 		let app_state = AppState {
@@ -482,7 +476,6 @@ where
 			order_service: Arc::new(OrderService::new(
 				Arc::clone(&storage_arc),
 				Arc::clone(&adapter_registry),
-				solver_map,
 				Arc::clone(&integrity_service),
 			)),
 			solver_service: Arc::new(SolverService::new(
