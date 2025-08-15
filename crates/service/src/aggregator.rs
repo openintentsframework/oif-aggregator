@@ -1,7 +1,8 @@
 //! Core aggregation service logic
 
-use crate::integrity::IntegrityService;
+use crate::integrity::IntegrityTrait;
 use crate::solver_adapter_service::{SolverAdapterService, SolverAdapterTrait};
+use async_trait::async_trait;
 use futures::future::join_all;
 use oif_adapters::AdapterRegistry;
 use oif_types::{GetQuoteRequest, IntegrityPayload, Quote, QuoteRequest, Solver};
@@ -31,12 +32,22 @@ pub enum AggregatorServiceError {
 
 pub type AggregatorResult<T> = Result<T, AggregatorServiceError>;
 
+#[cfg_attr(test, mockall::automock)]
+#[async_trait]
+pub trait AggregatorTrait: Send + Sync {
+	/// Validate that all solvers have matching adapters
+	fn validate_solvers(&self) -> Result<(), String>;
+
+	/// Fetch quotes concurrently from all registered solvers
+	async fn fetch_quotes(&self, request: QuoteRequest) -> AggregatorResult<Vec<Quote>>;
+}
+
 /// Service for aggregating quotes from multiple solvers
 pub struct AggregatorService {
 	solvers: HashMap<String, Solver>,
 	adapter_registry: Arc<AdapterRegistry>,
 	global_timeout_ms: u64,
-	integrity_service: Arc<IntegrityService>,
+	integrity_service: Arc<dyn IntegrityTrait>,
 }
 
 impl AggregatorService {
@@ -45,7 +56,7 @@ impl AggregatorService {
 		solvers: Vec<Solver>,
 		adapter_registry: Arc<AdapterRegistry>,
 		global_timeout_ms: u64,
-		integrity_service: Arc<IntegrityService>,
+		integrity_service: Arc<dyn IntegrityTrait>,
 	) -> Self {
 		let mut solver_map = HashMap::new();
 		for solver in solvers {
@@ -59,9 +70,12 @@ impl AggregatorService {
 			integrity_service,
 		}
 	}
+}
 
+#[async_trait]
+impl AggregatorTrait for AggregatorService {
 	/// Validate that all solvers have matching adapters
-	pub fn validate_solvers(&self) -> Result<(), String> {
+	fn validate_solvers(&self) -> Result<(), String> {
 		for solver in self.solvers.values() {
 			if self.adapter_registry.get(&solver.adapter_id).is_none() {
 				return Err(format!(
@@ -74,7 +88,7 @@ impl AggregatorService {
 	}
 
 	/// Fetch quotes concurrently from all registered solvers using QuoteRequest
-	pub async fn fetch_quotes(&self, request: QuoteRequest) -> AggregatorResult<Vec<Quote>> {
+	async fn fetch_quotes(&self, request: QuoteRequest) -> AggregatorResult<Vec<Quote>> {
 		// Validate the request first
 		request
 			.validate()
@@ -232,8 +246,51 @@ mod tests {
 			vec![], // No solvers
 			Arc::new(AdapterRegistry::new()),
 			5000,
-			Arc::new(IntegrityService::new(SecretString::from("test-secret"))),
+			Arc::new(crate::integrity::IntegrityService::new(SecretString::from(
+				"test-secret",
+			))) as Arc<dyn IntegrityTrait>,
 		)
+	}
+
+	#[tokio::test]
+	async fn test_mock_aggregator_trait() {
+		let mut mock = MockAggregatorTrait::new();
+
+		// Setup expectations
+		mock.expect_validate_solvers().returning(|| Ok(()));
+
+		mock.expect_fetch_quotes().returning(|_| Ok(vec![]));
+
+		// Use the mock
+		assert!(mock.validate_solvers().is_ok());
+
+		let user = InteropAddress::from_text("eip155:1:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
+			.unwrap();
+		let asset =
+			InteropAddress::from_text("eip155:1:0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0")
+				.unwrap();
+
+		let request = QuoteRequest {
+			user: user.clone(),
+			available_inputs: vec![AvailableInput {
+				user: user.clone(),
+				asset: asset.clone(),
+				amount: U256::from(1000u64),
+				lock: None,
+			}],
+			requested_outputs: vec![RequestedOutput {
+				receiver: user,
+				asset,
+				amount: U256::from(500u64),
+				calldata: None,
+			}],
+			min_valid_until: None,
+			preference: None,
+			solver_options: None,
+		};
+
+		let quotes = mock.fetch_quotes(request).await.unwrap();
+		assert_eq!(quotes.len(), 0);
 	}
 
 	#[tokio::test]

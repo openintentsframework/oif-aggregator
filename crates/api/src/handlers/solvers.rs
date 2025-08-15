@@ -75,28 +75,35 @@ pub async fn get_solver_by_id(
 	State(state): State<AppState>,
 	Path(solver_id): Path<String>,
 ) -> Result<Json<SolverResponse>, (StatusCode, Json<ErrorResponse>)> {
-	let solver = state
-		.solver_service
-		.get_solver(&solver_id)
-		.await
-		.map_err(|e| match e {
-			oif_service::SolverServiceError::NotFound(_) => (
+	let solver = match state.solver_service.get_solver(&solver_id).await {
+		Ok(Some(solver)) => solver,
+		Ok(None) => {
+			return Err((
 				StatusCode::NOT_FOUND,
 				Json(ErrorResponse {
 					error: "SOLVER_NOT_FOUND".to_string(),
 					message: format!("Solver {} not found", solver_id),
 					timestamp: chrono::Utc::now().timestamp(),
 				}),
-			),
-			oif_service::SolverServiceError::Storage(msg) => (
-				StatusCode::INTERNAL_SERVER_ERROR,
-				Json(ErrorResponse {
-					error: "STORAGE_ERROR".to_string(),
-					message: msg,
-					timestamp: chrono::Utc::now().timestamp(),
-				}),
-			),
-		})?;
+			))
+		},
+		Err(e) => {
+			return Err(match e {
+				oif_service::SolverServiceError::Storage(msg) => (
+					StatusCode::INTERNAL_SERVER_ERROR,
+					Json(ErrorResponse {
+						error: "STORAGE_ERROR".to_string(),
+						message: msg,
+						timestamp: chrono::Utc::now().timestamp(),
+					}),
+				),
+				// NotFound is no longer an error case - handled above as Ok(None)
+				oif_service::SolverServiceError::NotFound(_) => {
+					unreachable!("NotFound should not occur with new signature")
+				},
+			});
+		},
+	};
 
 	let response = SolverResponse::try_from(&solver).map_err(|e| {
 		(

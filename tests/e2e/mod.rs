@@ -9,6 +9,7 @@ use tokio::task::JoinHandle;
 
 /// Test server instance with configurable settings
 pub struct TestServer {
+	#[allow(dead_code)]
 	pub base_url: String,
 	pub handle: JoinHandle<()>,
 }

@@ -4,13 +4,31 @@
 
 use std::sync::Arc;
 
-use crate::integrity::IntegrityService;
+use crate::integrity::IntegrityTrait;
 use crate::solver_adapter_service::{SolverAdapterError, SolverAdapterService, SolverAdapterTrait};
+use async_trait::async_trait;
 use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;
 use oif_types::adapters::models::SubmitOrderRequest;
-use oif_types::{Order, OrderRequest, Quote};
+use oif_types::{IntegrityPayload, Order, OrderRequest, Quote};
 use thiserror::Error;
+
+/// Trait for order service operations
+#[cfg_attr(test, mockall::automock)]
+#[async_trait::async_trait]
+pub trait OrderServiceTrait: Send + Sync {
+	/// Validate, persist and return the created order
+	async fn submit_order(&self, request: &OrderRequest) -> Result<Order, OrderServiceError>;
+
+	/// Retrieve an existing order by id
+	async fn get_order(&self, order_id: &str) -> Result<Option<Order>, OrderServiceError>;
+
+	/// Refresh order status from the solver and update storage if status changed
+	async fn refresh_order_status(
+		&self,
+		order_id: &str,
+	) -> Result<Option<Order>, OrderServiceError>;
+}
 
 #[derive(Debug, Error)]
 pub enum OrderServiceError {
@@ -34,14 +52,14 @@ pub enum OrderServiceError {
 pub struct OrderService {
 	storage: Arc<dyn Storage>,
 	adapter_registry: Arc<AdapterRegistry>,
-	integrity_service: Arc<IntegrityService>,
+	integrity_service: Arc<dyn IntegrityTrait>,
 }
 
 impl OrderService {
 	pub fn new(
 		storage: Arc<dyn Storage>,
 		adapter_registry: Arc<AdapterRegistry>,
-		integrity_service: Arc<IntegrityService>,
+		integrity_service: Arc<dyn IntegrityTrait>,
 	) -> Self {
 		Self {
 			storage,
@@ -49,9 +67,12 @@ impl OrderService {
 			integrity_service,
 		}
 	}
+}
 
+#[async_trait]
+impl OrderServiceTrait for OrderService {
 	/// Validate, persist and return the created order
-	pub async fn submit_order(&self, request: &OrderRequest) -> Result<Order, OrderServiceError> {
+	async fn submit_order(&self, request: &OrderRequest) -> Result<Order, OrderServiceError> {
 		// 1. Verify quote integrity checksum
 		if request.quote_response.integrity_checksum.is_empty() {
 			return Err(OrderServiceError::Validation(
@@ -67,9 +88,10 @@ impl OrderService {
 		})?;
 
 		// 2. Verify quote integrity using QuoteResponse directly
+		let payload = quote_domain.to_integrity_payload();
 		let is_valid = self
 			.integrity_service
-			.verify_checksum(&quote_domain, &request.quote_response.integrity_checksum)
+			.verify_checksum_from_payload(&payload, &request.quote_response.integrity_checksum)
 			.map_err(|_| OrderServiceError::IntegrityVerificationFailed)?;
 
 		if !is_valid {
@@ -115,23 +137,15 @@ impl OrderService {
 	}
 
 	/// Retrieve an existing order by id
-	pub async fn get_order(&self, order_id: &str) -> Result<Option<Order>, OrderServiceError> {
+	async fn get_order(&self, order_id: &str) -> Result<Option<Order>, OrderServiceError> {
 		self.storage
 			.get_order(order_id)
 			.await
 			.map_err(|e| OrderServiceError::Storage(e.to_string()))
 	}
 
-	/// Check if an order status is in a final state
-	fn is_final_status(status: &oif_types::OrderStatus) -> bool {
-		matches!(
-			status,
-			oif_types::OrderStatus::Finalized | oif_types::OrderStatus::Failed
-		)
-	}
-
 	/// Refresh order status from the solver and update storage if status changed
-	pub async fn refresh_order_status(
+	async fn refresh_order_status(
 		&self,
 		order_id: &str,
 	) -> Result<Option<Order>, OrderServiceError> {
@@ -218,5 +232,37 @@ impl OrderService {
 		}
 
 		Ok(Some(current_order))
+	}
+}
+
+impl OrderService {
+	/// Check if an order status is in a final state
+	fn is_final_status(status: &oif_types::OrderStatus) -> bool {
+		matches!(
+			status,
+			oif_types::OrderStatus::Finalized | oif_types::OrderStatus::Failed
+		)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[tokio::test]
+	async fn test_mock_order_service_trait() {
+		let mut mock = MockOrderServiceTrait::new();
+
+		// Setup simple expectations to verify the mock trait works
+		mock.expect_get_order().returning(|_| Ok(None));
+
+		mock.expect_refresh_order_status().returning(|_| Ok(None));
+
+		// Test the mock methods work as expected
+		let retrieved_order = mock.get_order("test-order").await.unwrap();
+		assert!(retrieved_order.is_none());
+
+		let refreshed_order = mock.refresh_order_status("test-order").await.unwrap();
+		assert!(refreshed_order.is_none());
 	}
 }

@@ -412,7 +412,7 @@ async fn test_quote_and_order_workflow() {
 
 	if quotes.is_empty() {
 		println!("No quotes returned from mock adapter");
-		assert!(false);
+		panic!()
 	}
 
 	let first_quote = &quotes[0];

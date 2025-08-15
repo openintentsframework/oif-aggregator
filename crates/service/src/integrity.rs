@@ -10,6 +10,19 @@ use std::fmt::Write;
 
 type HmacSha256 = Hmac<Sha256>;
 
+#[cfg_attr(test, mockall::automock)]
+pub trait IntegrityTrait: Send + Sync {
+	/// Generate checksum directly from a payload string
+	fn generate_checksum_from_payload(&self, payload: &str) -> Result<String, String>;
+
+	/// Verify checksum directly from a payload string
+	fn verify_checksum_from_payload(
+		&self,
+		payload: &str,
+		expected_checksum: &str,
+	) -> Result<bool, String>;
+}
+
 /// Generic integrity verification service
 ///
 /// This service can generate and verify HMAC-SHA256 checksums for any data
@@ -23,7 +36,47 @@ impl IntegrityService {
 	pub fn new(secret_key: SecretString) -> Self {
 		Self { secret_key }
 	}
+}
 
+impl IntegrityTrait for IntegrityService {
+	/// Generate checksum directly from a payload string
+	fn generate_checksum_from_payload(&self, payload: &str) -> Result<String, String> {
+		// Create HMAC instance
+		let mut mac = HmacSha256::new_from_slice(self.secret_key.expose_secret().as_bytes())
+			.map_err(|e| format!("Failed to create HMAC: {}", e))?;
+
+		// Update with payload
+		mac.update(payload.as_bytes());
+
+		// Finalize and convert to hex string
+		let result = mac.finalize();
+		let code_bytes = result.into_bytes();
+
+		// Convert to hex string
+		let mut hex_string = String::with_capacity(code_bytes.len() * 2);
+		for byte in code_bytes {
+			write!(&mut hex_string, "{:02x}", byte)
+				.map_err(|e| format!("Failed to format hex: {}", e))?;
+		}
+
+		Ok(hex_string)
+	}
+
+	/// Verify checksum directly from a payload string
+	fn verify_checksum_from_payload(
+		&self,
+		payload: &str,
+		expected_checksum: &str,
+	) -> Result<bool, String> {
+		let calculated_checksum = self.generate_checksum_from_payload(payload)?;
+		Ok(constant_time_eq(
+			calculated_checksum.as_bytes(),
+			expected_checksum.as_bytes(),
+		))
+	}
+}
+
+impl IntegrityService {
 	/// Generate HMAC-SHA256 checksum for any data implementing IntegrityPayload
 	pub fn generate_checksum<T: IntegrityPayload>(&self, data: &T) -> Result<String, String> {
 		// Create the payload to be signed
@@ -74,9 +127,6 @@ impl IntegrityService {
 	}
 
 	/// Generate checksum directly from a payload string
-	///
-	/// This is useful when you already have the canonical payload string
-	/// and don't need to implement the IntegrityPayload trait.
 	pub fn generate_checksum_from_payload(&self, payload: &str) -> Result<String, String> {
 		// Create HMAC instance
 		let mut mac = HmacSha256::new_from_slice(self.secret_key.expose_secret().as_bytes())
@@ -207,6 +257,29 @@ mod tests {
 
 		let checksum = service.sign(&data).unwrap();
 		let is_valid = service.verify(&data, &checksum).unwrap();
+		assert!(is_valid);
+	}
+
+	#[test]
+	fn test_mock_integrity_trait() {
+		let mut mock = MockIntegrityTrait::new();
+
+		// Setup expectations
+		mock.expect_generate_checksum_from_payload()
+			.returning(|_| Ok("mock-checksum".to_string()));
+
+		mock.expect_verify_checksum_from_payload()
+			.returning(|_, _| Ok(true));
+
+		// Use the mock
+		let payload = "test-payload";
+
+		let checksum = mock.generate_checksum_from_payload(payload).unwrap();
+		assert_eq!(checksum, "mock-checksum");
+
+		let is_valid = mock
+			.verify_checksum_from_payload(payload, &checksum)
+			.unwrap();
 		assert!(is_valid);
 	}
 }

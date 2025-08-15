@@ -3,7 +3,10 @@
 //! A high-performance aggregator for Open Intent Framework (OIF) solvers,
 //! providing quote aggregation, intent submission, and solver management.
 
-use oif_service::IntegrityService;
+use oif_service::{
+	AggregatorTrait, IntegrityService, IntegrityTrait, OrderService, OrderServiceTrait,
+	SolverService, SolverServiceTrait,
+};
 use oif_types::{Asset, Network};
 
 // Core domain types - the most commonly used types
@@ -42,10 +45,9 @@ pub use oif_types::{
 // Service layer
 pub use oif_service::{
 	AggregatorService,
-	OrderService,
 	OrderServiceError,
-	SolverService,
 	SolverServiceError,
+	SolverStats,
 	// Keep the full module for more advanced usage
 };
 
@@ -450,13 +452,14 @@ where
 		// Get integrity secret wrapped in SecretString for secure handling
 		let integrity_secret = settings
 			.get_integrity_secret_secure()
-			.map_err(|e| {
-				format!(
-					"Failed to resolve integrity secret: {}. Please set the INTEGRITY_SECRET environment variable with a secure random string (minimum 32 characters).",
-					e
-				)
+		.map_err(|e| {
+			format!(
+				"Failed to resolve integrity secret: {}. Please set the INTEGRITY_SECRET environment variable with a secure random string (minimum 32 characters).",
+				e
+			)
 			})?;
-		let integrity_service = Arc::new(IntegrityService::new(integrity_secret));
+		let integrity_service =
+			Arc::new(IntegrityService::new(integrity_secret)) as Arc<dyn IntegrityTrait>;
 		let aggregator_service = AggregatorService::new(
 			solvers.clone(),
 			Arc::clone(&adapter_registry),
@@ -472,16 +475,17 @@ where
 		// Create application state
 		let storage_arc: Arc<dyn Storage> = Arc::new(self.storage.clone());
 		let app_state = AppState {
-			aggregator_service: Arc::new(aggregator_service),
+			aggregator_service: Arc::new(aggregator_service)
+				as Arc<dyn oif_service::AggregatorTrait>,
 			order_service: Arc::new(OrderService::new(
 				Arc::clone(&storage_arc),
 				Arc::clone(&adapter_registry),
 				Arc::clone(&integrity_service),
-			)),
+			)) as Arc<dyn OrderServiceTrait>,
 			solver_service: Arc::new(SolverService::new(
 				Arc::clone(&storage_arc),
 				Arc::clone(&adapter_registry),
-			)),
+			)) as Arc<dyn SolverServiceTrait>,
 			storage: storage_arc,
 			integrity_service,
 		};

@@ -28,6 +28,7 @@ pub enum SolverAdapterError {
 
 /// Trait for solver adapter operations - enables easy mocking in tests
 #[async_trait]
+#[cfg_attr(test, mockall::automock)]
 pub trait SolverAdapterTrait: Send + Sync {
 	/// Get quotes from this solver
 	async fn get_quotes(
