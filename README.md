@@ -157,7 +157,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Build and start with custom solver
     let (router, state) = AggregatorBuilder::new()
-        .with_solver(solver).await
+        .with_solver(solver)
         .start().await?;
         
     // Use router and state as needed
