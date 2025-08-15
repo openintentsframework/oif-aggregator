@@ -5,15 +5,15 @@ use oif_aggregator::{api::routes::create_router, AggregatorBuilder};
 use reqwest::{get, Client};
 use tokio::task::JoinHandle;
 
+mod e2e;
+use e2e::{fixtures, TestServer};
+
 mod mocks;
-use mocks::api_fixtures::ApiFixtures;
+use mocks::api_fixtures::{ApiFixtures, INTEGRITY_SECRET};
 
 async fn spawn_server() -> Result<(String, JoinHandle<()>), Box<dyn std::error::Error>> {
 	// Set required environment variable for tests
-	std::env::set_var(
-		"INTEGRITY_SECRET",
-		"test-secret-for-e2e-tests-12345678901234567890",
-	);
+	std::env::set_var("INTEGRITY_SECRET", INTEGRITY_SECRET);
 
 	// Use AggregatorBuilder to create proper app state
 	let (_router, state) = AggregatorBuilder::default().start().await?;
@@ -128,20 +128,74 @@ async fn test_solvers_endpoint() {
 
 #[tokio::test]
 async fn test_orders_endpoint_with_mock_data() {
-	let (base_url, handle) = spawn_server().await.expect("Failed to start server");
-
+	let server = TestServer::spawn_with_mock_adapter()
+		.await
+		.expect("Failed to start test server");
 	let client = Client::new();
-	let response = client
-        .post(format!("{}/v1/orders", base_url))
-        .json(&ApiFixtures::valid_order_request())  // Use mock valid request
-        .send()
-        .await
-        .expect("Failed to post to orders endpoint");
 
-	// Should handle the valid request structure (might fail due to missing quote or integrity check)
-	assert!(response.status() == 200 || response.status() == 400 || response.status() == 422);
+	// Get a real quote from the server first
+	let quote_request = fixtures::valid_quote_request();
+	let quote_response = client
+		.post(format!("{}/v1/quotes", server.base_url))
+		.json(&quote_request)
+		.send()
+		.await
+		.expect("Failed to get quotes");
 
-	handle.abort();
+	assert!(
+		quote_response.status().is_success(),
+		"Failed to get quotes: {}",
+		quote_response.status()
+	);
+
+	let quotes_json: serde_json::Value = quote_response
+		.json()
+		.await
+		.expect("Failed to parse quotes response");
+	let quotes = quotes_json["quotes"].as_array().expect("No quotes array");
+
+	if quotes.is_empty() {
+		println!("No quotes returned from mock adapter");
+		server.handle.abort();
+		return;
+	}
+
+	let first_quote = &quotes[0];
+	let user_addr = quote_request["user"]
+		.as_str()
+		.expect("No user in quote request");
+
+	// Create order request using the real quote
+	let order_request = serde_json::json!({
+		"userAddress": user_addr,
+		"quoteResponse": first_quote
+	});
+
+	// Submit the order
+	let order_response = client
+		.post(format!("{}/v1/orders", server.base_url))
+		.json(&order_request)
+		.send()
+		.await
+		.expect("Failed to post to orders endpoint");
+
+	let status = order_response.status();
+	if !status.is_success() {
+		let error_body = order_response
+			.text()
+			.await
+			.expect("Failed to read error body");
+		println!("Order failed with status {}: {}", status, error_body);
+	}
+
+	// Should now work with proper integrity checksum
+	assert!(
+		status == 200 || status == 201,
+		"Order submission failed with status: {}",
+		status
+	);
+
+	server.handle.abort();
 }
 
 #[tokio::test]

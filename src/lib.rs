@@ -439,13 +439,6 @@ where
 			.await
 			.map_err(|e| format!("Failed to get solvers: {}", e))?;
 
-		// Fail fast if no solvers were successfully created
-		if solvers.is_empty() {
-			return Err(
-				"No solvers available. Please check your configuration and ensure at least one solver can be created successfully.".into()
-			);
-		}
-
 		info!("Successfully initialized with {} solver(s)", solvers.len());
 
 		// Use custom factory or create with defaults

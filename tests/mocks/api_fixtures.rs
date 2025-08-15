@@ -6,11 +6,13 @@ use oif_types::{
 	InteropAddress,
 };
 
-use super::entities::{MockEntities, TestConstants};
+use super::entities::TestConstants;
 
 /// API test data fixtures
 #[allow(dead_code)]
 pub struct ApiFixtures;
+
+pub static INTEGRITY_SECRET: &str = "test-secret-for-api-tests-12345678901234567890";
 
 #[allow(dead_code)]
 impl ApiFixtures {
@@ -111,7 +113,7 @@ impl ApiFixtures {
 			"userAddress": user_addr.to_hex(),
 			"quoteResponse": {
 				"quoteId": "test-quote-123",
-				"solverId": "test-solver",
+				"solverId": "mock-demo-solver",
 				"orders": [],
 				"details": {
 					"availableInputs": [],
@@ -205,10 +207,7 @@ impl AppStateBuilder {
 	/// Create minimal test app state with dependencies
 	pub async fn minimal() -> Result<AppState, Box<dyn std::error::Error>> {
 		// Set required environment variable for tests
-		std::env::set_var(
-			"INTEGRITY_SECRET",
-			"test-secret-for-api-tests-12345678901234567890",
-		);
+		std::env::set_var("INTEGRITY_SECRET", INTEGRITY_SECRET);
 
 		let (_app, state) = AggregatorBuilder::default().start().await?;
 		Ok(state)
@@ -216,34 +215,33 @@ impl AppStateBuilder {
 
 	/// Create app state with mock solvers
 	pub async fn with_mock_solvers(
-		solver_count: usize,
+		_solver_count: usize,
 	) -> Result<AppState, Box<dyn std::error::Error>> {
 		// Set required environment variable for tests
-		std::env::set_var(
-			"INTEGRITY_SECRET",
-			"test-secret-for-api-tests-12345678901234567890",
-		);
+		std::env::set_var("INTEGRITY_SECRET", INTEGRITY_SECRET);
 
-		let solvers = MockEntities::multiple_solvers(solver_count);
+		// Create minimal test settings without loading config that includes broken OIF adapter
+		let mut settings = oif_config::Settings::default();
+		settings.security.integrity_secret =
+			oif_config::ConfigurableValue::from_env("INTEGRITY_SECRET");
+
+		// Use the correct mock solver that matches the MockDemoAdapter ID
 		let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
+		let mock_solver = oif_aggregator::mocks::mock_solver();
 
-		let mut builder = AggregatorBuilder::default().with_adapter(Box::new(mock_adapter))?;
-
-		for solver in solvers {
-			builder = builder.with_solver(solver);
-		}
-
-		let (_app, state) = builder.start().await?;
+		let (_app, state) = AggregatorBuilder::default()
+			.with_settings(settings)
+			.with_adapter(Box::new(mock_adapter))?
+			.with_solver(mock_solver)
+			.start()
+			.await?;
 		Ok(state)
 	}
 
 	/// Create app state for testing with custom settings
 	pub async fn with_custom_settings() -> Result<AppState, Box<dyn std::error::Error>> {
 		// Set required environment variable for tests
-		std::env::set_var(
-			"INTEGRITY_SECRET",
-			"test-secret-for-api-tests-12345678901234567890",
-		);
+		std::env::set_var("INTEGRITY_SECRET", INTEGRITY_SECRET);
 
 		let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
 		let mock_solver = oif_aggregator::mocks::mock_solver();

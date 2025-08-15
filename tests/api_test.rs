@@ -21,6 +21,14 @@ async fn create_test_router() -> Router {
 	oif_aggregator::create_router().with_state(state)
 }
 
+/// Create test router with mock adapters for quote/order tests
+async fn create_test_router_with_mock_adapters() -> Router {
+	let state = AppStateBuilder::with_mock_solvers(1)
+		.await
+		.expect("Failed to create app state");
+	oif_aggregator::create_router().with_state(state)
+}
+
 #[tokio::test]
 async fn test_health_endpoint() {
 	let app = create_test_router().await;
@@ -182,10 +190,46 @@ async fn test_post_orders_missing_quote() {
 
 #[tokio::test]
 async fn test_post_orders_with_quote_response() {
-	let app = create_test_router().await;
+	let app = create_test_router_with_mock_adapters().await;
 
-	// Use mock valid order request with quote response
-	let request = ApiFixtures::valid_order_request();
+	// Step 1: First get a real quote from the server
+	let quote_request = ApiFixtures::valid_quote_request();
+	let quote_response = app
+		.clone()
+		.oneshot(
+			Request::builder()
+				.method("POST")
+				.uri("/v1/quotes")
+				.header("content-type", "application/json")
+				.body(Body::from(quote_request.to_string()))
+				.unwrap(),
+		)
+		.await
+		.unwrap();
+
+	assert_eq!(quote_response.status(), StatusCode::OK);
+
+	let quote_body = axum::body::to_bytes(quote_response.into_body(), usize::MAX)
+		.await
+		.unwrap();
+	let quotes_json: serde_json::Value = serde_json::from_slice(&quote_body).unwrap();
+	let quotes = quotes_json["quotes"].as_array().expect("No quotes array");
+
+	if quotes.is_empty() {
+		// If no quotes available, this test can't proceed
+		return;
+	}
+
+	let first_quote = &quotes[0];
+	let user_addr = quote_request["user"]
+		.as_str()
+		.expect("No user in quote request");
+
+	// Step 2: Create order request with the real quote
+	let order_request = json!({
+		"userAddress": user_addr,
+		"quoteResponse": first_quote
+	});
 
 	let response = app
 		.oneshot(
@@ -193,14 +237,21 @@ async fn test_post_orders_with_quote_response() {
 				.method("POST")
 				.uri("/v1/orders")
 				.header("content-type", "application/json")
-				.body(Body::from(request.to_string()))
+				.body(Body::from(order_request.to_string()))
 				.unwrap(),
 		)
 		.await
 		.unwrap();
 
-	// Will likely fail due to integrity verification, but should not be a validation error
-	assert!(response.status() == StatusCode::OK || response.status() == StatusCode::BAD_REQUEST);
+	// Should succeed with proper integrity verification
+	assert_eq!(response.status(), StatusCode::OK);
+
+	// Verify response contains order ID
+	let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+		.await
+		.unwrap();
+	let json_body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+	assert!(json_body["orderId"].is_string());
 }
 
 #[tokio::test]

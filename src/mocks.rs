@@ -82,10 +82,16 @@ impl SolverAdapter for MockDemoAdapter {
 			.first()
 			.cloned()
 			.unwrap_or_else(|| AvailableInput {
-				user: InteropAddress::from_hex("0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03")
-					.unwrap(),
-				asset: InteropAddress::from_hex("0x0000000000000000000000000000000000000000")
-					.unwrap(),
+				user: InteropAddress::from_chain_and_address(
+					1,
+					"0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03",
+				)
+				.unwrap(),
+				asset: InteropAddress::from_chain_and_address(
+					1,
+					"0x0000000000000000000000000000000000000000",
+				)
+				.unwrap(),
 				amount: U256::new("1000000000000000000".to_string()),
 				lock: None,
 			});
@@ -96,11 +102,17 @@ impl SolverAdapter for MockDemoAdapter {
 			.first()
 			.cloned()
 			.unwrap_or_else(|| RequestedOutput {
-				asset: InteropAddress::from_hex("0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0")
-					.unwrap(),
+				asset: InteropAddress::from_chain_and_address(
+					1,
+					"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
+				)
+				.unwrap(),
 				amount: U256::new("1000000".to_string()),
-				receiver: InteropAddress::from_hex("0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03")
-					.unwrap(),
+				receiver: InteropAddress::from_chain_and_address(
+					1,
+					"0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03",
+				)
+				.unwrap(),
 				calldata: None,
 			});
 
@@ -146,13 +158,19 @@ impl SolverAdapter for MockDemoAdapter {
 				created_at: Utc::now().timestamp() as u64,
 				updated_at: Utc::now().timestamp() as u64,
 				input_amount: AssetAmount {
-					asset: InteropAddress::from_hex("0x0000000000000000000000000000000000000000")
-						.unwrap(),
+					asset: InteropAddress::from_chain_and_address(
+						1,
+						"0x0000000000000000000000000000000000000000",
+					)
+					.unwrap(),
 					amount: U256::new("1000000000000000000".to_string()),
 				},
 				output_amount: AssetAmount {
-					asset: InteropAddress::from_hex("0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0")
-						.unwrap(),
+					asset: InteropAddress::from_chain_and_address(
+						1,
+						"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
+					)
+					.unwrap(),
 					amount: U256::new("1000000".to_string()),
 				},
 				settlement: Settlement {
@@ -177,13 +195,19 @@ impl SolverAdapter for MockDemoAdapter {
 				created_at: Utc::now().timestamp() as u64 - 60,
 				updated_at: Utc::now().timestamp() as u64,
 				input_amount: AssetAmount {
-					asset: InteropAddress::from_hex("0x0000000000000000000000000000000000000000")
-						.unwrap(),
+					asset: InteropAddress::from_chain_and_address(
+						1,
+						"0x0000000000000000000000000000000000000000",
+					)
+					.unwrap(),
 					amount: U256::new("1000000000000000000".to_string()),
 				},
 				output_amount: AssetAmount {
-					asset: InteropAddress::from_hex("0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0")
-						.unwrap(),
+					asset: InteropAddress::from_chain_and_address(
+						1,
+						"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
+					)
+					.unwrap(),
 					amount: U256::new("1000000".to_string()),
 				},
 				settlement: Settlement {
@@ -302,13 +326,19 @@ impl SolverAdapter for MockTestAdapter {
 				created_at: Utc::now().timestamp() as u64,
 				updated_at: Utc::now().timestamp() as u64,
 				input_amount: AssetAmount {
-					asset: InteropAddress::from_hex("0x0000000000000000000000000000000000000000")
-						.unwrap(),
+					asset: InteropAddress::from_chain_and_address(
+						1,
+						"0x0000000000000000000000000000000000000000",
+					)
+					.unwrap(),
 					amount: U256::new("0".to_string()),
 				},
 				output_amount: AssetAmount {
-					asset: InteropAddress::from_hex("0x0000000000000000000000000000000000000000")
-						.unwrap(),
+					asset: InteropAddress::from_chain_and_address(
+						1,
+						"0x0000000000000000000000000000000000000000",
+					)
+					.unwrap(),
 					amount: U256::new("0".to_string()),
 				},
 				settlement: Settlement {
@@ -341,13 +371,19 @@ impl SolverAdapter for MockTestAdapter {
 				created_at: Utc::now().timestamp() as u64,
 				updated_at: Utc::now().timestamp() as u64,
 				input_amount: AssetAmount {
-					asset: InteropAddress::from_hex("0x0000000000000000000000000000000000000000")
-						.unwrap(),
+					asset: InteropAddress::from_chain_and_address(
+						1,
+						"0x0000000000000000000000000000000000000000",
+					)
+					.unwrap(),
 					amount: U256::new("0".to_string()),
 				},
 				output_amount: AssetAmount {
-					asset: InteropAddress::from_hex("0x0000000000000000000000000000000000000000")
-						.unwrap(),
+					asset: InteropAddress::from_chain_and_address(
+						1,
+						"0x0000000000000000000000000000000000000000",
+					)
+					.unwrap(),
 					amount: U256::new("0".to_string()),
 				},
 				settlement: Settlement {

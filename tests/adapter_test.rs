@@ -11,6 +11,8 @@ mod mocks;
 
 use mocks::{configs::MockConfigs, entities::MockEntities};
 
+use crate::mocks::api_fixtures::INTEGRITY_SECRET;
+
 #[test]
 fn test_adapter_registry_creation() {
 	let registry = AdapterRegistry::new();
@@ -28,10 +30,7 @@ fn test_adapter_registry_with_defaults() {
 #[tokio::test]
 async fn test_aggregator_builder_with_mock_adapter() {
 	// Set required environment variable for tests
-	std::env::set_var(
-		"INTEGRITY_SECRET",
-		"test-secret-for-adapter-tests-12345678901234567890",
-	);
+	std::env::set_var("INTEGRITY_SECRET", INTEGRITY_SECRET);
 
 	let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
 	let mock_solver = oif_aggregator::mocks::mock_solver();
@@ -111,10 +110,7 @@ fn test_adapter_error_types() {
 #[tokio::test]
 async fn test_quote_aggregation_with_mock() {
 	// Set required environment variable for tests
-	std::env::set_var(
-		"INTEGRITY_SECRET",
-		"test-secret-for-adapter-tests-12345678901234567890",
-	);
+	std::env::set_var("INTEGRITY_SECRET", INTEGRITY_SECRET);
 
 	let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
 	let mock_solver = oif_aggregator::mocks::mock_solver();
@@ -144,10 +140,7 @@ async fn test_quote_aggregation_with_mock() {
 #[tokio::test]
 async fn test_health_check_with_solver_service() {
 	// Set required environment variable for tests
-	std::env::set_var(
-		"INTEGRITY_SECRET",
-		"test-secret-for-adapter-tests-12345678901234567890",
-	);
+	std::env::set_var("INTEGRITY_SECRET", INTEGRITY_SECRET);
 
 	let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
 	let mock_solver = oif_aggregator::mocks::mock_solver();

@@ -7,34 +7,62 @@ async fn test_orders_stateless_flow() {
     let server = TestServer::spawn_with_mock_adapter().await.expect("Failed to start test server");
     let client = Client::new();
 
-    // Create order with quote_response (stateless)
-    let resp = client
-        .post(format!("{}/v1/orders", server.base_url))
-        .json(&fixtures::valid_order_request_stateless())
+    // Step 1: Get a real quote from the server first
+    let quote_request = fixtures::valid_quote_request();
+    let quote_response = client
+        .post(format!("{}/v1/quotes", server.base_url))
+        .json(&quote_request)
         .send()
         .await
-        .unwrap();
+        .expect("Failed to get quotes");
 
-    // With mock adapter, should return 400 due to integrity verification failure (expected)
-    assert!(resp.status() == reqwest::StatusCode::BAD_REQUEST || resp.status() == reqwest::StatusCode::OK);
+    assert!(quote_response.status().is_success(), "Failed to get quotes: {}", quote_response.status());
     
-    if resp.status() == reqwest::StatusCode::OK {
-        let json: serde_json::Value = resp.json().await.unwrap();
-        let order_id = json["order_id"].as_str().unwrap();
-        assert!(!order_id.is_empty());
-
-        // Query order status
-        let resp = client
-            .get(format!("{}/v1/orders/{}", server.base_url, order_id))
-            .send()
-            .await
-            .unwrap();
-
-        assert_eq!(resp.status(), reqwest::StatusCode::OK);
-        let status_json: serde_json::Value = resp.json().await.unwrap();
-        assert_eq!(status_json["order_id"], order_id);
-        assert!(status_json["status"].is_string());
+    let quotes_json: serde_json::Value = quote_response.json().await.expect("Failed to parse quotes response");
+    let quotes = quotes_json["quotes"].as_array().expect("No quotes array");
+    
+    if quotes.is_empty() {
+        println!("No quotes returned from mock adapter");
+        server.abort();
+        return;
     }
+    
+    let first_quote = &quotes[0];
+    let user_addr = quote_request["user"].as_str().expect("No user in quote request");
+
+    // Step 2: Create order with real quote (stateless flow with quoteResponse)
+    let order_request = serde_json::json!({
+        "userAddress": user_addr,
+        "quoteResponse": first_quote
+    });
+
+    let resp = client
+        .post(format!("{}/v1/orders", server.base_url))
+        .json(&order_request)
+        .send()
+        .await
+        .expect("Failed to post order");
+
+    // Should succeed with proper integrity verification
+    assert_eq!(resp.status(), reqwest::StatusCode::OK);
+    
+    let json: serde_json::Value = resp.json().await.expect("Failed to parse order response");
+    println!("Order creation response: {:?}", json);
+    let order_id = json["orderId"].as_str().expect("No orderId in response");
+    assert!(!order_id.is_empty());
+
+    // Step 3: Query order status
+    let resp = client
+        .get(format!("{}/v1/orders/{}", server.base_url, order_id))
+        .send()
+        .await
+        .expect("Failed to get order status");
+
+    assert_eq!(resp.status(), reqwest::StatusCode::OK);
+    let status_json: serde_json::Value = resp.json().await.expect("Failed to parse order status");
+    assert_eq!(status_json["orderId"], order_id);
+    assert!(status_json["status"].is_string());
+    println!("Order status: {:?}", status_json);
 
     server.abort();
 }

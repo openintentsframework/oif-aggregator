@@ -93,15 +93,16 @@ impl TryFrom<QuoteResponse> for Quote {
 	type Error = QuoteError;
 
 	fn try_from(response: QuoteResponse) -> Result<Self, Self::Error> {
-		Ok(Self::new(
-			response.solver_id,
-			response.orders,
-			response.details,
-			response.provider,
-			response.integrity_checksum,
-		)
-		.with_valid_until(response.valid_until.unwrap_or(0))
-		.with_eta(response.eta.unwrap_or(0)))
+		Ok(Quote {
+			quote_id: response.quote_id,
+			solver_id: response.solver_id,
+			orders: response.orders,
+			details: response.details,
+			valid_until: response.valid_until,
+			eta: response.eta,
+			provider: response.provider,
+			integrity_checksum: response.integrity_checksum,
+		})
 	}
 }
 

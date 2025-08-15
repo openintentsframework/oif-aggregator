@@ -4,7 +4,7 @@ use reqwest::Client;
 
 #[tokio::test]
 async fn test_quotes_valid_request() {
-    let server = TestServer::spawn_minimal().await.expect("Failed to start test server");
+    let server = TestServer::spawn_with_mock_adapter().await.expect("Failed to start test server");
     let client = Client::new();
 
     let resp = client
@@ -15,13 +15,12 @@ async fn test_quotes_valid_request() {
         .unwrap();
 
     // Status might be 400 due to validation or 200 with empty results
-    assert!(resp.status().is_success() || resp.status() == reqwest::StatusCode::BAD_REQUEST);
+    assert!(resp.status().is_success());
     
-    if resp.status().is_success() {
         let body: serde_json::Value = resp.json().await.unwrap();
         assert!(body["quotes"].is_array());
-        assert_eq!(body["totalQuotes"], 0); // No solvers configured in test - note camelCase
-    }
+        assert_eq!(body["totalQuotes"], 1); // No solvers configured in test
+    
 
     server.abort();
 }

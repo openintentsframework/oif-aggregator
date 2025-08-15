@@ -15,6 +15,7 @@ pub struct TestServer {
 
 impl TestServer {
 	/// Spawn a test server with default settings
+	#[allow(dead_code)]
 	pub async fn spawn() -> Result<Self, Box<dyn std::error::Error>> {
 		Self::spawn_with_mock_adapter().await
 	}
@@ -24,13 +25,19 @@ impl TestServer {
 		// Set required environment variable for tests
 		std::env::set_var(
 			"INTEGRITY_SECRET",
-			"test-secret-for-e2e-mod-tests-12345678901234567890",
+			"test-secret-for-e2e-tests-12345678901234567890",
 		);
+
+		// Create minimal test settings without loading config that includes broken OIF adapter
+		let mut settings = oif_config::Settings::default();
+		settings.security.integrity_secret =
+			oif_config::ConfigurableValue::from_env("INTEGRITY_SECRET");
 
 		let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
 		let mock_solver = oif_aggregator::mocks::mock_solver();
 
 		let (_router, state) = AggregatorBuilder::default()
+			.with_settings(settings)
 			.with_adapter(Box::new(mock_adapter))?
 			.with_solver(mock_solver)
 			.start()
@@ -55,6 +62,7 @@ impl TestServer {
 	}
 
 	/// Spawn a test server with minimal configuration (no solvers)
+	#[allow(dead_code)]
 	pub async fn spawn_minimal() -> Result<Self, Box<dyn std::error::Error>> {
 		// Set required environment variable for tests
 		std::env::set_var(
@@ -86,9 +94,88 @@ impl TestServer {
 }
 
 /// Re-export API fixtures for backward compatibility
+#[allow(dead_code)]
 pub mod fixtures {
 	use crate::mocks::api_fixtures::ApiFixtures;
-	use oif_types::{serde_json::Value, InteropAddress};
+	use oif_service::IntegrityService;
+	use oif_types::{
+		chrono, quotes::QuoteResponse, AvailableInput, Quote, QuoteDetails, QuoteOrder,
+		RequestedOutput, SecretString, SignatureType, U256,
+	};
+	use oif_types::{serde_json::json, serde_json::Value, InteropAddress};
+
+	/// Create a properly signed order request for testing with integrity verification
+	pub fn valid_order_request_with_integrity() -> Value {
+		// Use the EXACT same secret as the TestServer
+		let test_secret = SecretString::from("test-secret-for-e2e-tests-12345678901234567890");
+		let integrity_service = IntegrityService::new(test_secret);
+
+		// Create test addresses
+		let user_addr =
+			InteropAddress::from_chain_and_address(1, "0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03")
+				.unwrap();
+		let eth_addr =
+			InteropAddress::from_chain_and_address(1, "0x0000000000000000000000000000000000000000")
+				.unwrap();
+		let usdc_addr =
+			InteropAddress::from_chain_and_address(1, "0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0")
+				.unwrap();
+
+		// Create quote details
+		let details = QuoteDetails {
+			available_inputs: vec![AvailableInput {
+				user: user_addr.clone(),
+				asset: eth_addr.clone(),
+				amount: U256::new("1000000000000000000".to_string()), // 1 ETH
+				lock: None,
+			}],
+			requested_outputs: vec![RequestedOutput {
+				asset: usdc_addr.clone(),
+				amount: U256::new("3000000000".to_string()), // 3000 USDC
+				receiver: user_addr.clone(),
+				calldata: None,
+			}],
+		};
+
+		// Create quote order
+		let quote_order = QuoteOrder {
+			signature_type: SignatureType::Eip712,
+			domain: user_addr.clone(),
+			primary_type: "Order".to_string(),
+			message: json!({
+				"orderType": "swap",
+				"inputAsset": eth_addr.to_hex(),
+				"outputAsset": usdc_addr.to_hex(),
+				"mockProvider": "Mock Demo Adapter"
+			}),
+		};
+
+		// Create quote (without checksum first)
+		let mut quote = Quote::new(
+			"mock-demo-solver".to_string(), // Match the solver ID used in TestServer
+			vec![quote_order],
+			details,
+			"Mock Demo Adapter Provider".to_string(), // Match MockDemoAdapter format
+			String::new(),                            // Empty checksum initially
+		);
+
+		// Set other fields
+		quote.valid_until = Some(chrono::Utc::now().timestamp() as u64 + 300); // 5 minutes from now
+		quote.eta = Some(30);
+
+		// Generate the integrity checksum
+		let integrity_checksum = integrity_service.generate_checksum(&quote).unwrap();
+		quote.integrity_checksum = integrity_checksum;
+
+		// Convert to QuoteResponse
+		let quote_response = QuoteResponse::try_from(quote).unwrap();
+
+		// Create OrderRequest
+		json!({
+			"userAddress": user_addr.to_hex(),
+			"quoteResponse": quote_response
+		})
+	}
 
 	// Re-export key fixtures for backward compatibility
 	pub fn valid_quote_request() -> Value {
