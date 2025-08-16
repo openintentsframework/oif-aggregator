@@ -303,13 +303,14 @@ where
 	}
 
 	/// Register a custom adapter (uses adapter's own ID)
-	pub fn with_adapter(mut self, adapter: Box<dyn SolverAdapter>) -> Result<Self, String> {
+	/// Panics if adapter registration fails (this is intentional for startup-time configuration errors)
+	pub fn with_adapter(mut self, adapter: Box<dyn SolverAdapter>) -> Self {
 		let mut registry = self
 			.adapter_registry
 			.unwrap_or_else(oif_adapters::AdapterRegistry::with_defaults);
-		registry.register(adapter)?;
+		registry.register(adapter).expect("Failed to register adapter during startup - this is a fatal configuration error");
 		self.adapter_registry = Some(registry);
-		Ok(self)
+		self
 	}
 }
 

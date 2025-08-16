@@ -231,7 +231,7 @@ impl AppStateBuilder {
 
 		let (_app, state) = AggregatorBuilder::default()
 			.with_settings(settings)
-			.with_adapter(Box::new(mock_adapter))?
+			.with_adapter(Box::new(mock_adapter))
 			.with_solver(mock_solver)
 			.start()
 			.await?;
@@ -247,7 +247,7 @@ impl AppStateBuilder {
 		let mock_solver = oif_aggregator::mocks::mock_solver();
 
 		let (_app, state) = AggregatorBuilder::default()
-			.with_adapter(Box::new(mock_adapter))?
+			.with_adapter(Box::new(mock_adapter))
 			.with_solver(mock_solver)
 			.start()
 			.await?;

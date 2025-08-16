@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	);
 
 	let (_app1, state1) = AggregatorBuilder::default()
-		.with_adapter(Box::new(mock_adapter1))?
+		.with_adapter(Box::new(mock_adapter1))
 		.with_solver(test_solver1)
 		.start()
 		.await?;
@@ -57,7 +57,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	);
 
 	let (_app2, state2) = AggregatorBuilder::with_storage(custom_storage)
-		.with_adapter(Box::new(mock_adapter2))?
+		.with_adapter(Box::new(mock_adapter2))
 		.with_solver(test_solver2)
 		.start()
 		.await?;
@@ -92,7 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	);
 
 	let (_app3, state3) = AggregatorBuilder::with_storage(pre_populated_storage)
-		.with_adapter(Box::new(mock_adapter3))?
+		.with_adapter(Box::new(mock_adapter3))
 		.with_solver(additional_solver)
 		.start()
 		.await?;

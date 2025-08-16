@@ -32,7 +32,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mock_solver = mock_solver();
 
 	let (_app2, _state2) = AggregatorBuilder::default()
-		.with_adapter(Box::new(mock_adapter))?
+		.with_adapter(Box::new(mock_adapter))
 		.with_solver(mock_solver)
 		.start()
 		.await?;
@@ -61,8 +61,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	);
 
 	let (_app3, state3) = AggregatorBuilder::default()
-		.with_adapter(Box::new(demo_adapter))?
-		.with_adapter(Box::new(test_adapter))?
+		.with_adapter(Box::new(demo_adapter))
+		.with_adapter(Box::new(test_adapter))
 		.with_solver(demo_solver)
 		.with_solver(test_solver)
 		.start()
@@ -100,7 +100,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	);
 
 	let (_app4, _state4) = AggregatorBuilder::default()
-		.with_adapter(Box::new(server_adapter))?
+		.with_adapter(Box::new(server_adapter))
 		.with_solver(server_solver)
 		.start()
 		.await?;
@@ -120,12 +120,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	println!("   Testing duplicate adapter ID rejection...");
 	let duplicate_adapter = MockDemoAdapter::new(); // Same ID as previous
 
-	match AggregatorBuilder::default()
-		.with_adapter(Box::new(MockDemoAdapter::new()))?
-		.with_adapter(Box::new(duplicate_adapter))
-	{
-		Ok(_) => println!("   ❌ Should have failed with duplicate adapter ID"),
-		Err(e) => println!("   ✅ Correctly rejected duplicate adapter: {}", e),
+	// Should panic when trying to register duplicate adapter
+	let result = std::panic::catch_unwind(|| {
+		AggregatorBuilder::default()
+			.with_adapter(Box::new(MockDemoAdapter::new()))
+			.with_adapter(Box::new(duplicate_adapter))
+	});
+
+	match result {
+		Ok(_) => println!("   ❌ Should have panicked with duplicate adapter ID"),
+		Err(_) => println!("   ✅ Correctly panicked with duplicate adapter"),
 	}
 
 	println!("\n6. 📊 Builder Pattern Summary");

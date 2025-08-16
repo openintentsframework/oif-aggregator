@@ -18,7 +18,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	let mock_solver = mock_solver();
 
 	let (app, _state) = AggregatorBuilder::default()
-		.with_adapter(Box::new(mock_adapter))?
+		.with_adapter(Box::new(mock_adapter))
 		.with_solver(mock_solver)
 		.start()
 		.await?;

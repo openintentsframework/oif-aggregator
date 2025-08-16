@@ -46,7 +46,7 @@ async fn create_test_router_with_mock_adapters() -> Result<Router, Box<dyn std::
 	let (router, _) = AggregatorBuilder::new()
 		.with_settings(settings)
 		.with_solver(mock_solver)
-		.with_adapter(Box::new(mock_adapter))?
+		.with_adapter(Box::new(mock_adapter))
 		.start()
 		.await?;
 

@@ -39,7 +39,7 @@ impl TestServer {
 
 		let (_router, state) = AggregatorBuilder::default()
 			.with_settings(settings)
-			.with_adapter(Box::new(mock_adapter))?
+			.with_adapter(Box::new(mock_adapter))
 			.with_solver(mock_solver)
 			.start()
 			.await?;

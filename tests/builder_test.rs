@@ -30,7 +30,6 @@ async fn test_aggregator_builder_with_mock_adapter() {
 
 	let result = AggregatorBuilder::default()
 		.with_adapter(Box::new(mock_adapter))
-		.expect("Failed to add adapter")
 		.with_solver(mock_solver)
 		.start()
 		.await;
@@ -52,13 +51,15 @@ async fn test_aggregator_builder_duplicate_adapter() {
 	let mock_adapter1 = oif_aggregator::mocks::MockDemoAdapter::new();
 	let mock_adapter2 = oif_aggregator::mocks::MockDemoAdapter::new(); // Same ID
 
-	let result = AggregatorBuilder::default()
-		.with_adapter(Box::new(mock_adapter1))
-		.expect("Failed to add first adapter")
-		.with_adapter(Box::new(mock_adapter2)); // Should fail
+	// Should panic when trying to register duplicate adapter
+	let result = std::panic::catch_unwind(|| {
+		AggregatorBuilder::default()
+			.with_adapter(Box::new(mock_adapter1))
+			.with_adapter(Box::new(mock_adapter2)) // Should panic
+	});
 
 	assert!(result.is_err());
-	// Just check that it fails - detailed error checking not needed for this test
+	// Just check that it panics - detailed error checking not needed for this test
 }
 
 #[tokio::test]
@@ -79,9 +80,7 @@ async fn test_aggregator_builder_multiple_adapters() {
 
 	let result = AggregatorBuilder::default()
 		.with_adapter(Box::new(demo_adapter))
-		.expect("Failed to add demo adapter")
 		.with_adapter(Box::new(test_adapter))
-		.expect("Failed to add test adapter")
 		.with_solver(demo_solver)
 		.with_solver(test_solver)
 		.start()

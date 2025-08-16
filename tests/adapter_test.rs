@@ -37,7 +37,6 @@ async fn test_aggregator_builder_with_mock_adapter() {
 
 	let result = AggregatorBuilder::default()
 		.with_adapter(Box::new(mock_adapter))
-		.expect("Failed to add adapter")
 		.with_solver(mock_solver)
 		.start()
 		.await;
@@ -117,7 +116,6 @@ async fn test_quote_aggregation_with_mock() {
 
 	let builder_result = AggregatorBuilder::default()
 		.with_adapter(Box::new(mock_adapter))
-		.expect("Failed to add adapter")
 		.with_solver(mock_solver)
 		.start()
 		.await;
@@ -147,7 +145,6 @@ async fn test_health_check_with_solver_service() {
 
 	let builder_result = AggregatorBuilder::default()
 		.with_adapter(Box::new(mock_adapter))
-		.expect("Failed to add adapter")
 		.with_solver(mock_solver)
 		.start()
 		.await;
@@ -169,10 +166,12 @@ async fn test_adapter_registry_duplicate_prevention() {
 	let mock_adapter1 = oif_aggregator::mocks::MockDemoAdapter::new();
 	let mock_adapter2 = oif_aggregator::mocks::MockDemoAdapter::new(); // Same ID
 
-	let result = AggregatorBuilder::default()
-		.with_adapter(Box::new(mock_adapter1))
-		.expect("Failed to add first adapter")
-		.with_adapter(Box::new(mock_adapter2)); // Should fail
+	// Should panic when trying to register duplicate adapter
+	let result = std::panic::catch_unwind(|| {
+		AggregatorBuilder::default()
+			.with_adapter(Box::new(mock_adapter1))
+			.with_adapter(Box::new(mock_adapter2)) // Should panic
+	});
 
 	assert!(result.is_err());
 	// Duplicate adapter should be rejected
