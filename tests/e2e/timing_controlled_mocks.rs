@@ -22,6 +22,7 @@ use oif_types::{AdapterError, InteropAddress, Network, SolverRuntimeConfig, U256
 #[derive(Debug, Clone)]
 pub struct CallTracker {
 	pub calls: Arc<AtomicUsize>,
+	#[allow(dead_code)]
 	pub id: String,
 }
 
@@ -98,6 +99,7 @@ impl TimingControlledAdapter {
 		}
 	}
 
+	#[allow(dead_code)]
 	pub fn call_count(&self) -> usize {
 		self.tracker.call_count()
 	}
@@ -261,7 +263,7 @@ impl SolverAdapter for TimingControlledAdapter {
 		tokio::time::sleep(Duration::from_millis(self.response_delay_ms)).await;
 
 		if self.should_fail {
-			return Err(oif_types::AdapterError::from(
+			return Err(AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {
 					reason: format!("Adapter {} configured to fail", self.id),
 				},

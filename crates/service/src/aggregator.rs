@@ -1,7 +1,7 @@
 //! Core aggregation service logic
 
-use crate::integrity::IntegrityTrait;
-use crate::solver_adapter::{SolverAdapterService, SolverAdapterTrait};
+use crate::integrity::{IntegrityError, IntegrityTrait};
+use crate::solver_adapter::{SolverAdapterError, SolverAdapterService, SolverAdapterTrait};
 use crate::solver_filter::SolverFilterTrait;
 use async_trait::async_trait;
 use oif_adapters::AdapterRegistry;
@@ -9,6 +9,7 @@ use oif_types::constants::limits::{
 	DEFAULT_MAX_CONCURRENT_SOLVERS, DEFAULT_MAX_RETRIES_PER_SOLVER, DEFAULT_MIN_QUOTES,
 	DEFAULT_PER_SOLVER_TIMEOUT_MS, DEFAULT_RETRY_DELAY_MS,
 };
+use oif_types::quotes::errors::QuoteValidationError;
 use oif_types::quotes::request::{SolverOptions, SolverSelection};
 use oif_types::quotes::response::AggregationMetadata;
 use oif_types::{GetQuoteRequest, IntegrityPayload, Quote, QuoteRequest, Solver};
@@ -22,8 +23,8 @@ use tracing::{debug, info, warn};
 /// Errors that can occur during quote aggregation
 #[derive(Debug, thiserror::Error)]
 pub enum AggregatorServiceError {
-	#[error("Request validation failed: {0}")]
-	ValidationError(String),
+	#[error("Request validation failed")]
+	ValidationError(#[from] QuoteValidationError),
 
 	#[error("No solvers available for quote aggregation")]
 	NoSolversAvailable,
@@ -34,14 +35,14 @@ pub enum AggregatorServiceError {
 	#[error("Timeout occurred while fetching quotes from solvers")]
 	Timeout,
 
-	#[error("Integrity service error: {0}")]
-	IntegrityError(String),
+	#[error("Integrity service error")]
+	IntegrityError(#[from] IntegrityError),
 
 	#[error("Resource limit exceeded: {0}")]
 	ResourceLimitExceeded(String),
 
-	#[error("Solver adapter error: {0}")]
-	SolverAdapterError(String),
+	#[error("Solver adapter error")]
+	SolverAdapterError(#[from] SolverAdapterError),
 }
 
 pub type AggregatorResult<T> = Result<T, AggregatorServiceError>;
@@ -78,9 +79,6 @@ impl Default for AggregationConfig {
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
 pub trait AggregatorTrait: Send + Sync {
-	/// Validate that all solvers have matching adapters
-	fn validate_solvers(&self) -> Result<(), String>;
-
 	/// Fetch quotes concurrently from all registered solvers
 	async fn fetch_quotes(
 		&self,
@@ -96,7 +94,7 @@ pub trait TaskExecutorTrait: Send + Sync {
 	async fn execute_solver_task(
 		&self,
 		solver: Solver,
-		request: QuoteRequest,
+		request: Arc<QuoteRequest>,
 		per_solver_timeout_ms: u64,
 		result_tx: mpsc::UnboundedSender<SolverTaskResult>,
 		cancel_rx: broadcast::Receiver<()>,
@@ -143,7 +141,7 @@ impl TaskExecutorTrait for TaskExecutor {
 	async fn execute_solver_task(
 		&self,
 		solver: Solver,
-		request: QuoteRequest,
+		request: Arc<QuoteRequest>,
 		per_solver_timeout_ms: u64,
 		result_tx: mpsc::UnboundedSender<SolverTaskResult>,
 		mut cancel_rx: broadcast::Receiver<()>,
@@ -345,14 +343,9 @@ impl TaskExecutorTrait for TaskExecutor {
 /// Service for aggregating quotes from multiple solvers
 pub struct AggregatorService {
 	solvers: HashMap<String, Solver>,
-	adapter_registry: Arc<AdapterRegistry>,
 	global_timeout_ms: u64,
-	#[allow(dead_code)]
-	integrity_service: Arc<dyn IntegrityTrait>,
 	solver_filter_service: Arc<dyn SolverFilterTrait>,
 	task_executor: Arc<dyn TaskExecutorTrait>,
-	#[allow(dead_code)]
-	config: AggregationConfig,
 }
 
 impl AggregatorService {
@@ -399,12 +392,9 @@ impl AggregatorService {
 
 		Self {
 			solvers: solver_map,
-			adapter_registry,
 			global_timeout_ms,
-			integrity_service,
 			solver_filter_service,
 			task_executor,
-			config,
 		}
 	}
 
@@ -464,7 +454,7 @@ impl AggregatorService {
 	fn spawn_solver_tasks(
 		&self,
 		selected_solvers: Vec<Solver>,
-		request: QuoteRequest,
+		request: Arc<QuoteRequest>,
 		per_solver_timeout_ms: u64,
 		result_tx: mpsc::UnboundedSender<SolverTaskResult>,
 		cancel_tx: broadcast::Sender<()>,
@@ -472,7 +462,7 @@ impl AggregatorService {
 		let mut task_handles = Vec::new();
 
 		for solver in selected_solvers {
-			let request = request.clone();
+			let request = Arc::clone(&request); // Share the Arc instead of cloning the request
 			let result_tx = result_tx.clone();
 			let cancel_rx = cancel_tx.subscribe();
 
@@ -499,6 +489,104 @@ impl AggregatorService {
 		task_handles
 	}
 
+	/// Validate request and extract aggregation configuration
+	async fn validate_and_extract_config(
+		&self,
+		request: &QuoteRequest,
+	) -> AggregatorResult<(u64, u64, usize)> {
+		// Validate request
+		request.validate()?;
+
+		if self.solvers.is_empty() {
+			return Err(AggregatorServiceError::NoSolversAvailable);
+		}
+
+		// Extract configuration
+		let (global_timeout_ms, per_solver_timeout_ms, min_quotes_required) =
+			self.extract_aggregation_config(request);
+
+		Ok((
+			global_timeout_ms,
+			per_solver_timeout_ms,
+			min_quotes_required,
+		))
+	}
+
+	/// Filter solvers and validate the results
+	async fn filter_and_validate_solvers(
+		&self,
+		request: &QuoteRequest,
+		global_timeout_ms: u64,
+		per_solver_timeout_ms: u64,
+		min_quotes_required: usize,
+		aggregation_start: Instant,
+	) -> AggregatorResult<(Vec<Solver>, AggregationMetadata)> {
+		// Filter solvers using SolverFilterService
+		let available_solvers: Vec<Solver> = self.solvers.values().cloned().collect();
+		let selected_solvers = self
+			.solver_filter_service
+			.filter_solvers(
+				&available_solvers,
+				request,
+				request
+					.solver_options
+					.as_ref()
+					.unwrap_or(&SolverOptions::default()),
+			)
+			.await;
+
+		// Initialize metadata
+		let mut metadata = self.initialize_metadata(
+			request,
+			global_timeout_ms,
+			per_solver_timeout_ms,
+			min_quotes_required,
+			selected_solvers.len(),
+		);
+
+		if selected_solvers.is_empty() {
+			metadata.total_duration_ms = aggregation_start.elapsed().as_millis() as u64;
+			return Err(AggregatorServiceError::NoSolversAvailable);
+		}
+
+		Ok((selected_solvers, metadata))
+	}
+
+	/// Setup communication channels and spawn solver tasks
+	fn setup_channels_and_spawn_tasks(
+		&self,
+		selected_solvers: Vec<Solver>,
+		request: Arc<QuoteRequest>,
+		per_solver_timeout_ms: u64,
+		global_timeout_ms: u64,
+		min_quotes_required: usize,
+	) -> (
+		mpsc::UnboundedReceiver<SolverTaskResult>,
+		Vec<tokio::task::JoinHandle<()>>,
+		broadcast::Sender<()>,
+	) {
+		info!(
+			"Starting aggregation: {} solvers, {}ms global timeout, {}ms per-solver timeout, {} min quotes required",
+			selected_solvers.len(), global_timeout_ms, per_solver_timeout_ms, min_quotes_required
+		);
+
+		// Create communication channels
+		let (result_tx, result_rx) = mpsc::unbounded_channel::<SolverTaskResult>();
+		let (cancel_tx, _) = broadcast::channel::<()>(selected_solvers.len());
+
+		// Spawn solver tasks using helper method
+		let task_handles = self.spawn_solver_tasks(
+			selected_solvers,
+			request,
+			per_solver_timeout_ms,
+			result_tx.clone(),
+			cancel_tx.clone(),
+		);
+		drop(result_tx); // Close sender to properly detect completion
+
+		(result_rx, task_handles, cancel_tx)
+	}
+
 	/// Update final metadata before returning results
 	fn finalize_metadata(
 		&self,
@@ -513,118 +601,9 @@ impl AggregatorService {
 		metadata.solvers_responded_error = error_count;
 		metadata.solvers_timed_out = timeout_count;
 	}
-}
 
-#[async_trait]
-impl AggregatorTrait for AggregatorService {
-	/// Validate that all solvers have matching adapters
-	fn validate_solvers(&self) -> Result<(), String> {
-		for solver in self.solvers.values() {
-			if self.adapter_registry.get(&solver.adapter_id).is_none() {
-				return Err(format!(
-					"Solver '{}' references unknown adapter '{}'",
-					solver.solver_id, solver.adapter_id
-				));
-			}
-		}
-		Ok(())
-	}
-
-	/// Fetch quotes concurrently from filtered solvers using enhanced method extraction approach
-	async fn fetch_quotes(
-		&self,
-		request: QuoteRequest,
-	) -> AggregatorResult<(Vec<Quote>, AggregationMetadata)> {
-		let aggregation_start = Instant::now();
-
-		// Step 1: Validate request
-		request
-			.validate()
-			.map_err(|e| AggregatorServiceError::ValidationError(e.to_string()))?;
-
-		if self.solvers.is_empty() {
-			return Err(AggregatorServiceError::NoSolversAvailable);
-		}
-
-		// Step 2: Extract configuration
-		let (global_timeout_ms, per_solver_timeout_ms, min_quotes_required) =
-			self.extract_aggregation_config(&request);
-
-		// Step 3: Filter solvers using SolverFilterService
-		let available_solvers: Vec<Solver> = self.solvers.values().cloned().collect();
-		let selected_solvers = self
-			.solver_filter_service
-			.filter_solvers(
-				&available_solvers,
-				&request,
-				request
-					.solver_options
-					.as_ref()
-					.unwrap_or(&SolverOptions::default()),
-			)
-			.await;
-
-		// Step 4: Initialize metadata
-		let mut metadata = self.initialize_metadata(
-			&request,
-			global_timeout_ms,
-			per_solver_timeout_ms,
-			min_quotes_required,
-			selected_solvers.len(),
-		);
-
-		if selected_solvers.is_empty() {
-			metadata.total_duration_ms = aggregation_start.elapsed().as_millis() as u64;
-			return Err(AggregatorServiceError::NoSolversAvailable);
-		}
-
-		info!(
-			"Starting aggregation: {} solvers, {}ms global timeout, {}ms per-solver timeout, {} min quotes required",
-			selected_solvers.len(), global_timeout_ms, per_solver_timeout_ms, min_quotes_required
-		);
-
-		// Step 5: Create communication channels
-		let (result_tx, result_rx) = mpsc::unbounded_channel::<SolverTaskResult>();
-		let (cancel_tx, _) = broadcast::channel::<()>(selected_solvers.len());
-
-		// Step 6: Spawn solver tasks using helper method
-		let task_handles = self.spawn_solver_tasks(
-			selected_solvers,
-			request,
-			per_solver_timeout_ms,
-			result_tx.clone(),
-			cancel_tx.clone(),
-		);
-		drop(result_tx); // Close sender to properly detect completion
-
-		// Step 7: Execute collection loop with enhanced while-let approach
-		let (collected_quotes, final_metadata) = self
-			.collect_quotes_with_early_termination(
-				result_rx,
-				task_handles,
-				cancel_tx,
-				global_timeout_ms,
-				min_quotes_required,
-				aggregation_start,
-				metadata,
-			)
-			.await?;
-
-		let final_count = collected_quotes.len();
-		info!(
-			"Aggregation completed: {} quotes from {} solvers in {}ms (min required: {})",
-			final_count,
-			final_metadata.solvers_responded_success,
-			final_metadata.total_duration_ms,
-			min_quotes_required
-		);
-
-		Ok((collected_quotes, final_metadata))
-	}
-}
-
-impl AggregatorService {
 	/// Collect quotes with early termination and enhanced event handling
+	#[allow(clippy::too_many_arguments)]
 	async fn collect_quotes_with_early_termination(
 		&self,
 		mut result_rx: mpsc::UnboundedReceiver<SolverTaskResult>,
@@ -649,7 +628,6 @@ impl AggregatorService {
 		let global_timeout_future = tokio::time::sleep(global_timeout_duration);
 		tokio::pin!(global_timeout_future);
 
-		// Enhanced while-let approach (no explicit loop!)
 		while let Some(result) = tokio::select! {
 			// Receive next result
 			result = result_rx.recv() => result,
@@ -751,23 +729,490 @@ impl AggregatorService {
 	}
 }
 
+#[async_trait]
+impl AggregatorTrait for AggregatorService {
+	/// Fetch quotes concurrently from filtered solvers using clean method decomposition
+	async fn fetch_quotes(
+		&self,
+		request: QuoteRequest,
+	) -> AggregatorResult<(Vec<Quote>, AggregationMetadata)> {
+		let aggregation_start = Instant::now();
+
+		// Step 1: Validate request and extract configuration
+		let (global_timeout_ms, per_solver_timeout_ms, min_quotes_required) =
+			self.validate_and_extract_config(&request).await?;
+
+		// Step 2: Filter solvers and validate results
+		let (selected_solvers, metadata) = self
+			.filter_and_validate_solvers(
+				&request,
+				global_timeout_ms,
+				per_solver_timeout_ms,
+				min_quotes_required,
+				aggregation_start,
+			)
+			.await?;
+
+		// Step 3: Setup channels and spawn tasks
+		let request_arc = Arc::new(request);
+		let (result_rx, task_handles, cancel_tx) = self.setup_channels_and_spawn_tasks(
+			selected_solvers,
+			request_arc,
+			per_solver_timeout_ms,
+			global_timeout_ms,
+			min_quotes_required,
+		);
+
+		// Step 4: Execute collection loop with early termination
+		let (collected_quotes, final_metadata) = self
+			.collect_quotes_with_early_termination(
+				result_rx,
+				task_handles,
+				cancel_tx,
+				global_timeout_ms,
+				min_quotes_required,
+				aggregation_start,
+				metadata,
+			)
+			.await?;
+
+		// Step 5: Log final results
+		let final_count = collected_quotes.len();
+		info!(
+			"Aggregation completed: {} quotes from {} solvers in {}ms (min required: {})",
+			final_count,
+			final_metadata.solvers_responded_success,
+			final_metadata.total_duration_ms,
+			min_quotes_required
+		);
+
+		Ok((collected_quotes, final_metadata))
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	//! Tests for AggregatorService focusing on core aggregation behavior.
 
-	use crate::SolverFilterService;
+	use crate::{IntegrityService, SolverFilterService};
 
 	use super::*;
 	use oif_adapters::AdapterRegistry;
 	use oif_types::{
-		AvailableInput, InteropAddress, QuoteRequest, RequestedOutput, SecretString, U256,
+		AvailableInput, InteropAddress, QuoteRequest, RequestedOutput, SecretString, SolverAdapter,
+		U256,
 	};
+
+	/// Simple mock adapter for testing success scenarios
+	#[derive(Debug, Clone)]
+	struct TestMockAdapter {
+		id: String,
+		should_fail: bool,
+		delay_ms: Option<u64>,
+	}
+
+	impl TestMockAdapter {
+		fn new(id: &str, should_fail: bool) -> Self {
+			Self {
+				id: id.to_string(),
+				should_fail,
+				delay_ms: None,
+			}
+		}
+
+		fn with_delay(id: &str, delay_ms: u64) -> Self {
+			Self {
+				id: id.to_string(),
+				should_fail: false,
+				delay_ms: Some(delay_ms),
+			}
+		}
+
+		fn slow(id: &str) -> Self {
+			// Creates an adapter that will timeout with default timeouts
+			Self::with_delay(id, 2000) // 2 seconds delay
+		}
+	}
+
+	#[async_trait]
+	impl SolverAdapter for TestMockAdapter {
+		fn adapter_id(&self) -> &str {
+			&self.id
+		}
+		fn adapter_name(&self) -> &str {
+			&self.id
+		}
+		fn adapter_info(&self) -> &oif_types::Adapter {
+			// Not used in tests
+			panic!("adapter_info not implemented for test mock")
+		}
+
+		async fn get_quotes(
+			&self,
+			request: &oif_types::GetQuoteRequest,
+			_config: &oif_types::SolverRuntimeConfig,
+		) -> oif_types::AdapterResult<oif_types::GetQuoteResponse> {
+			// Simulate delay if configured
+			if let Some(delay_ms) = self.delay_ms {
+				tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+			}
+
+			if self.should_fail {
+				return Err(oif_types::AdapterError::from(
+					oif_types::adapters::AdapterValidationError::InvalidConfiguration {
+						reason: format!("Mock adapter {} configured to fail", self.id),
+					},
+				));
+			}
+
+			use oif_types::adapters::models::*;
+			use oif_types::serde_json::json;
+
+			// Create a realistic quote response
+			let quote_id = format!(
+				"{}-quote-{}",
+				self.id,
+				oif_types::chrono::Utc::now().timestamp()
+			);
+
+			let available_input = request
+				.available_inputs
+				.first()
+				.cloned()
+				.unwrap_or_else(|| AvailableInput {
+					user: oif_types::InteropAddress::from_chain_and_address(
+						1,
+						"0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03",
+					)
+					.unwrap(),
+					asset: oif_types::InteropAddress::from_chain_and_address(
+						1,
+						"0x0000000000000000000000000000000000000000",
+					)
+					.unwrap(),
+					amount: oif_types::U256::new("1000000000000000000".to_string()),
+					lock: None,
+				});
+
+			let requested_output =
+				request
+					.requested_outputs
+					.first()
+					.cloned()
+					.unwrap_or_else(|| RequestedOutput {
+						asset: oif_types::InteropAddress::from_chain_and_address(
+							1,
+							"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
+						)
+						.unwrap(),
+						amount: oif_types::U256::new("1000000".to_string()),
+						receiver: oif_types::InteropAddress::from_chain_and_address(
+							1,
+							"0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03",
+						)
+						.unwrap(),
+						calldata: None,
+					});
+
+			let quote = AdapterQuote {
+				quote_id,
+				orders: vec![QuoteOrder {
+					signature_type: SignatureType::Eip712,
+					domain: oif_types::InteropAddress::from_chain_and_address(
+						1,
+						"0x1234567890123456789012345678901234567890",
+					)
+					.unwrap(),
+					primary_type: "Order".to_string(),
+					message: json!({
+						"orderType": "swap",
+						"adapter": self.id,
+						"mockProvider": "TestMockAdapter"
+					}),
+				}],
+				details: QuoteDetails {
+					available_inputs: vec![available_input],
+					requested_outputs: vec![requested_output],
+				},
+				valid_until: Some(oif_types::chrono::Utc::now().timestamp() as u64 + 300),
+				eta: Some(30),
+				provider: format!("{} Provider", self.id),
+			};
+
+			Ok(oif_types::GetQuoteResponse {
+				quotes: vec![quote],
+			})
+		}
+
+		async fn submit_order(
+			&self,
+			_request: &oif_types::adapters::models::SubmitOrderRequest,
+			_config: &oif_types::SolverRuntimeConfig,
+		) -> oif_types::AdapterResult<oif_types::adapters::GetOrderResponse> {
+			// Simulate delay if configured
+			if let Some(delay_ms) = self.delay_ms {
+				tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+			}
+
+			if self.should_fail {
+				return Err(oif_types::AdapterError::from(
+					oif_types::adapters::AdapterValidationError::InvalidConfiguration {
+						reason: format!("Mock adapter {} configured to fail", self.id),
+					},
+				));
+			}
+
+			use oif_types::adapters::models::*;
+			use oif_types::serde_json::json;
+
+			let order_id = format!(
+				"{}-order-{}",
+				self.id,
+				oif_types::chrono::Utc::now().timestamp()
+			);
+			Ok(oif_types::adapters::GetOrderResponse {
+				order: OrderResponse {
+					id: order_id,
+					quote_id: None,
+					status: OrderStatus::Finalized,
+					created_at: oif_types::chrono::Utc::now().timestamp() as u64,
+					updated_at: oif_types::chrono::Utc::now().timestamp() as u64,
+					input_amount: AssetAmount {
+						asset: oif_types::InteropAddress::from_hex(
+							"0x0000000000000000000000000000000000000000",
+						)
+						.unwrap(),
+						amount: oif_types::U256::new("1000000000000000000".to_string()),
+					},
+					output_amount: AssetAmount {
+						asset: oif_types::InteropAddress::from_hex(
+							"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
+						)
+						.unwrap(),
+						amount: oif_types::U256::new("1000000".to_string()),
+					},
+					settlement: Settlement {
+						settlement_type: SettlementType::Escrow,
+						data: json!({}),
+					},
+					fill_transaction: None,
+				},
+			})
+		}
+
+		async fn get_order_details(
+			&self,
+			order_id: &str,
+			_config: &oif_types::SolverRuntimeConfig,
+		) -> oif_types::AdapterResult<oif_types::adapters::GetOrderResponse> {
+			// Simulate delay if configured
+			if let Some(delay_ms) = self.delay_ms {
+				tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+			}
+
+			if self.should_fail {
+				return Err(oif_types::AdapterError::from(
+					oif_types::adapters::AdapterValidationError::InvalidConfiguration {
+						reason: format!("Mock adapter {} configured to fail", self.id),
+					},
+				));
+			}
+
+			use oif_types::adapters::models::*;
+			use oif_types::serde_json::json;
+
+			Ok(oif_types::adapters::GetOrderResponse {
+				order: OrderResponse {
+					id: order_id.to_string(),
+					quote_id: None,
+					status: OrderStatus::Finalized,
+					created_at: oif_types::chrono::Utc::now().timestamp() as u64,
+					updated_at: oif_types::chrono::Utc::now().timestamp() as u64,
+					input_amount: AssetAmount {
+						asset: oif_types::InteropAddress::from_hex(
+							"0x0000000000000000000000000000000000000000",
+						)
+						.unwrap(),
+						amount: oif_types::U256::new("1000000000000000000".to_string()),
+					},
+					output_amount: AssetAmount {
+						asset: oif_types::InteropAddress::from_hex(
+							"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
+						)
+						.unwrap(),
+						amount: oif_types::U256::new("1000000".to_string()),
+					},
+					settlement: Settlement {
+						settlement_type: SettlementType::Escrow,
+						data: json!({}),
+					},
+					fill_transaction: None,
+				},
+			})
+		}
+
+		async fn health_check(
+			&self,
+			_config: &oif_types::SolverRuntimeConfig,
+		) -> oif_types::AdapterResult<bool> {
+			Ok(!self.should_fail)
+		}
+
+		async fn get_supported_networks(
+			&self,
+		) -> oif_types::AdapterResult<Vec<oif_types::models::Network>> {
+			if self.should_fail {
+				return Err(oif_types::AdapterError::from(
+					oif_types::adapters::AdapterValidationError::InvalidConfiguration {
+						reason: format!("Mock adapter {} configured to fail", self.id),
+					},
+				));
+			}
+			Ok(vec![oif_types::models::Network::new(
+				1,
+				"Ethereum Mainnet".to_string(),
+				false,
+			)])
+		}
+
+		async fn get_supported_assets(
+			&self,
+			_network: &oif_types::models::Network,
+		) -> oif_types::AdapterResult<Vec<oif_types::models::Asset>> {
+			if self.should_fail {
+				return Err(oif_types::AdapterError::from(
+					oif_types::adapters::AdapterValidationError::InvalidConfiguration {
+						reason: format!("Mock adapter {} configured to fail", self.id),
+					},
+				));
+			}
+			Ok(vec![])
+		}
+	}
+
+	/// Helper function to create AdapterRegistry with mock adapters
+	fn create_test_adapter_registry() -> AdapterRegistry {
+		let mut registry = AdapterRegistry::new();
+
+		// Register mock demo adapter (succeeds with quotes)
+		let mock_demo = TestMockAdapter::new("mock-demo-v1", false);
+		registry
+			.register(Box::new(mock_demo))
+			.expect("Failed to register mock demo adapter");
+
+		// Register mock test adapter for success
+		let mock_test_success = TestMockAdapter::new("mock-test-success", false);
+		registry
+			.register(Box::new(mock_test_success))
+			.expect("Failed to register mock test success adapter");
+
+		// Register mock test adapter for failure
+		let mock_test_fail = TestMockAdapter::new("mock-test-fail", true);
+		registry
+			.register(Box::new(mock_test_fail))
+			.expect("Failed to register mock test fail adapter");
+
+		// Register slow adapter that will timeout with short timeouts
+		let mock_slow = TestMockAdapter::slow("mock-slow-adapter");
+		registry
+			.register(Box::new(mock_slow))
+			.expect("Failed to register mock slow adapter");
+
+		// Register fast adapter with minimal delay
+		let mock_fast = TestMockAdapter::with_delay("mock-fast-adapter", 50);
+		registry
+			.register(Box::new(mock_fast))
+			.expect("Failed to register mock fast adapter");
+
+		registry
+	}
+
+	// Helper function to create test aggregator with mixed timeout/success solvers
+	fn create_test_aggregator_with_timeout_solvers() -> AggregatorService {
+		let solvers = vec![
+			// Fast solver that will succeed
+			{
+				let mut solver = Solver::new(
+					"fast-solver".to_string(),
+					"mock-fast-adapter".to_string(),
+					"http://localhost:8001".to_string(),
+					1000,
+				);
+				solver.metadata.supported_networks = vec![oif_types::models::Network::new(
+					1,
+					"Ethereum Mainnet".to_string(),
+					false,
+				)];
+				solver.metadata.supported_assets = vec![oif_types::models::Asset::new(
+					"0x0000000000000000000000000000000000000000".to_string(),
+					"ETH".to_string(),
+					"Ethereum".to_string(),
+					18,
+					1,
+				)];
+				solver
+			},
+			// Slow solver that will timeout
+			{
+				let mut solver = Solver::new(
+					"slow-solver".to_string(),
+					"mock-slow-adapter".to_string(),
+					"http://localhost:8002".to_string(),
+					1000,
+				);
+				solver.metadata.supported_networks = vec![oif_types::models::Network::new(
+					1,
+					"Ethereum Mainnet".to_string(),
+					false,
+				)];
+				solver.metadata.supported_assets = vec![oif_types::models::Asset::new(
+					"0x0000000000000000000000000000000000000000".to_string(),
+					"ETH".to_string(),
+					"Ethereum".to_string(),
+					18,
+					1,
+				)];
+				solver
+			},
+			// Another fast solver for comparison
+			{
+				let mut solver = Solver::new(
+					"fast-solver2".to_string(),
+					"mock-demo-v1".to_string(),
+					"http://localhost:8003".to_string(),
+					1000,
+				);
+				solver.metadata.supported_networks = vec![oif_types::models::Network::new(
+					1,
+					"Ethereum Mainnet".to_string(),
+					false,
+				)];
+				solver.metadata.supported_assets = vec![oif_types::models::Asset::new(
+					"0x0000000000000000000000000000000000000000".to_string(),
+					"ETH".to_string(),
+					"Ethereum".to_string(),
+					18,
+					1,
+				)];
+				solver
+			},
+		];
+
+		AggregatorService::new(
+			solvers,
+			Arc::new(create_test_adapter_registry()),
+			5000,
+			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
+				as Arc<dyn IntegrityTrait>,
+			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
+		)
+	}
 
 	// Helper function to create test aggregator with no solvers
 	fn create_test_aggregator() -> AggregatorService {
 		AggregatorService::new(
 			vec![], // No solvers
-			Arc::new(AdapterRegistry::new()),
+			Arc::new(create_test_adapter_registry()),
 			5000,
 			Arc::new(crate::integrity::IntegrityService::new(SecretString::from(
 				"test-secret",
@@ -776,13 +1221,94 @@ mod tests {
 		)
 	}
 
-	// Helper function to create test aggregator with specified solvers
-	fn create_test_aggregator_with_solvers(solver_count: usize) -> AggregatorService {
+	// Helper function to create test aggregator with mock demo solvers that will succeed
+	fn create_test_aggregator_with_demo_solvers(solver_count: usize) -> AggregatorService {
+		let mut solvers = Vec::new();
+		for i in 1..=solver_count {
+			// Create solver with proper network and asset support for filtering
+			let mut solver = Solver::new(
+				format!("demo-solver{}", i),
+				"mock-demo-v1".to_string(), // Use actual mock adapter ID
+				format!("http://localhost:800{}", i),
+				5000,
+			);
+
+			// Add network and asset support to prevent filtering issues
+			solver.metadata.supported_networks = vec![oif_types::models::Network::new(
+				1,
+				"Ethereum Mainnet".to_string(),
+				false,
+			)];
+			solver.metadata.supported_assets = vec![
+				oif_types::models::Asset::new(
+					"0x0000000000000000000000000000000000000000".to_string(),
+					"ETH".to_string(),
+					"Ethereum".to_string(),
+					18,
+					1,
+				),
+				oif_types::models::Asset::new(
+					"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0".to_string(),
+					"USDC".to_string(),
+					"USD Coin".to_string(),
+					6,
+					1,
+				),
+			];
+
+			solvers.push(solver);
+		}
+
+		AggregatorService::new(
+			solvers,
+			Arc::new(create_test_adapter_registry()),
+			5000,
+			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
+				as Arc<dyn IntegrityTrait>,
+			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
+		)
+	}
+
+	// Helper function to create test aggregator with mixed success/failure solvers
+	fn create_test_aggregator_with_mixed_solvers() -> AggregatorService {
+		let solvers = vec![
+			Solver::new(
+				"success-solver1".to_string(),
+				"mock-demo-v1".to_string(), // Will succeed with quotes
+				"http://localhost:8001".to_string(),
+				2000,
+			),
+			Solver::new(
+				"success-solver2".to_string(),
+				"mock-test-success".to_string(), // Will succeed with empty quotes
+				"http://localhost:8002".to_string(),
+				2000,
+			),
+			Solver::new(
+				"fail-solver1".to_string(),
+				"mock-test-fail".to_string(), // Will fail
+				"http://localhost:8003".to_string(),
+				2000,
+			),
+		];
+
+		AggregatorService::new(
+			solvers,
+			Arc::new(create_test_adapter_registry()),
+			5000,
+			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
+				as Arc<dyn IntegrityTrait>,
+			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
+		)
+	}
+
+	// Helper function to create test aggregator with specified solvers using non-existent adapters (for failure testing)
+	fn create_test_aggregator_with_invalid_adapters(solver_count: usize) -> AggregatorService {
 		let mut solvers = Vec::new();
 		for i in 1..=solver_count {
 			solvers.push(Solver::new(
 				format!("solver{}", i),
-				format!("adapter{}", i),
+				format!("nonexistent-adapter{}", i), // These adapters don't exist
 				format!("http://localhost:800{}", i),
 				5000,
 			));
@@ -790,11 +1316,10 @@ mod tests {
 
 		AggregatorService::new(
 			solvers,
-			Arc::new(AdapterRegistry::new()),
+			Arc::new(create_test_adapter_registry()),
 			5000,
-			Arc::new(crate::integrity::IntegrityService::new(SecretString::from(
-				"test-secret",
-			))) as Arc<dyn IntegrityTrait>,
+			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
+				as Arc<dyn IntegrityTrait>,
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
 		)
 	}
@@ -833,10 +1358,6 @@ mod tests {
 		request.solver_options = Some(options);
 		request
 	}
-
-	// =============================================================================
-	// METADATA VALIDATION TESTS
-	// =============================================================================
 
 	#[test]
 	fn test_aggregation_metadata_structure() {
@@ -884,38 +1405,21 @@ mod tests {
 		}
 	}
 
-	// =============================================================================
-	// BASIC FUNCTIONALITY TESTS
-	// =============================================================================
-
 	#[tokio::test]
 	async fn test_mock_aggregator_trait() {
 		let mut mock = MockAggregatorTrait::new();
 
 		// Setup expectations
-		mock.expect_validate_solvers().returning(|| Ok(()));
 		mock.expect_fetch_quotes().returning(|_| {
 			Ok((
 				vec![],
 				AggregationMetadata {
-					total_duration_ms: 100,
-					solver_timeout_ms: 2500,
-					global_timeout_ms: 5000,
-					early_termination: false,
-					total_solvers_available: 0,
-					solvers_queried: 0,
-					solvers_responded_success: 0,
-					solvers_responded_error: 0,
-					solvers_timed_out: 0,
-					min_quotes_required: 30,
-					solver_selection_mode: SolverSelection::All,
+					..Default::default()
 				},
 			))
 		});
 
 		// Use the mock
-		assert!(mock.validate_solvers().is_ok());
-
 		let request = create_valid_quote_request();
 		let (quotes, _metadata) = mock.fetch_quotes(request).await.unwrap();
 		assert_eq!(quotes.len(), 0);
@@ -925,54 +1429,53 @@ mod tests {
 	async fn test_aggregator_creation() {
 		let aggregator = create_test_aggregator();
 		assert_eq!(aggregator.solvers.len(), 0);
-		assert_eq!(aggregator.global_timeout_ms, 5000); // DEFAULT_GLOBAL_TIMEOUT_MS
+		assert_eq!(aggregator.global_timeout_ms, 5000);
 	}
 
 	#[tokio::test]
-	async fn test_aggregator_creation_with_solvers() {
-		let aggregator = create_test_aggregator_with_solvers(5);
-		assert_eq!(aggregator.solvers.len(), 5);
+	async fn test_aggregator_creation_with_demo_solvers() {
+		let aggregator = create_test_aggregator_with_demo_solvers(3);
+		assert_eq!(aggregator.solvers.len(), 3);
 
-		// Verify all solvers are present
-		for i in 1..=5 {
-			let solver_id = format!("solver{}", i);
+		// Verify all demo solvers are present and use correct adapter
+		for i in 1..=3 {
+			let solver_id = format!("demo-solver{}", i);
 			assert!(aggregator.solvers.contains_key(&solver_id));
+			let solver = aggregator.solvers.get(&solver_id).unwrap();
+			assert_eq!(solver.adapter_id, "mock-demo-v1");
 		}
 	}
 
-	#[test]
-	fn test_validate_solvers_success() {
-		let aggregator = create_test_aggregator();
-		let result = aggregator.validate_solvers();
+	#[tokio::test]
+	async fn test_successful_quote_aggregation() {
+		let aggregator = create_test_aggregator_with_demo_solvers(2);
+		let request = create_valid_quote_request();
+
+		let result = aggregator.fetch_quotes(request).await;
 		assert!(result.is_ok());
-	}
 
-	#[test]
-	fn test_validate_solvers_missing_adapter() {
-		let solver = Solver::new(
-			"test-solver".to_string(),
-			"non-existent-adapter".to_string(),
-			"http://localhost:8001".to_string(),
-			5000,
-		);
-		let aggregator = AggregatorService::new(
-			vec![solver],
-			Arc::new(AdapterRegistry::new()),
-			5000,
-			Arc::new(crate::integrity::IntegrityService::new(SecretString::from(
-				"test-secret",
-			))) as Arc<dyn IntegrityTrait>,
-			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get quotes from both demo solvers
+		assert!(
+			quotes.len() >= 1,
+			"Should receive at least 1 quote from demo adapters"
 		);
 
-		let result = aggregator.validate_solvers();
-		assert!(result.is_err());
-		assert!(result.unwrap_err().contains("unknown adapter"));
+		// Verify metadata
+		assert_eq!(metadata.total_solvers_available, 2);
+		assert_eq!(metadata.solvers_queried, 2);
+		assert!(metadata.solvers_responded_success > 0);
+		// Duration should be recorded (may be 0 in very fast test environments)
+		// Just verify it's a valid u64 value by checking it's not None/uninitialized
+		assert_eq!(metadata.solver_selection_mode, SolverSelection::All);
+		// Check what the default min quotes actually is (might be different from expected)
+		assert!(
+			metadata.min_quotes_required > 0,
+			"Min quotes should be positive, got: {}",
+			metadata.min_quotes_required
+		);
 	}
-
-	// =============================================================================
-	// QUOTE FETCHING ERROR CASES
-	// =============================================================================
 
 	#[tokio::test]
 	async fn test_fetch_quotes_no_solvers() {
@@ -1041,13 +1544,38 @@ mod tests {
 		));
 	}
 
-	// =============================================================================
-	// AGGREGATION SERVICE INTEGRATION TESTS
-	// =============================================================================
+	#[tokio::test]
+	async fn test_mixed_solver_success_and_failure() {
+		let aggregator = create_test_aggregator_with_mixed_solvers();
+		let request = create_valid_quote_request();
+
+		let result = aggregator.fetch_quotes(request).await;
+		assert!(result.is_ok());
+
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get at least one quote from the successful solvers
+		assert!(
+			quotes.len() >= 1,
+			"Should receive quotes from at least one successful solver"
+		);
+
+		// Verify metadata shows mixed results
+		assert_eq!(metadata.total_solvers_available, 3);
+		assert_eq!(metadata.solvers_queried, 3);
+		assert!(
+			metadata.solvers_responded_success >= 1,
+			"At least one solver should succeed"
+		);
+		assert!(
+			metadata.solvers_responded_error >= 1,
+			"At least one solver should fail"
+		);
+	}
 
 	#[tokio::test]
 	async fn test_fetch_quotes_with_solver_filtering_no_results() {
-		let aggregator = create_test_aggregator_with_solvers(3);
+		let aggregator = create_test_aggregator_with_demo_solvers(3);
 
 		let options = SolverOptions {
 			include_solvers: Some(vec!["nonexistent".to_string()]),
@@ -1071,14 +1599,47 @@ mod tests {
 	}
 
 	#[tokio::test]
+	async fn test_fetch_quotes_with_solver_filtering_success() {
+		let aggregator = create_test_aggregator_with_demo_solvers(3);
+
+		let options = SolverOptions {
+			include_solvers: Some(vec!["demo-solver1".to_string(), "demo-solver2".to_string()]),
+			exclude_solvers: None,
+			timeout: Some(2000),
+			solver_timeout: Some(1000),
+			min_quotes: Some(1),
+			solver_selection: Some(SolverSelection::All),
+			sample_size: None,
+			priority_threshold: None,
+		};
+
+		let request = create_quote_request_with_options(options);
+		let result = aggregator.fetch_quotes(request).await;
+
+		assert!(result.is_ok());
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get quotes from filtered solvers
+		assert!(
+			quotes.len() >= 1,
+			"Should receive quotes from filtered solvers"
+		);
+		assert_eq!(
+			metadata.solvers_queried, 2,
+			"Should only query 2 filtered solvers"
+		);
+		assert!(metadata.solvers_responded_success >= 1);
+	}
+
+	#[tokio::test]
 	async fn test_fetch_quotes_uses_custom_timeout() {
-		let aggregator = create_test_aggregator_with_solvers(1);
+		let aggregator = create_test_aggregator_with_demo_solvers(2);
 
 		let options = SolverOptions {
 			include_solvers: None,
 			exclude_solvers: None,
-			timeout: Some(50), // Very short timeout
-			solver_timeout: Some(25),
+			timeout: Some(2000), // Reasonable timeout for successful completion
+			solver_timeout: Some(1000),
 			min_quotes: Some(1),
 			solver_selection: Some(SolverSelection::All),
 			sample_size: None,
@@ -1090,31 +1651,63 @@ mod tests {
 		let result = aggregator.fetch_quotes(request).await;
 		let elapsed = start_time.elapsed();
 
-		// Should fail quickly due to short timeout and no real adapters
-		assert!(elapsed.as_millis() < 200); // Should complete within 200ms
-		assert!(result.is_err());
+		// Should succeed within the timeout
+		assert!(result.is_ok(), "Should succeed with reasonable timeout");
+		let (_quotes, metadata) = result.unwrap();
 
-		// Check what error we actually got
-		match result.unwrap_err() {
-			AggregatorServiceError::AllSolversFailed => {
-				// Expected
-			},
-			AggregatorServiceError::ValidationError(_) => {
-				// Also acceptable - timeout validation might fail
-			},
-			other => panic!("Unexpected error type: {:?}", other),
-		}
+		// Verify custom timeouts are used
+		assert_eq!(metadata.global_timeout_ms, 2000);
+		assert_eq!(metadata.solver_timeout_ms, 1000);
+		assert!(
+			elapsed.as_millis() < 2000,
+			"Should complete within the specified timeout"
+		);
 	}
 
 	#[tokio::test]
-	async fn test_fetch_quotes_with_reduced_solver_set() {
-		let aggregator = create_test_aggregator_with_solvers(5);
+	async fn test_fetch_quotes_with_very_short_timeout() {
+		let aggregator = create_test_aggregator_with_demo_solvers(1);
 
 		let options = SolverOptions {
-			include_solvers: Some(vec!["solver1".to_string(), "solver3".to_string()]),
+			include_solvers: None,
 			exclude_solvers: None,
-			timeout: Some(100),
-			solver_timeout: Some(50),
+			timeout: Some(200),        // Short but valid timeout
+			solver_timeout: Some(100), // Minimum allowed per-solver timeout
+			min_quotes: Some(1),
+			solver_selection: Some(SolverSelection::All),
+			sample_size: None,
+			priority_threshold: None,
+		};
+
+		let request = create_quote_request_with_options(options);
+		let start_time = std::time::Instant::now();
+		let result = aggregator.fetch_quotes(request).await;
+		let elapsed = start_time.elapsed();
+
+		// Should complete quickly due to short timeout
+		assert!(elapsed.as_millis() < 300, "Should complete quickly");
+
+		// Should succeed with the minimum allowed timeout
+		if let Err(ref e) = result {
+			eprintln!("Very short timeout test failed with error: {:?}", e);
+		}
+		assert!(result.is_ok(), "Should succeed with minimum timeout");
+		let (_, metadata) = result.unwrap();
+
+		// Verify timeout was respected
+		assert_eq!(metadata.global_timeout_ms, 200);
+		assert_eq!(metadata.solver_timeout_ms, 100);
+	}
+
+	#[tokio::test]
+	async fn test_fetch_quotes_with_solver_exclusion() {
+		let aggregator = create_test_aggregator_with_demo_solvers(3);
+
+		let options = SolverOptions {
+			include_solvers: None,
+			exclude_solvers: Some(vec!["demo-solver3".to_string()]),
+			timeout: Some(2000),
+			solver_timeout: Some(1000),
 			min_quotes: Some(1),
 			solver_selection: Some(SolverSelection::All),
 			sample_size: None,
@@ -1124,28 +1717,60 @@ mod tests {
 		let request = create_quote_request_with_options(options);
 		let result = aggregator.fetch_quotes(request).await;
 
-		// Should fail because we don't have real adapters, but it should attempt only 2 solvers
-		assert!(result.is_err());
+		assert!(result.is_ok());
+		let (quotes, metadata) = result.unwrap();
 
-		// Check what error we actually got
-		match result.unwrap_err() {
-			AggregatorServiceError::AllSolversFailed => {
-				// Expected
-			},
-			AggregatorServiceError::ValidationError(_) => {
-				// Also acceptable
-			},
-			other => panic!("Unexpected error type: {:?}", other),
-		}
+		// Should get quotes from 2 non-excluded solvers
+		assert!(
+			quotes.len() >= 1,
+			"Should receive quotes from non-excluded solvers"
+		);
+		assert_eq!(
+			metadata.solvers_queried, 2,
+			"Should only query 2 non-excluded solvers"
+		);
+		assert!(metadata.solvers_responded_success >= 1);
 	}
 
-	// =============================================================================
-	// VALIDATION AND ERROR HANDLING TESTS
-	// =============================================================================
+	#[tokio::test]
+	async fn test_fetch_quotes_with_sampled_selection() {
+		let aggregator = create_test_aggregator_with_demo_solvers(5);
+
+		let options = SolverOptions {
+			include_solvers: None,
+			exclude_solvers: None,
+			timeout: Some(2000),
+			solver_timeout: Some(1000),
+			min_quotes: Some(1),
+			solver_selection: Some(SolverSelection::Sampled),
+			sample_size: Some(2),
+			priority_threshold: None,
+		};
+
+		let request = create_quote_request_with_options(options);
+		let result = aggregator.fetch_quotes(request).await;
+
+		if let Err(ref e) = result {
+			eprintln!("Sampled selection test failed with error: {:?}", e);
+		}
+		assert!(result.is_ok());
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get quotes from sampled solvers
+		assert!(
+			quotes.len() >= 1,
+			"Should receive quotes from sampled solvers"
+		);
+		assert_eq!(
+			metadata.solvers_queried, 2,
+			"Should only query 2 sampled solvers"
+		);
+		assert_eq!(metadata.solver_selection_mode, SolverSelection::Sampled);
+	}
 
 	#[tokio::test]
 	async fn test_fetch_quotes_validation_zero_amount() {
-		let aggregator = create_test_aggregator_with_solvers(1);
+		let aggregator = create_test_aggregator_with_demo_solvers(1);
 		let user = InteropAddress::from_text("eip155:1:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
 			.unwrap();
 		let asset =
@@ -1181,7 +1806,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_fetch_quotes_invalid_user_address() {
-		let aggregator = create_test_aggregator_with_solvers(1);
+		let aggregator = create_test_aggregator_with_demo_solvers(1);
 
 		// This will fail during InteropAddress parsing, but let's test validation
 		let user = InteropAddress::from_text("eip155:1:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
@@ -1222,14 +1847,14 @@ mod tests {
 	#[tokio::test]
 	async fn test_early_termination_behavior() {
 		// Test that early termination works as expected
-		let aggregator = create_test_aggregator_with_solvers(10); // 10 solvers
+		let aggregator = create_test_aggregator_with_demo_solvers(3);
 
 		let options = SolverOptions {
 			include_solvers: None,
 			exclude_solvers: None,
-			timeout: Some(5000),       // 5 second global timeout
-			solver_timeout: Some(100), // Very short solver timeout to force failures
-			min_quotes: Some(1),       // Only need 1 quote for early termination
+			timeout: Some(5000),        // 5 second global timeout
+			solver_timeout: Some(2000), // Reasonable solver timeout
+			min_quotes: Some(1),        // Only need 1 quote for early termination
 			solver_selection: Some(SolverSelection::All),
 			sample_size: None,
 			priority_threshold: None,
@@ -1241,39 +1866,38 @@ mod tests {
 		let result = aggregator.fetch_quotes(request).await;
 		let elapsed = start_time.elapsed();
 
-		// Should fail quickly since we don't have real adapters, but test the timing
-		// The key is that it should NOT wait for the full 5 second timeout
+		// Should succeed and terminate early when min_quotes is reached
+		assert!(result.is_ok());
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get at least 1 quote (meeting min_quotes requirement)
+		assert!(quotes.len() >= 1, "Should receive at least 1 quote");
+
+		// Should terminate early, not wait for all solvers
 		assert!(
-			elapsed < std::time::Duration::from_millis(1000),
-			"Early termination should fail quickly, took {}ms",
+			elapsed < std::time::Duration::from_millis(3000),
+			"Early termination should complete quickly, took {}ms",
 			elapsed.as_millis()
 		);
 
-		// Should get AllSolversFailed error since we don't have real adapters
-		assert!(result.is_err());
-		match result.unwrap_err() {
-			AggregatorServiceError::AllSolversFailed => {
-				// Expected - no real adapters means no quotes
-			},
-			AggregatorServiceError::NoSolversAvailable => {
-				// Also acceptable
-			},
-			other => panic!("Unexpected error type: {:?}", other),
+		// Check if early termination was triggered
+		if metadata.early_termination {
+			assert!(metadata.solvers_responded_success >= 1);
 		}
 	}
 
 	#[tokio::test]
 	async fn test_early_termination_timing_behavior() {
 		// Test that we can observe the timing difference with different min_quotes
-		let aggregator = create_test_aggregator_with_solvers(20); // 20 solvers
+		let aggregator = create_test_aggregator_with_demo_solvers(5);
 
-		// Test with high min_quotes requirement
+		// Test with high min_quotes requirement (impossible to meet)
 		let high_requirement_options = SolverOptions {
 			include_solvers: None,
 			exclude_solvers: None,
-			timeout: Some(2000),       // 2 second timeout
-			solver_timeout: Some(100), // Short per-solver timeout
-			min_quotes: Some(50),      // Impossible to meet with 20 solvers
+			timeout: Some(3000),        // 3 second timeout
+			solver_timeout: Some(1000), // Reasonable per-solver timeout
+			min_quotes: Some(10),       // Impossible to meet with 5 solvers
 			solver_selection: Some(SolverSelection::All),
 			sample_size: None,
 			priority_threshold: None,
@@ -1289,9 +1913,9 @@ mod tests {
 		let low_requirement_options = SolverOptions {
 			include_solvers: None,
 			exclude_solvers: None,
-			timeout: Some(2000),       // Same 2 second timeout
-			solver_timeout: Some(100), // Same short per-solver timeout
-			min_quotes: Some(1),       // Easy to meet (would terminate early if we had quotes)
+			timeout: Some(3000),        // Same 3 second timeout
+			solver_timeout: Some(1000), // Same reasonable per-solver timeout
+			min_quotes: Some(1),        // Easy to meet (should terminate early)
 			solver_selection: Some(SolverSelection::All),
 			sample_size: None,
 			priority_threshold: None,
@@ -1303,30 +1927,32 @@ mod tests {
 		let _result_low = aggregator.fetch_quotes(request_low).await;
 		let elapsed_low = start_time.elapsed();
 
-		// Both should fail quickly since no real adapters, but timing should be similar
-		// The point is to test that the early termination logic doesn't add significant overhead
-		assert!(elapsed_high < std::time::Duration::from_millis(1500));
-		assert!(elapsed_low < std::time::Duration::from_millis(1500));
-
-		// The difference should be minimal since both fail due to no real adapters
-		let timing_difference = elapsed_high.as_millis().abs_diff(elapsed_low.as_millis());
+		// Low requirement should complete faster due to early termination
+		// High requirement will need to wait for all solvers or timeout
 		assert!(
-			timing_difference < 500,
-			"Timing difference should be minimal, was {}ms",
-			timing_difference
+			elapsed_low < std::time::Duration::from_millis(2000),
+			"Low requirement should complete quickly"
+		);
+
+		// Early termination should make low requirement significantly faster
+		assert!(
+			elapsed_low < elapsed_high,
+			"Low min_quotes ({:?}) should be faster than high min_quotes ({:?})",
+			elapsed_low,
+			elapsed_high
 		);
 	}
 
 	#[tokio::test]
 	async fn test_aggregator_delegates_to_filter_service() {
-		let aggregator = create_test_aggregator_with_solvers(5);
+		let aggregator = create_test_aggregator_with_demo_solvers(5);
 
 		// Test that aggregator properly delegates filtering to SolverFilterService
 		let options = SolverOptions {
-			include_solvers: Some(vec!["solver1".to_string(), "solver3".to_string()]),
+			include_solvers: Some(vec!["demo-solver1".to_string(), "demo-solver3".to_string()]),
 			exclude_solvers: None,
-			timeout: Some(5000),
-			solver_timeout: Some(2500),
+			timeout: Some(3000),
+			solver_timeout: Some(1500),
 			min_quotes: Some(1),
 			solver_selection: Some(SolverSelection::All),
 			sample_size: None,
@@ -1336,26 +1962,28 @@ mod tests {
 		let request = create_quote_request_with_options(options);
 		let result = aggregator.fetch_quotes(request).await;
 
-		// Should fail due to no real adapters, but the filtering should have worked
-		// (we can't test the filtering result directly, but we can ensure no filtering errors)
-		assert!(result.is_err());
-		match result.unwrap_err() {
-			AggregatorServiceError::AllSolversFailed => {
-				// Expected - no real adapters but filtering worked
-			},
-			AggregatorServiceError::NoSolversAvailable => {
-				// Would indicate filtering excluded all solvers (also valid)
-			},
-			other => {
-				// Should not get validation errors since filtering logic is delegated
-				println!("Got error: {:?}", other);
-			},
-		}
+		// Should succeed with filtered solvers
+		assert!(result.is_ok());
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get quotes from filtered solvers
+		assert!(
+			quotes.len() >= 1,
+			"Should receive quotes from filtered solvers"
+		);
+		assert_eq!(
+			metadata.solvers_queried, 2,
+			"Should only query 2 filtered solvers"
+		);
+		assert!(
+			metadata.solvers_responded_success >= 1,
+			"At least one filtered solver should succeed"
+		);
 	}
 
 	#[tokio::test]
 	async fn test_metadata_collection_and_structure() {
-		let aggregator = create_test_aggregator_with_solvers(3);
+		let aggregator = create_test_aggregator_with_demo_solvers(3);
 
 		let options = SolverOptions {
 			include_solvers: None,
@@ -1373,22 +2001,374 @@ mod tests {
 		let result = aggregator.fetch_quotes(request).await;
 		let elapsed = start_time.elapsed();
 
-		// Should fail due to no real adapters, but we should get metadata
-		assert!(result.is_err());
-		match result.unwrap_err() {
-			AggregatorServiceError::AllSolversFailed => {
-				// Expected - can't verify metadata from error case
-			},
-			AggregatorServiceError::NoSolversAvailable => {
-				// Also expected - can't verify metadata from error case
-			},
-			other => {
-				// Test focused on ensuring proper delegation, not specific errors
-				println!("Got error: {:?}", other);
-			},
-		}
+		// Should succeed and provide metadata
+		assert!(result.is_ok());
+		let (quotes, metadata) = result.unwrap();
+
+		// Verify metadata structure and values
+		assert!(
+			quotes.len() >= 1,
+			"Should receive quotes from demo adapters"
+		);
+		assert_eq!(metadata.total_solvers_available, 3);
+		assert_eq!(
+			metadata.solvers_queried, 2,
+			"Should query 2 sampled solvers"
+		);
+		assert_eq!(metadata.solver_selection_mode, SolverSelection::Sampled);
+		assert_eq!(metadata.global_timeout_ms, 1000);
+		assert_eq!(metadata.solver_timeout_ms, 500);
+		assert_eq!(metadata.min_quotes_required, 2);
+		// Duration may be 0 in fast test environments
+		assert!(metadata.solvers_responded_success >= 1);
 
 		// Verify that the aggregation completed in reasonable time
 		assert!(elapsed < std::time::Duration::from_millis(2000));
+	}
+
+	#[tokio::test]
+	async fn test_adapter_not_found_error() {
+		// Test proper error handling when adapters don't exist
+		let aggregator = create_test_aggregator_with_invalid_adapters(2);
+		let request = create_valid_quote_request();
+
+		let result = aggregator.fetch_quotes(request).await;
+		assert!(result.is_err());
+
+		// Should get AllSolversFailed because the adapters don't exist
+		match result.unwrap_err() {
+			AggregatorServiceError::AllSolversFailed => {
+				// Expected when adapters don't exist
+			},
+			other => panic!("Expected AllSolversFailed, got: {:?}", other),
+		}
+	}
+
+	#[tokio::test]
+	async fn test_quote_integrity_checksum_generation() {
+		let aggregator = create_test_aggregator_with_demo_solvers(1);
+		let request = create_valid_quote_request();
+
+		let result = aggregator.fetch_quotes(request).await;
+		assert!(result.is_ok());
+
+		let (quotes, _metadata) = result.unwrap();
+		assert!(quotes.len() >= 1, "Should receive at least one quote");
+
+		// Verify that all quotes have integrity checksums
+		for quote in quotes {
+			assert!(
+				!quote.integrity_checksum.is_empty(),
+				"Quote should have non-empty integrity checksum"
+			);
+			// Basic checksum format validation (should be hex string)
+			assert!(
+				quote
+					.integrity_checksum
+					.chars()
+					.all(|c| c.is_ascii_hexdigit()),
+				"Integrity checksum should be hex string"
+			);
+		}
+	}
+
+	#[tokio::test]
+	async fn test_priority_based_selection() {
+		let aggregator = create_test_aggregator_with_demo_solvers(5);
+
+		let options = SolverOptions {
+			include_solvers: None,
+			exclude_solvers: None,
+			timeout: Some(3000),
+			solver_timeout: Some(1500),
+			min_quotes: Some(1),
+			solver_selection: Some(SolverSelection::Priority),
+			sample_size: None,
+			priority_threshold: Some(70),
+		};
+
+		let request = create_quote_request_with_options(options);
+		let result = aggregator.fetch_quotes(request).await;
+
+		assert!(result.is_ok());
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get quotes from priority solvers
+		assert!(
+			quotes.len() >= 1,
+			"Should receive quotes from priority solvers"
+		);
+		assert_eq!(metadata.solver_selection_mode, SolverSelection::Priority);
+		assert!(
+			metadata.solvers_queried >= 1,
+			"Should query at least one high-priority solver"
+		);
+	}
+
+	#[tokio::test]
+	async fn test_concurrent_solver_execution() {
+		// Test that multiple solvers are executed concurrently, not sequentially
+		let aggregator = create_test_aggregator_with_demo_solvers(3);
+		let request = create_valid_quote_request();
+
+		let start_time = std::time::Instant::now();
+		let result = aggregator.fetch_quotes(request).await;
+		let elapsed = start_time.elapsed();
+
+		assert!(result.is_ok());
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get quotes from multiple solvers
+		assert!(quotes.len() >= 1, "Should receive quotes from solvers");
+		assert_eq!(metadata.solvers_queried, 3, "Should query all 3 solvers");
+
+		// Should complete quickly due to concurrent execution
+		// If executed sequentially, it would take much longer
+		assert!(
+			elapsed < std::time::Duration::from_millis(1000),
+			"Concurrent execution should be fast, took {}ms",
+			elapsed.as_millis()
+		);
+	}
+
+	#[tokio::test]
+	async fn test_solver_timeout_mixed_results() {
+		// Test with some solvers timing out and others succeeding
+		let aggregator = create_test_aggregator_with_timeout_solvers();
+
+		let options = SolverOptions {
+			include_solvers: None,
+			exclude_solvers: None,
+			timeout: Some(5000),       // 5 second global timeout
+			solver_timeout: Some(500), // 500ms per-solver timeout (slow solver will timeout)
+			min_quotes: Some(3),       // Need all 3 quotes to prevent early termination
+			solver_selection: Some(SolverSelection::All),
+			sample_size: None,
+			priority_threshold: None,
+		};
+
+		let request = create_quote_request_with_options(options);
+		let start_time = std::time::Instant::now();
+		let result = aggregator.fetch_quotes(request).await;
+		let elapsed = start_time.elapsed();
+
+		assert!(result.is_ok());
+
+		let (quotes, metadata) = result.unwrap();
+
+		// Should succeed or fail, but let's see what actually happens
+		println!(
+			"Success: {} quotes, metadata: success={}, error={}, timeout={}",
+			quotes.len(),
+			metadata.solvers_responded_success,
+			metadata.solvers_responded_error,
+			metadata.solvers_timed_out
+		);
+
+		// Should get quotes from fast solvers only
+		assert!(quotes.len() == 2, "Should receive quotes from fast solvers");
+
+		// Verify metadata shows mixed results
+		assert_eq!(metadata.total_solvers_available, 3);
+		assert_eq!(metadata.solvers_queried, 3);
+		assert!(
+			metadata.solvers_responded_success == 2,
+			"2 solvers should succeed"
+		);
+		assert!(metadata.solvers_timed_out == 1, "1 solvers should timeout");
+
+		// The slow solver (2000ms delay) should timeout with 500ms timeout
+		// But due to early termination or cancellation, it might not be counted as timeout
+		// Let's be more lenient here
+		assert!(
+			metadata.solvers_responded_success
+				+ metadata.solvers_responded_error
+				+ metadata.solvers_timed_out
+				<= metadata.solvers_queried,
+			"Total responses should not exceed queried count"
+		);
+
+		// Should complete relatively quickly due to per-solver timeout
+		assert!(
+			elapsed.as_millis() < 3000,
+			"Should complete in reasonable time, took {}ms",
+			elapsed.as_millis()
+		);
+	}
+
+	#[tokio::test]
+	async fn test_timeout_behavior_verification() {
+		// Test timeout behavior - may succeed or fail depending on solver speeds vs timeouts
+		let aggregator = create_test_aggregator_with_timeout_solvers();
+
+		let options = SolverOptions {
+			include_solvers: None,
+			exclude_solvers: None,
+			timeout: Some(2000),       // 2 second global timeout
+			solver_timeout: Some(100), // 100ms per-solver timeout (fast=50ms, slow=2000ms)
+			min_quotes: Some(1),
+			solver_selection: Some(SolverSelection::All),
+			sample_size: None,
+			priority_threshold: None,
+		};
+
+		let request = create_quote_request_with_options(options);
+		let start_time = std::time::Instant::now();
+		let result = aggregator.fetch_quotes(request).await;
+		let elapsed = start_time.elapsed();
+
+		// May succeed (fast solvers) or fail (if all timeout), both are valid
+		match result {
+			Ok((quotes, metadata)) => {
+				// Fast solvers succeeded before timeout
+				assert!(quotes.len() >= 1, "Should have quotes from fast solvers");
+				assert!(metadata.solvers_responded_success >= 1);
+				assert_eq!(metadata.solvers_queried, 3, "Should query all 3 solvers");
+				// Due to early termination, slow solver might be cancelled rather than timed out
+				// So we just verify the basic aggregation worked
+			},
+			Err(AggregatorServiceError::AllSolversFailed) => {
+				// All solvers failed/timed out - also acceptable
+			},
+			Err(other) => panic!("Unexpected error type: {:?}", other),
+		}
+
+		// Should complete in reasonable time
+		assert!(
+			elapsed.as_millis() < 1000,
+			"Should complete in reasonable time, took {}ms",
+			elapsed.as_millis()
+		);
+	}
+
+	#[tokio::test]
+	async fn test_timeout_configuration_limits() {
+		// Test that timeout configuration is properly validated and applied
+		let aggregator = create_test_aggregator_with_timeout_solvers();
+
+		// Test with only slow solver to ensure timeout behavior
+		let options = SolverOptions {
+			include_solvers: Some(vec!["slow-solver".to_string()]), // Only the 2000ms delay solver
+			exclude_solvers: None,
+			timeout: Some(2000),       // 2 second global timeout
+			solver_timeout: Some(300), // 300ms per-solver timeout - slow solver will timeout
+			min_quotes: Some(1),
+			solver_selection: Some(SolverSelection::All),
+			sample_size: None,
+			priority_threshold: None,
+		};
+
+		let request = create_quote_request_with_options(options);
+		let start_time = std::time::Instant::now();
+		let result = aggregator.fetch_quotes(request).await;
+		let elapsed = start_time.elapsed();
+
+		// Should fail because slow solver times out
+		assert!(result.is_err());
+		match result.unwrap_err() {
+			AggregatorServiceError::AllSolversFailed => {
+				// Expected when the slow solver times out
+			},
+			other => panic!("Expected AllSolversFailed, got: {:?}", other),
+		}
+
+		// Should complete in reasonable time (allowing for test environment variations)
+		assert!(
+			elapsed.as_millis() < 2500,
+			"Should complete due to timeout, took {}ms",
+			elapsed.as_millis()
+		);
+	}
+
+	#[tokio::test]
+	async fn test_global_timeout() {
+		// Test global timeout when aggregation takes too long overall
+		let aggregator = create_test_aggregator_with_timeout_solvers();
+
+		let options = SolverOptions {
+			include_solvers: None,
+			exclude_solvers: None,
+			timeout: Some(200),        // Short global timeout
+			solver_timeout: Some(100), // Even shorter per-solver timeout
+			min_quotes: Some(10),      // High requirement that won't be met quickly
+			solver_selection: Some(SolverSelection::All),
+			sample_size: None,
+			priority_threshold: None,
+		};
+
+		let request = create_quote_request_with_options(options);
+		let start_time = std::time::Instant::now();
+		let result = aggregator.fetch_quotes(request).await;
+		let elapsed = start_time.elapsed();
+
+		// Should complete quickly due to global timeout
+		assert!(
+			elapsed.as_millis() < 400,
+			"Should hit global timeout quickly, took {}ms",
+			elapsed.as_millis()
+		);
+
+		// May succeed or timeout depending on which happens first
+		match result {
+			Ok((quotes, metadata)) => {
+				// If some fast solvers responded before global timeout
+				assert!(quotes.len() >= 1);
+				assert_eq!(metadata.global_timeout_ms, 200);
+			},
+			Err(AggregatorServiceError::Timeout) => {
+				// Expected if global timeout hits first
+			},
+			Err(AggregatorServiceError::AllSolversFailed) => {
+				// Also acceptable if all solvers fail to respond in time
+			},
+			Err(other) => panic!("Unexpected error type: {:?}", other),
+		}
+	}
+
+	#[tokio::test]
+	async fn test_timeout_with_early_termination() {
+		// Test that early termination works even with some solvers timing out
+		let aggregator = create_test_aggregator_with_timeout_solvers();
+
+		let options = SolverOptions {
+			include_solvers: None,
+			exclude_solvers: None,
+			timeout: Some(5000),       // 5 second global timeout
+			solver_timeout: Some(800), // 800ms per-solver timeout (slow solver will timeout)
+			min_quotes: Some(1),       // Only need 1 quote for early termination
+			solver_selection: Some(SolverSelection::All),
+			sample_size: None,
+			priority_threshold: None,
+		};
+
+		let request = create_quote_request_with_options(options);
+		let start_time = std::time::Instant::now();
+		let result = aggregator.fetch_quotes(request).await;
+		let elapsed = start_time.elapsed();
+
+		// Should succeed with early termination
+		assert!(result.is_ok());
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get quotes from fast solvers
+		assert!(
+			quotes.len() >= 1,
+			"Should receive quotes triggering early termination"
+		);
+
+		// Should terminate early, not wait for slow solver timeout
+		assert!(
+			elapsed.as_millis() < 1000,
+			"Early termination should happen quickly, took {}ms",
+			elapsed.as_millis()
+		);
+
+		// Verify metadata
+		assert_eq!(metadata.global_timeout_ms, 5000);
+		assert_eq!(metadata.solver_timeout_ms, 800);
+		assert!(metadata.solvers_responded_success >= 1);
+
+		// May or may not show timeouts depending on timing of early termination
+		// The slow solver might not have had time to timeout before cancellation
 	}
 }

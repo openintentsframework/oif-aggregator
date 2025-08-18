@@ -92,6 +92,7 @@ impl TestServer {
 	}
 
 	/// Spawn a test server with multiple timing-controlled adapters for sophisticated testing
+	#[allow(dead_code)]
 	pub async fn spawn_with_timing_controlled_adapters() -> Result<
 		(Self, Vec<timing_controlled_mocks::TimingControlledAdapter>),
 		Box<dyn std::error::Error>,

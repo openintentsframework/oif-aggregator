@@ -1288,7 +1288,7 @@ async fn test_early_termination_with_min_quotes() {
             
             // With minQuotes=1, early termination should have occurred once we got 1 quote
             let early_termination = metadata["earlyTermination"].as_bool().unwrap();
-            assert_eq!(early_termination, true, 
+            assert!(early_termination, 
                       "Early termination should have occurred with minQuotes=1 when quotes are available");
             
             // Verify timing was reasonable (secondary to metadata validation)
@@ -1310,7 +1310,7 @@ async fn test_early_termination_with_min_quotes() {
         } else {
             // If no quotes returned, early termination flag should be false
             let early_termination = metadata["earlyTermination"].as_bool().unwrap();
-            assert_eq!(early_termination, false, 
+            assert!(!early_termination, 
                       "Early termination should be false when no quotes are returned");
         }
         

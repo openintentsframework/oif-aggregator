@@ -181,11 +181,10 @@ async fn test_orders_endpoint_with_mock_data() {
 
 	let status = order_response.status();
 	if !status.is_success() {
-		let error_body = order_response
+		order_response
 			.text()
 			.await
 			.expect("Failed to read error body");
-		//println!("Order failed with status {}: {}", status, error_body);
 	}
 
 	// Should now work with proper integrity checksum

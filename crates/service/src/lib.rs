@@ -18,7 +18,7 @@ pub use aggregator::{
 pub use aggregator::{MockAggregatorTrait, MockTaskExecutorTrait};
 #[cfg(test)]
 pub use integrity::MockIntegrityTrait;
-pub use integrity::{IntegrityService, IntegrityTrait};
+pub use integrity::{IntegrityError, IntegrityService, IntegrityTrait};
 pub use oif_types::IntegrityPayload;
 #[cfg(test)]
 pub use order::MockOrderServiceTrait;

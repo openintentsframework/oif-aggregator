@@ -994,12 +994,12 @@ impl SelectionEngine {
 					.unwrap_or(DEFAULT_PRIORITY_THRESHOLD);
 				let filtered_solvers: Vec<Solver> = solver_scores
 					.into_iter()
-					.filter_map(|(solver, _score)| {
+					.map(|(solver, _score)| {
 						// For now, we'll use a placeholder priority logic
 						// In a real implementation, you'd have solver scores/priorities stored
 						// Placeholder: all solvers meet threshold for now
 						// In practice, you'd check: solver.priority_score >= threshold
-						Some(solver)
+						solver
 					})
 					.collect();
 
