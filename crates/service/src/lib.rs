@@ -24,10 +24,13 @@ pub use oif_types::IntegrityPayload;
 pub use order::MockOrderServiceTrait;
 pub use order::{OrderService, OrderServiceError, OrderServiceTrait};
 pub use solver_adapter::{SolverAdapterError, SolverAdapterService, SolverAdapterTrait};
-#[cfg(test)]
-pub use solver_filter::MockSolverFilterTrait;
 pub use solver_filter::{
-	CompatibilityCalculator, SelectionEngine, SolverFilterService, SolverFilterTrait,
+	Compatibility, CompatibilityAnalyzer, CompatibilityAnalyzerTrait, SolverFilterService,
+	SolverFilterTrait, SolverSelector, SolverSelectorTrait,
+};
+#[cfg(test)]
+pub use solver_filter::{
+	MockCompatibilityAnalyzerTrait, MockSolverFilterTrait, MockSolverSelectorTrait,
 };
 #[cfg(test)]
 pub use solver_repository::MockSolverServiceTrait;

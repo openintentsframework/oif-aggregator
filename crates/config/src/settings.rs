@@ -119,6 +119,9 @@ pub struct AggregationSettings {
 	/// Delay between retry attempts in milliseconds (100-5000ms recommended)
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub retry_delay_ms: Option<u64>,
+	/// Whether to include solvers with unknown compatibility in results (default: true)
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub include_unknown_compatibility: Option<bool>,
 }
 
 /// Configuration for aggregation behavior (service layer compatible)
@@ -129,6 +132,7 @@ pub struct AggregationConfig {
 	pub max_concurrent_solvers: usize,
 	pub max_retries_per_solver: u32,
 	pub retry_delay_ms: u64,
+	pub include_unknown_compatibility: bool,
 }
 
 impl Default for AggregationConfig {
@@ -139,6 +143,7 @@ impl Default for AggregationConfig {
 			max_concurrent_solvers: DEFAULT_MAX_CONCURRENT_SOLVERS,
 			max_retries_per_solver: DEFAULT_MAX_RETRIES_PER_SOLVER,
 			retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
+			include_unknown_compatibility: true, // Default to including unknown solvers
 		}
 	}
 }
@@ -159,6 +164,7 @@ impl From<AggregationSettings> for AggregationConfig {
 				.max_retries_per_solver
 				.unwrap_or(DEFAULT_MAX_RETRIES_PER_SOLVER),
 			retry_delay_ms: settings.retry_delay_ms.unwrap_or(DEFAULT_RETRY_DELAY_MS),
+			include_unknown_compatibility: settings.include_unknown_compatibility.unwrap_or(true),
 		}
 	}
 }
@@ -222,6 +228,7 @@ impl Default for Settings {
 				max_concurrent_solvers: None,
 				max_retries_per_solver: None,
 				retry_delay_ms: None,
+				include_unknown_compatibility: None,
 			},
 			environment: EnvironmentSettings {
 				rate_limiting: RateLimitSettings {

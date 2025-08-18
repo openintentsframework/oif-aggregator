@@ -612,6 +612,7 @@ impl AggregatorService {
 					.solver_options
 					.as_ref()
 					.unwrap_or(&SolverOptions::default()),
+				&self.config,
 			)
 			.await;
 

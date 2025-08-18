@@ -23,6 +23,7 @@ impl MockConfigs {
 				max_concurrent_solvers: Some(5), // Lower concurrency for testing
 				max_retries_per_solver: Some(2), // Fewer retries for faster tests
 				retry_delay_ms: Some(500),       // Faster retries for testing
+				include_unknown_compatibility: Some(true), // Include unknown solvers for testing
 			},
 			environment: EnvironmentSettings {
 				rate_limiting: RateLimitSettings {

@@ -366,12 +366,12 @@ impl Solver {
 			.any(|a| a.symbol.eq_ignore_ascii_case(symbol))
 	}
 
-	/// Check if solver supports a specific asset by address
-	pub fn supports_asset_address(&self, address: &str) -> bool {
+	/// Check if solver supports a specific asset on a specific chain
+	pub fn supports_asset_on_chain(&self, chain_id: u64, address: &str) -> bool {
 		self.metadata
 			.supported_assets
 			.iter()
-			.any(|a| a.address.eq_ignore_ascii_case(address))
+			.any(|asset| asset.chain_id == chain_id && asset.address.eq_ignore_ascii_case(address))
 	}
 
 	/// Check if solver supports a specific asset
@@ -640,5 +640,49 @@ mod tests {
 		assert_eq!(solver.metadata.supported_networks.len(), 1);
 		assert!(solver.supports_chain(1));
 		assert_eq!(solver.metadata.max_retries, 5);
+	}
+
+	#[test]
+	fn test_supports_asset_on_chain() {
+		let solver = create_test_solver().with_assets(vec![
+			Asset::new(
+				"0x1234567890123456789012345678901234567890".to_string(),
+				"USDC".to_string(),
+				"USD Coin".to_string(),
+				6,
+				1, // Ethereum
+			),
+			Asset::new(
+				"0x1234567890123456789012345678901234567890".to_string(), // Same address
+				"USDC".to_string(),
+				"USD Coin".to_string(),
+				6,
+				137, // Polygon
+			),
+			Asset::new(
+				"0xAbCdEf1234567890123456789012345678901234".to_string(),
+				"WETH".to_string(),
+				"Wrapped Ether".to_string(),
+				18,
+				1, // Ethereum
+			),
+		]);
+
+		// Test: Same address on different chains
+		assert!(solver.supports_asset_on_chain(1, "0x1234567890123456789012345678901234567890")); // USDC on Ethereum
+		assert!(solver.supports_asset_on_chain(137, "0x1234567890123456789012345678901234567890")); // USDC on Polygon
+		assert!(
+			!solver.supports_asset_on_chain(42161, "0x1234567890123456789012345678901234567890")
+		); // USDC on Arbitrum (not supported)
+
+		// Test: Different address on supported chain
+		assert!(solver.supports_asset_on_chain(1, "0xAbCdEf1234567890123456789012345678901234")); // WETH on Ethereum
+		assert!(!solver.supports_asset_on_chain(137, "0xAbCdEf1234567890123456789012345678901234")); // WETH on Polygon (not supported)
+
+		// Test: Case insensitive address matching
+		assert!(solver.supports_asset_on_chain(1, "0x1234567890123456789012345678901234567890")); // lowercase
+		assert!(solver.supports_asset_on_chain(1, "0X1234567890123456789012345678901234567890")); // uppercase
+		assert!(solver.supports_asset_on_chain(1, "0x1234567890123456789012345678901234567890"));
+		// mixed case
 	}
 }
