@@ -4,8 +4,6 @@ use reqwest::Client;
 use serde_json::json;
 use std::time::Instant;
 
-
-
 // Helper function to validate metadata in successful responses
 fn assert_metadata_present_and_valid(body: &serde_json::Value) {
     let metadata = body["metadata"].as_object()

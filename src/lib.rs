@@ -192,7 +192,7 @@ where
 
 	/// Upsert solvers defined in Settings into storage so that start() can
 	/// load them via `list_all_solvers()`.
-	async fn upsert_solvers_from_settings(&mut self, settings: &Settings) -> Result<(), String> {
+	async fn upsert_solvers_from_settings(&self, settings: &Settings) -> Result<(), String> {
 		let mut errors = Vec::new();
 
 		for solver_config in settings.enabled_solvers().values() {

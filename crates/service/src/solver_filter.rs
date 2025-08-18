@@ -18,7 +18,12 @@ use std::collections::HashSet;
 use tracing::{debug, info};
 
 /// Fixed weight for unknown solvers in weighted sampling (1%)
+/// We assign a low weight (1%) to unknown solvers to allow them to be sampled
+/// occasionally, without significantly impacting the selection of known compatible solvers.
 const UNKNOWN_SOLVER_WEIGHT: f64 = 0.01;
+
+/// Exponential decay rate for solver selection (0.3)
+const SOLVER_EXPONENTIAL_DECAY_RATE: f64 = 0.3;
 
 /// Strict compatibility result - Compatible means solver supports ALL requirements
 #[derive(Debug, Clone, PartialEq)]
@@ -199,7 +204,8 @@ impl SolverSelector {
 						Compatibility::Unknown => UNKNOWN_SOLVER_WEIGHT,
 						Compatibility::Incompatible => 0.0,
 					};
-					base_weight * (-0.3 * i as f64 / remaining.len() as f64).exp()
+					base_weight
+						* (-SOLVER_EXPONENTIAL_DECAY_RATE * i as f64 / remaining.len() as f64).exp()
 				})
 				.collect();
 

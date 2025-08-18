@@ -45,6 +45,17 @@ pub struct SolverOptions {
 
 impl SolverOptions {
 	/// Validate solver options to prevent abuse and logical errors
+	///
+	/// Applied validations:
+	/// - **minQuotes**: Must be ≥ 1 (cannot aggregate 0 quotes)
+	/// - **sampleSize**: Must be ≥ 1 when using sampled selection
+	/// - **priorityThreshold**: Must be 0-100 (percentage range)
+	/// - **timeout** (global): Must be within MIN_SOLVER_TIMEOUT_MS to MAX_GLOBAL_TIMEOUT_MS range
+	/// - **solverTimeout** (per-solver): Must be within MIN_SOLVER_TIMEOUT_MS to MAX_SOLVER_TIMEOUT_MS range
+	/// - **Logical consistency**: Global timeout must be ≥ per-solver timeout
+	///
+	/// These validations ensure reasonable resource usage and prevent configuration errors
+	/// that could lead to poor user experience or system abuse.
 	pub fn validate(&self) -> QuoteValidationResult<()> {
 		// Validate minQuotes - must be positive
 		if let Some(min_quotes) = self.min_quotes {
@@ -166,6 +177,22 @@ pub struct QuoteRequest {
 
 impl QuoteRequest {
 	/// Validate the ERC-7930 quotes request
+	///
+	/// Applied validations:
+	/// - **Required fields**: Must have at least one available input and one requested output
+	/// - **User address**: Must be a valid ERC-7930 InteropAddress format
+	/// - **Available inputs**:
+	///   - User address must be valid InteropAddress
+	///   - Asset address must be valid InteropAddress  
+	///   - Amount must be > 0
+	/// - **Requested outputs**:
+	///   - Receiver address must be valid InteropAddress
+	///   - Asset address must be valid InteropAddress
+	///   - Amount must be > 0
+	/// - **Solver options**: Validates all solver option parameters (see SolverOptions::validate)
+	///
+	/// This ensures the request is well-formed and contains valid addresses, amounts, and configuration
+	/// before processing, preventing invalid requests from reaching the solver network.
 	pub fn validate(&self) -> QuoteValidationResult<()> {
 		// Validate we have at least one input and one output
 		if self.available_inputs.is_empty() {
