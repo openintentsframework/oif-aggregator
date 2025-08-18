@@ -1,0 +1,27 @@
+[package]
+name = "oif-service"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+
+[dependencies]
+oif-types = { path = "../types" }
+oif-storage = { path = "../storage" }
+oif-adapters = { path = "../adapters" }
+oif-config = { path = "../config" }
+async-trait = "0.1"
+futures = "0.3"
+tracing = "0.1"
+tokio = { version = "1.0", features = ["full"] }
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hmac = "0.12"
+sha2 = "0.10"
+utoipa = { version = "5.0", optional = true, features = ["chrono", "uuid"] }
+
+[dev-dependencies]
+mockall = "0.13"
+
+[features]
+openapi = ["dep:utoipa"]

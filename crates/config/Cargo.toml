@@ -1,0 +1,16 @@
+[package]
+name = "oif-config"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+
+[dependencies]
+oif-types = { path = "../types" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+config = "0.15"
+dotenvy = "0.15"
+thiserror = "2.0"
+url = "2.5"
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"

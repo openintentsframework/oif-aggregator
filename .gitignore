@@ -1,0 +1,10 @@
+/target
+.cursor/
+.cursorignore
+.qodo
+todo.md
+instructions.md
+
+*lcov.info
+
+
