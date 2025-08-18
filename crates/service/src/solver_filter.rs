@@ -735,7 +735,7 @@ impl SelectionEngine {
 				.collect();
 		}
 
-		let mut rng = rand::thread_rng();
+		let mut rng = rand::rng();
 		let mut selected = Vec::with_capacity(sample_size);
 		let mut remaining = solver_scores;
 		let mut selected_providers = HashSet::new();
@@ -781,7 +781,7 @@ impl SelectionEngine {
 			}
 
 			// Select based on weights
-			let mut random_weight = rng.gen::<f64>() * total_weight;
+			let mut random_weight = rng.random::<f64>() * total_weight;
 			let mut selected_index = 0;
 
 			for (i, &weight) in weights.iter().enumerate() {
@@ -895,7 +895,7 @@ impl SelectionEngine {
 			return solvers;
 		}
 
-		let mut rng = rand::thread_rng();
+		let mut rng = rand::rng();
 		let mut selected = Vec::with_capacity(sample_size);
 		let mut remaining = solvers;
 
@@ -923,7 +923,7 @@ impl SelectionEngine {
 			// Select index based on weights
 			let selected_index = {
 				let total_weight: f64 = weights.iter().sum();
-				let mut random_weight = rng.gen::<f64>() * total_weight;
+				let mut random_weight = rng.random::<f64>() * total_weight;
 
 				let mut selected_idx = 0;
 				for (i, &weight) in weights.iter().enumerate() {
@@ -1030,7 +1030,7 @@ impl SelectionEngine {
 				.collect();
 		}
 
-		let mut rng = rand::thread_rng();
+		let mut rng = rand::rng();
 		let mut selected = Vec::with_capacity(sample_size);
 		let mut remaining = solver_scores;
 
@@ -1062,7 +1062,7 @@ impl SelectionEngine {
 			// Select index based on weights
 			let selected_index = {
 				let total_weight: f64 = weights.iter().sum();
-				let mut random_weight = rng.gen::<f64>() * total_weight;
+				let mut random_weight = rng.random::<f64>() * total_weight;
 
 				let mut selected_idx = 0;
 				for (i, &weight) in weights.iter().enumerate() {
