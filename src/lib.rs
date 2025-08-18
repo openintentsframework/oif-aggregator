@@ -308,7 +308,9 @@ where
 		let mut registry = self
 			.adapter_registry
 			.unwrap_or_else(oif_adapters::AdapterRegistry::with_defaults);
-		registry.register(adapter).expect("Failed to register adapter during startup - this is a fatal configuration error");
+		registry.register(adapter).expect(
+			"Failed to register adapter during startup - this is a fatal configuration error",
+		);
 		self.adapter_registry = Some(registry);
 		self
 	}
