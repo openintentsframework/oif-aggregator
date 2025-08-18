@@ -524,12 +524,12 @@ where
 			Arc::new(IntegrityService::new(integrity_secret)) as Arc<dyn IntegrityTrait>;
 		let solver_filter_service =
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>;
-		let aggregator_service = AggregatorService::new(
+		let aggregator_service = AggregatorService::with_config(
 			solvers.clone(),
 			Arc::clone(&adapter_registry),
-			settings.timeouts.global_ms,
 			Arc::clone(&integrity_service),
 			Arc::clone(&solver_filter_service),
+			settings.aggregation.into(),
 		);
 
 		// Create application state

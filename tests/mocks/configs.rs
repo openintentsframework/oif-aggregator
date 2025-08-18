@@ -17,10 +17,12 @@ impl MockConfigs {
 				port: 3001, // Different port for testing
 			},
 			solvers: HashMap::new(), // Empty for testing
-			timeouts: TimeoutSettings {
-				per_solver_ms: 2000,
-				global_ms: 5000,
-				request_ms: 1000,
+			aggregation: AggregationSettings {
+				global_timeout_ms: Some(5000), // Override default for testing
+				per_solver_timeout_ms: Some(2000),
+				max_concurrent_solvers: Some(5), // Lower concurrency for testing
+				max_retries_per_solver: Some(2), // Fewer retries for faster tests
+				retry_delay_ms: Some(500),       // Faster retries for testing
 			},
 			environment: EnvironmentSettings {
 				rate_limiting: RateLimitSettings {

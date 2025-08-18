@@ -10,8 +10,8 @@ pub mod solver_filter;
 pub mod solver_repository;
 
 pub use aggregator::{
-	AggregationConfig, AggregatorResult, AggregatorService, AggregatorServiceError,
-	AggregatorTrait, SolverTaskResult, TaskExecutor, TaskExecutorTrait,
+	AggregatorResult, AggregatorService, AggregatorServiceError, AggregatorTrait, SolverTaskResult,
+	TaskExecutor, TaskExecutorTrait,
 };
 
 #[cfg(test)]

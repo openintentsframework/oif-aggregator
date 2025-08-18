@@ -67,8 +67,8 @@ async fn test_solver_options_default_behavior() {
     let metadata = &body["metadata"];
     
     // Verify default values
-    assert_eq!(metadata["globalTimeoutMs"].as_u64().unwrap(), 4000); // Default 4s (from config settings)
-    assert_eq!(metadata["solverTimeoutMs"].as_u64().unwrap(), 2500); // Default 2.5s
+    assert_eq!(metadata["globalTimeoutMs"].as_u64().unwrap(), 5000); // Default 5s (from config settings)
+    assert_eq!(metadata["solverTimeoutMs"].as_u64().unwrap(), 2000); // Default 2s
     assert_eq!(metadata["minQuotesRequired"].as_u64().unwrap(), 30); // Default 30
     assert_eq!(metadata["solverSelectionMode"].as_str().unwrap(), "all"); // Default "all"
     assert!(metadata["totalSolversAvailable"].as_u64().unwrap() > 0);
@@ -641,7 +641,7 @@ async fn test_solver_options_boundary_timeout_values() {
     // Test with boundary timeout values (exactly at limits)
     let mut request = fixtures::valid_quote_request();
     request["solverOptions"] = json!({
-        "timeout": 120000,     // Exactly at MAX_GLOBAL_TIMEOUT_MS (2 minutes)
+        "timeout": 60000,      // Exactly at MAX_GLOBAL_TIMEOUT_MS (1 minute)
         "solverTimeout": 30000, // Exactly at MAX_SOLVER_TIMEOUT_MS (30 seconds)
         "minQuotes": 1
     });
@@ -662,10 +662,10 @@ async fn test_solver_options_boundary_timeout_values() {
     let metadata = &body["metadata"];
     
     // Verify exact boundary values were used
-    assert_eq!(metadata["globalTimeoutMs"].as_u64().unwrap(), 120000);
+    assert_eq!(metadata["globalTimeoutMs"].as_u64().unwrap(), 60000);
     assert_eq!(metadata["solverTimeoutMs"].as_u64().unwrap(), 30000);
     
-    // Boundary timeouts validated - 2min global, 30s solver (max allowed values)
+    // Boundary timeouts validated - 1min global, 30s solver (max allowed values)
 
     server.abort();
 }

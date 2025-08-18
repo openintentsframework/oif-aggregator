@@ -32,10 +32,12 @@
       ]
     }
   },
-  "timeouts": {
-    "per_solver_ms": 2000,
-    "global_ms": 4000,
-    "request_ms": 5000
+  "aggregation": {
+    "global_timeout_ms": 4000,
+    "per_solver_timeout_ms": 2000,
+    "max_concurrent_solvers": 10,
+    "max_retries_per_solver": 3,
+    "retry_delay_ms": 1000
   },
   "environment": {
     "rate_limiting": {

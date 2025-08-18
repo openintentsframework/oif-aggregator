@@ -1,14 +1,115 @@
-//! Core aggregation service logic
-
+//! # Core Quote Aggregation Service
+//!
+//! This module implements the central orchestration service for aggregating quotes from multiple
+//! solvers in parallel. The aggregation service provides intelligent solver selection, concurrent
+//! execution, timeout handling, and comprehensive result collection.
+//!
+//! ## Architecture Overview
+//!
+//! The aggregation service follows a multi-stage pipeline architecture:
+//!
+//! ```text
+//! ┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+//! │ Quote Request   │───▶│ Solver Filtering │───▶│ Concurrent      │───▶│ Result          │
+//! │ + Options       │    │ & Selection      │    │ Execution       │    │ Aggregation     │
+//! └─────────────────┘    └──────────────────┘    └─────────────────┘    └─────────────────┘
+//! ```
+//!
+//! ## Key Components
+//!
+//! - **AggregatorService**: Main orchestration service that coordinates the entire process
+//! - **TaskExecutor**: Handles individual solver task execution with retries and concurrency limits
+//! - **SolverFilter**: Intelligent solver selection based on network/asset compatibility and options
+//! - **IntegrityService**: Generates cryptographic checksums for all quotes
+//!
+//! ## Core Features
+//!
+//! ### **Intelligent Solver Selection**
+//! - Network and asset compatibility scoring
+//! - Include/exclude solver filtering
+//! - Multiple selection strategies: All, Sampled, Priority
+//! - Weighted random sampling with bias towards compatible solvers
+//!
+//! ### **Concurrent Execution**
+//! - Parallel solver requests with configurable concurrency limits
+//! - Per-solver timeout control with global timeout boundaries
+//! - Non-blocking execution - slow solvers don't block fast ones
+//! - Early termination when minimum quote requirements are met
+//!
+//! ### **Resilience & Reliability**
+//! - Automatic retry logic with exponential backoff
+//! - Graceful error handling with detailed error categorization
+//! - Circuit breaker patterns to prevent cascading failures
+//! - Comprehensive metadata collection for monitoring and debugging
+//!
+//! ### **Security & Integrity**
+//! - Cryptographic integrity checksums for all quotes
+//! - Request validation and sanitization
+//! - Secure error handling without information leakage
+//!
+//! ## Execution Flow
+//!
+//! 1. **Request Validation**: Validate request parameters and solver options
+//! 2. **Solver Filtering**: Apply compatibility scoring and selection strategy
+//! 3. **Task Spawning**: Launch concurrent solver tasks with proper resource limits
+//! 4. **Quote Collection**: Aggregate results with early termination support
+//! 5. **Integrity Processing**: Generate checksums and finalize quotes
+//! 6. **Metadata Assembly**: Collect timing, counts, and execution statistics
+//!
+//! ## Configuration Options
+//!
+//! ### Solver Options
+//! - `includeSolvers` / `excludeSolvers`: Explicit solver filtering
+//! - `timeout` / `solverTimeout`: Global and per-solver timeout controls
+//! - `minQuotes`: Minimum quotes required for successful completion
+//! - `solverSelection`: Strategy for selecting solvers (All/Sampled/Priority)
+//! - `sampleSize`: Number of solvers to use when using Sampled strategy
+//! - `priorityThreshold`: Minimum priority score for Priority strategy
+//!
+//! ### Performance Tuning
+//! - `maxConcurrentSolvers`: Limit concurrent solver requests (configurable via config file)
+//! - `maxRetriesPerSolver`: Retry attempts for failed solvers (configurable via config file)  
+//! - `retryDelayMs`: Delay between retry attempts (configurable via config file)
+//!
+//! ## Configuration
+//!
+//! Performance and behavior parameters can be configured via the `config.toml` file:
+//!
+//! ```toml
+//! [aggregation]
+//! # All fields are optional - only specify what you want to override!
+//! global_timeout_ms = 5000        # Global aggregation timeout (default: 5000ms)
+//! per_solver_timeout_ms = 2500    # Per-solver timeout (default: 2500ms)
+//! max_concurrent_solvers = 50     # Concurrent solver limit (default: 50)
+//! max_retries_per_solver = 2      # Retry attempts per solver (default: 2)
+//! retry_delay_ms = 100            # Delay between retries (default: 100ms)
+//!
+//! # Example: Override only what you need
+//! # max_concurrent_solvers = 10   # Lower concurrency for testing
+//! ```
+//!
+//! These settings provide fine-grained control over:
+//! - **Timeouts**: Configure global and per-solver timeout limits
+//! - **Concurrency**: Balance between speed and resource usage  
+//! - **Reliability**: Retry failed requests automatically with backoff
+//! - **Latency**: Configure delays to avoid overwhelming slow solvers
+//!
+//! ## Error Handling
+//!
+//! The service provides comprehensive error categorization:
+//! - `ValidationError`: Invalid request parameters
+//! - `NoSolversAvailable`: No solvers match the selection criteria
+//! - `AllSolversFailed`: All selected solvers failed to provide quotes
+//! - `Timeout`: Global timeout exceeded before completion
+//! - `IntegrityError`: Checksum generation/verification failures
+//! - `SolverAdapterError`: Communication failures with solvers
 use crate::integrity::{IntegrityError, IntegrityTrait};
 use crate::solver_adapter::{SolverAdapterError, SolverAdapterService, SolverAdapterTrait};
 use crate::solver_filter::SolverFilterTrait;
 use async_trait::async_trait;
 use oif_adapters::AdapterRegistry;
-use oif_types::constants::limits::{
-	DEFAULT_MAX_CONCURRENT_SOLVERS, DEFAULT_MAX_RETRIES_PER_SOLVER, DEFAULT_MIN_QUOTES,
-	DEFAULT_PER_SOLVER_TIMEOUT_MS, DEFAULT_RETRY_DELAY_MS,
-};
+use oif_config::AggregationConfig;
+use oif_types::constants::limits::DEFAULT_MIN_QUOTES;
 use oif_types::quotes::errors::QuoteValidationError;
 use oif_types::quotes::request::{SolverOptions, SolverSelection};
 use oif_types::quotes::response::AggregationMetadata;
@@ -56,24 +157,6 @@ pub struct SolverTaskResult {
 	pub error_message: Option<String>,
 	pub duration_ms: u64,
 	pub retry_count: u32,
-}
-
-/// Configuration for aggregation behavior
-#[derive(Debug, Clone)]
-pub struct AggregationConfig {
-	pub max_concurrent_solvers: usize,
-	pub max_retries_per_solver: u32,
-	pub retry_delay_ms: u64,
-}
-
-impl Default for AggregationConfig {
-	fn default() -> Self {
-		Self {
-			max_concurrent_solvers: DEFAULT_MAX_CONCURRENT_SOLVERS,
-			max_retries_per_solver: DEFAULT_MAX_RETRIES_PER_SOLVER,
-			retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
-		}
-	}
 }
 
 #[cfg_attr(test, mockall::automock)]
@@ -343,7 +426,7 @@ impl TaskExecutorTrait for TaskExecutor {
 /// Service for aggregating quotes from multiple solvers
 pub struct AggregatorService {
 	solvers: HashMap<String, Solver>,
-	global_timeout_ms: u64,
+	config: AggregationConfig,
 	solver_filter_service: Arc<dyn SolverFilterTrait>,
 	task_executor: Arc<dyn TaskExecutorTrait>,
 }
@@ -353,14 +436,12 @@ impl AggregatorService {
 	pub fn new(
 		solvers: Vec<Solver>,
 		adapter_registry: Arc<AdapterRegistry>,
-		global_timeout_ms: u64,
 		integrity_service: Arc<dyn IntegrityTrait>,
 		solver_filter_service: Arc<dyn SolverFilterTrait>,
 	) -> Self {
 		Self::with_config(
 			solvers,
 			adapter_registry,
-			global_timeout_ms,
 			integrity_service,
 			solver_filter_service,
 			AggregationConfig::default(),
@@ -371,7 +452,6 @@ impl AggregatorService {
 	pub fn with_config(
 		solvers: Vec<Solver>,
 		adapter_registry: Arc<AdapterRegistry>,
-		global_timeout_ms: u64,
 		integrity_service: Arc<dyn IntegrityTrait>,
 		solver_filter_service: Arc<dyn SolverFilterTrait>,
 		config: AggregationConfig,
@@ -392,7 +472,7 @@ impl AggregatorService {
 
 		Self {
 			solvers: solver_map,
-			global_timeout_ms,
+			config,
 			solver_filter_service,
 			task_executor,
 		}
@@ -404,13 +484,13 @@ impl AggregatorService {
 			.solver_options
 			.as_ref()
 			.and_then(|opts| opts.timeout)
-			.unwrap_or(self.global_timeout_ms);
+			.unwrap_or(self.config.global_timeout_ms);
 
 		let per_solver_timeout_ms = request
 			.solver_options
 			.as_ref()
 			.and_then(|opts| opts.solver_timeout)
-			.unwrap_or(DEFAULT_PER_SOLVER_TIMEOUT_MS);
+			.unwrap_or(self.config.per_solver_timeout_ms);
 
 		let min_quotes_required = request
 			.solver_options
@@ -1201,7 +1281,6 @@ mod tests {
 		AggregatorService::new(
 			solvers,
 			Arc::new(create_test_adapter_registry()),
-			5000,
 			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
 				as Arc<dyn IntegrityTrait>,
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
@@ -1213,7 +1292,6 @@ mod tests {
 		AggregatorService::new(
 			vec![], // No solvers
 			Arc::new(create_test_adapter_registry()),
-			5000,
 			Arc::new(crate::integrity::IntegrityService::new(SecretString::from(
 				"test-secret",
 			))) as Arc<dyn IntegrityTrait>,
@@ -1262,7 +1340,6 @@ mod tests {
 		AggregatorService::new(
 			solvers,
 			Arc::new(create_test_adapter_registry()),
-			5000,
 			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
 				as Arc<dyn IntegrityTrait>,
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
@@ -1295,7 +1372,6 @@ mod tests {
 		AggregatorService::new(
 			solvers,
 			Arc::new(create_test_adapter_registry()),
-			5000,
 			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
 				as Arc<dyn IntegrityTrait>,
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
@@ -1317,7 +1393,6 @@ mod tests {
 		AggregatorService::new(
 			solvers,
 			Arc::new(create_test_adapter_registry()),
-			5000,
 			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
 				as Arc<dyn IntegrityTrait>,
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
@@ -1429,7 +1504,7 @@ mod tests {
 	async fn test_aggregator_creation() {
 		let aggregator = create_test_aggregator();
 		assert_eq!(aggregator.solvers.len(), 0);
-		assert_eq!(aggregator.global_timeout_ms, 5000);
+		assert_eq!(aggregator.config.global_timeout_ms, 5000); // DEFAULT_GLOBAL_TIMEOUT_MS
 	}
 
 	#[tokio::test]

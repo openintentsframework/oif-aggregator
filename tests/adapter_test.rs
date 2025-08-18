@@ -84,7 +84,6 @@ async fn test_aggregation_service_creation() {
 	let service = AggregatorService::new(
 		solvers,
 		adapter_registry,
-		5000,
 		integrity_service,
 		Arc::new(oif_service::SolverFilterService::new())
 			as Arc<dyn oif_service::SolverFilterTrait>,
