@@ -276,7 +276,7 @@ impl TryFrom<HealthCheckStorage> for HealthCheckResult {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::{solvers::Solver, Network};
+	use crate::solvers::Solver;
 
 	fn create_test_solver() -> Solver {
 		Solver::new(

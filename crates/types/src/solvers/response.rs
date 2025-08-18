@@ -78,10 +78,7 @@ impl TryFrom<Vec<Solver>> for SolversResponse {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::{
-		solvers::{Solver, SolverStatus},
-		Network,
-	};
+	use crate::solvers::{Solver, SolverStatus};
 
 	fn create_test_solver() -> Solver {
 		Solver::new(

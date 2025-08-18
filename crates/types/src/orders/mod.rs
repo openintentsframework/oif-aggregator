@@ -107,7 +107,3 @@ impl From<crate::adapters::OrderStatus> for OrderStatus {
 		}
 	}
 }
-#[cfg(test)]
-mod tests {
-	use super::*;
-}
