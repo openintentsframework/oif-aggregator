@@ -364,7 +364,6 @@ mod tests {
 				name: Some(format!("Test Solver {}", id)),
 				description: Some(format!("Test solver {}", id)),
 				version: Some("1.0.0".to_string()),
-				supported_networks: vec![], // No longer used
 				supported_assets,
 				max_retries: 3,
 				headers: Some(HashMap::new()),

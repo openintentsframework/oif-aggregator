@@ -43,7 +43,6 @@ pub struct SolverConfig {
 	pub name: Option<String>,
 	pub description: Option<String>,
 	// Optional domain metadata for discoverability
-	pub supported_networks: Option<Vec<NetworkConfig>>,
 	pub supported_assets: Option<Vec<AssetConfig>>,
 }
 
@@ -61,12 +60,6 @@ impl From<SolverConfig> for DomainSolverConfig {
 			name: settings_config.name,
 			description: settings_config.description,
 			version: None,
-			supported_networks: settings_config.supported_networks.map(|networks| {
-				networks
-					.into_iter()
-					.map(|n| oif_types::Network::new(n.chain_id, n.name, n.is_testnet))
-					.collect()
-			}),
 			supported_assets: settings_config.supported_assets.map(|assets| {
 				assets
 					.into_iter()

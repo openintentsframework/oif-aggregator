@@ -7,7 +7,7 @@ use oif_service::{
 	IntegrityService, IntegrityTrait, OrderService, OrderServiceTrait, SolverFilterService,
 	SolverFilterTrait, SolverService, SolverServiceTrait,
 };
-use oif_types::{Asset, Network};
+use oif_types::Asset;
 
 // Core domain types - the most commonly used types
 pub use oif_types::{
@@ -208,17 +208,10 @@ where
 				.name
 				.clone()
 				.or_else(|| Some(solver_config.solver_id.clone()));
-			solver.metadata.supported_networks = vec![];
 			solver.metadata.max_retries = solver_config.max_retries;
 			solver.metadata.headers = solver_config.headers.clone();
 			if let Some(desc) = &solver_config.description {
 				solver.metadata.description = Some(desc.clone());
-			}
-			if let Some(networks) = &solver_config.supported_networks {
-				solver.metadata.supported_networks = networks
-					.iter()
-					.map(|n| Network::new(n.chain_id, n.name.clone(), n.is_testnet))
-					.collect();
 			}
 			if let Some(assets) = &solver_config.supported_assets {
 				solver.metadata.supported_assets = assets
@@ -384,7 +377,6 @@ where
 
 			// Update metadata with configuration details
 			solver.metadata.name = Some(solver_config.solver_id.clone());
-			solver.metadata.supported_networks = vec![];
 			solver.metadata.max_retries = solver_config.max_retries;
 			solver.metadata.headers = solver_config.headers.clone();
 			solver.status = SolverStatus::Active;

@@ -73,11 +73,6 @@ impl MockConfigs {
 			timeout_ms: 1000,
 			max_retries: 3,
 			headers: Some(HashMap::new()),
-			supported_networks: Some(vec![NetworkConfig {
-				chain_id: 1,
-				name: "Ethereum".to_string(),
-				is_testnet: false,
-			}]),
 			supported_assets: Some(vec![AssetConfig {
 				address: "0x0000000000000000000000000000000000000000".to_string(),
 				symbol: "ETH".to_string(),
@@ -114,11 +109,6 @@ impl SolverConfigBuilder {
 				timeout_ms: 1000,
 				max_retries: 3,
 				headers: Some(HashMap::new()),
-				supported_networks: Some(vec![NetworkConfig {
-					chain_id: 1,
-					name: "Ethereum".to_string(),
-					is_testnet: false,
-				}]),
 				supported_assets: Some(vec![AssetConfig {
 					address: "0x0000000000000000000000000000000000000000".to_string(),
 					symbol: "ETH".to_string(),

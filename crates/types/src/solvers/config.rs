@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use super::{Solver, SolverValidationError, SolverValidationResult};
 use crate::constants::{DEFAULT_SOLVER_RETRIES, DEFAULT_SOLVER_TIMEOUT_MS};
-use crate::models::{Asset, Network};
+use crate::models::Asset;
 
 /// Solver configuration from external sources (config files, API)
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,9 +41,6 @@ pub struct SolverConfig {
 	/// API version
 	pub version: Option<String>,
 
-	/// Supported blockchain networks
-	pub supported_networks: Option<Vec<Network>>,
-
 	/// Supported assets/tokens
 	pub supported_assets: Option<Vec<Asset>>,
 
@@ -68,9 +65,6 @@ pub struct AdapterConfig {
 
 	/// Adapter version
 	pub version: String,
-
-	/// Supported blockchain networks
-	pub supported_networks: Vec<u64>,
 
 	/// Adapter-specific configuration
 	pub configuration: serde_json::Value,
@@ -108,7 +102,6 @@ impl SolverConfig {
 			name: None,
 			description: None,
 			version: None,
-			supported_networks: None,
 			supported_assets: None,
 			config: None,
 		}
@@ -127,11 +120,6 @@ impl SolverConfig {
 
 	pub fn with_description(mut self, description: String) -> Self {
 		self.description = Some(description);
-		self
-	}
-
-	pub fn with_networks(mut self, networks: Vec<Network>) -> Self {
-		self.supported_networks = Some(networks);
 		self
 	}
 
@@ -165,7 +153,6 @@ impl AdapterConfig {
 			name,
 			description: None,
 			version,
-			supported_networks: Vec::new(),
 			configuration: serde_json::Value::Object(serde_json::Map::new()),
 			enabled: true,
 			created_at: Utc::now(),
@@ -250,10 +237,6 @@ impl TryFrom<SolverConfig> for Solver {
 
 		if let Some(version) = config.version {
 			solver = solver.with_version(version);
-		}
-
-		if let Some(networks) = config.supported_networks {
-			solver = solver.with_networks(networks);
 		}
 
 		if let Some(assets) = config.supported_assets {
@@ -341,16 +324,25 @@ mod tests {
 			"https://api.example.com".to_string(),
 		)
 		.with_name("Test Solver".to_string())
-		.with_networks(vec![
-			Network::new(1, "Ethereum".to_string(), false),
-			Network::new(137, "Polygon".to_string(), false),
-		]);
+		.with_assets(vec![Asset::new(
+			"0x0000000000000000000000000000000000000000".to_string(),
+			"ETH".to_string(),
+			"Ethereum".to_string(),
+			18,
+			1,
+		)])
+		.with_assets(vec![Asset::new(
+			"0x0000000000000000000000000000000000000000".to_string(),
+			"ETH".to_string(),
+			"Ethereum".to_string(),
+			18,
+			1,
+		)]);
 
 		let solver = Solver::try_from(config).unwrap();
 
 		assert_eq!(solver.solver_id, "test-solver");
 		assert_eq!(solver.metadata.name, Some("Test Solver".to_string()));
-		assert_eq!(solver.metadata.supported_networks.len(), 2);
 		assert!(solver.supports_chain(1));
 		assert!(solver.supports_chain(137));
 	}

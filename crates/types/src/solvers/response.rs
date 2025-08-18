@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use super::{Solver, SolverStatus};
-use crate::models::{Asset as AssetResponse, Network as NetworkResponse};
+use crate::models::Asset as AssetResponse;
 
 /// Response format for individual solvers in API
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,7 +18,6 @@ pub struct SolverResponse {
 	pub description: Option<String>,
 	pub endpoint: String,
 	pub status: SolverStatus,
-	pub supported_networks: Vec<NetworkResponse>,
 	pub supported_assets: Vec<AssetResponse>,
 	pub created_at: i64,
 	pub last_seen: Option<i64>,
@@ -54,7 +53,6 @@ impl TryFrom<&Solver> for SolverResponse {
 			description: solver.metadata.description.clone(),
 			endpoint: solver.endpoint.clone(),
 			status: solver.status.clone(),
-			supported_networks: solver.metadata.supported_networks.clone(),
 			supported_assets: solver.metadata.supported_assets.clone(),
 			created_at: solver.created_at.timestamp(),
 			last_seen: solver.last_seen.map(|dt| dt.timestamp()),
@@ -93,10 +91,6 @@ mod tests {
 			2000,
 		)
 		.with_name("Test Solver".to_string())
-		.with_networks(vec![
-			Network::new(1, "Ethereum".to_string(), false),
-			Network::new(137, "Polygon".to_string(), false),
-		])
 	}
 
 	#[test]
@@ -109,12 +103,9 @@ mod tests {
 		assert_eq!(response.solver_id, "test-solver");
 		assert_eq!(response.name, Some("Test Solver".to_string()));
 		assert!(matches!(response.status, SolverStatus::Active));
-		assert_eq!(response.supported_networks.len(), 2);
-		assert!(response.supported_networks.iter().any(|n| n.chain_id == 1));
-		assert!(response
-			.supported_networks
-			.iter()
-			.any(|n| n.chain_id == 137));
+		assert_eq!(response.supported_assets.len(), 2);
+		assert!(response.supported_assets.iter().any(|a| a.chain_id == 1));
+		assert!(response.supported_assets.iter().any(|a| a.chain_id == 137));
 	}
 
 	#[test]

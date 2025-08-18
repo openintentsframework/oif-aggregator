@@ -93,13 +93,6 @@ Configuration can be provided via JSON file in the `config/` directory:
       "headers": null,
       "name": "Example Solver",
       "description": "Example Solver Description",
-      "supported_networks": [
-        {
-          "chain_id": 1,
-          "name": "Ethereum",
-          "is_testnet": false
-        }
-      ],
       "supported_assets": [
         {
           "address": "0x0000000000000000000000000000000000000000",

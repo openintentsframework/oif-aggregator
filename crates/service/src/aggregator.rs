@@ -1219,11 +1219,6 @@ mod tests {
 					"http://localhost:8001".to_string(),
 					1000,
 				);
-				solver.metadata.supported_networks = vec![oif_types::models::Network::new(
-					1,
-					"Ethereum Mainnet".to_string(),
-					false,
-				)];
 				solver.metadata.supported_assets = vec![oif_types::models::Asset::new(
 					"0x0000000000000000000000000000000000000000".to_string(),
 					"ETH".to_string(),
@@ -1241,11 +1236,6 @@ mod tests {
 					"http://localhost:8002".to_string(),
 					1000,
 				);
-				solver.metadata.supported_networks = vec![oif_types::models::Network::new(
-					1,
-					"Ethereum Mainnet".to_string(),
-					false,
-				)];
 				solver.metadata.supported_assets = vec![oif_types::models::Asset::new(
 					"0x0000000000000000000000000000000000000000".to_string(),
 					"ETH".to_string(),
@@ -1263,11 +1253,6 @@ mod tests {
 					"http://localhost:8003".to_string(),
 					1000,
 				);
-				solver.metadata.supported_networks = vec![oif_types::models::Network::new(
-					1,
-					"Ethereum Mainnet".to_string(),
-					false,
-				)];
 				solver.metadata.supported_assets = vec![oif_types::models::Asset::new(
 					"0x0000000000000000000000000000000000000000".to_string(),
 					"ETH".to_string(),
@@ -1313,11 +1298,6 @@ mod tests {
 			);
 
 			// Add network and asset support to prevent filtering issues
-			solver.metadata.supported_networks = vec![oif_types::models::Network::new(
-				1,
-				"Ethereum Mainnet".to_string(),
-				false,
-			)];
 			solver.metadata.supported_assets = vec![
 				oif_types::models::Asset::new(
 					"0x0000000000000000000000000000000000000000".to_string(),

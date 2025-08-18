@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use utoipa::ToSchema;
 
 use crate::constants::{MAX_SOLVER_RETRIES, MAX_SOLVER_TIMEOUT_MS, MIN_SOLVER_TIMEOUT_MS};
-use crate::models::{Asset, Network};
+use crate::models::Asset;
 use url::Url;
 
 pub mod config;
@@ -118,9 +118,6 @@ pub struct SolverMetadata {
 
 	/// Version of the solver API
 	pub version: Option<String>,
-
-	/// Supported blockchain networks
-	pub supported_networks: Vec<Network>,
 
 	/// Supported assets/tokens
 	pub supported_assets: Vec<Asset>,
@@ -348,14 +345,9 @@ impl Solver {
 	/// Check if solver supports a specific chain
 	pub fn supports_chain(&self, chain_id: u64) -> bool {
 		self.metadata
-			.supported_networks
+			.supported_assets
 			.iter()
-			.any(|n| n.chain_id == chain_id)
-	}
-
-	/// Check if solver supports a specific network
-	pub fn supports_network(&self, network: &Network) -> bool {
-		self.metadata.supported_networks.contains(network)
+			.any(|a| a.chain_id == chain_id)
 	}
 
 	/// Check if solver supports a specific asset by symbol
@@ -419,11 +411,6 @@ impl Solver {
 		self
 	}
 
-	pub fn with_networks(mut self, networks: Vec<Network>) -> Self {
-		self.metadata.supported_networks = networks;
-		self
-	}
-
 	pub fn with_assets(mut self, assets: Vec<Asset>) -> Self {
 		self.metadata.supported_assets = assets;
 		self
@@ -451,7 +438,6 @@ impl Default for SolverMetadata {
 			name: None,
 			description: None,
 			version: None,
-			supported_networks: Vec::new(),
 			supported_assets: Vec::new(),
 			max_retries: 1,
 			headers: None,
@@ -625,7 +611,6 @@ mod tests {
 		let solver = create_test_solver()
 			.with_name("Test Solver".to_string())
 			.with_version("1.0.0".to_string())
-			.with_networks(vec![Network::new(1, "Ethereum".to_string(), false)])
 			.with_assets(vec![Asset::new(
 				"0x0000000000000000000000000000000000000000".to_string(),
 				"ETH".to_string(),
@@ -637,7 +622,6 @@ mod tests {
 
 		assert_eq!(solver.metadata.name, Some("Test Solver".to_string()));
 		assert_eq!(solver.metadata.version, Some("1.0.0".to_string()));
-		assert_eq!(solver.metadata.supported_networks.len(), 1);
 		assert!(solver.supports_chain(1));
 		assert_eq!(solver.metadata.max_retries, 5);
 	}
