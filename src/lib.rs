@@ -5,7 +5,7 @@
 
 use oif_service::{
 	AggregatorTrait, IntegrityService, IntegrityTrait, OrderService, OrderServiceTrait,
-	SolverService, SolverServiceTrait,
+	SolverFilterService, SolverFilterTrait, SolverService, SolverServiceTrait,
 };
 use oif_types::{Asset, Network};
 
@@ -308,7 +308,9 @@ where
 		let mut registry = self
 			.adapter_registry
 			.unwrap_or_else(oif_adapters::AdapterRegistry::with_defaults);
-		registry.register(adapter).expect("Failed to register adapter during startup - this is a fatal configuration error");
+		registry.register(adapter).expect(
+			"Failed to register adapter during startup - this is a fatal configuration error",
+		);
 		self.adapter_registry = Some(registry);
 		self
 	}
@@ -461,11 +463,14 @@ where
 			})?;
 		let integrity_service =
 			Arc::new(IntegrityService::new(integrity_secret)) as Arc<dyn IntegrityTrait>;
+		let solver_filter_service =
+			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>;
 		let aggregator_service = AggregatorService::new(
 			solvers.clone(),
 			Arc::clone(&adapter_registry),
 			settings.timeouts.global_ms,
 			Arc::clone(&integrity_service),
+			Arc::clone(&solver_filter_service),
 		);
 
 		// Validate that all solvers have matching adapters

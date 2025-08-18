@@ -21,3 +21,7 @@ mod quotes_tests {
 mod orders_tests {
 	include!("e2e/orders_tests.rs");
 }
+
+mod solver_options_tests {
+	include!("e2e/solver_options_tests.rs");
+}

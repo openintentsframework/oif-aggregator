@@ -22,7 +22,7 @@ async fn test_orders_stateless_flow() {
     let quotes = quotes_json["quotes"].as_array().expect("No quotes array");
     
     if quotes.is_empty() {
-        println!("No quotes returned from mock adapter");
+        //println!("No quotes returned from mock adapter");
         server.abort();
         return;
     }
@@ -47,7 +47,7 @@ async fn test_orders_stateless_flow() {
     assert_eq!(resp.status(), reqwest::StatusCode::OK);
     
     let json: serde_json::Value = resp.json().await.expect("Failed to parse order response");
-    println!("Order creation response: {:?}", json);
+    //println!("Order creation response: {:?}", json);
     let order_id = json["orderId"].as_str().expect("No orderId in response");
     assert!(!order_id.is_empty());
 
@@ -62,7 +62,7 @@ async fn test_orders_stateless_flow() {
     let status_json: serde_json::Value = resp.json().await.expect("Failed to parse order status");
     assert_eq!(status_json["orderId"], order_id);
     assert!(status_json["status"].is_string());
-    println!("Order status: {:?}", status_json);
+    //println!("Order status: {:?}", status_json);
 
     // retrieve the order
     let order_resp = client
@@ -72,7 +72,7 @@ async fn test_orders_stateless_flow() {
         .expect("Failed to get order");
         
     let order_json: serde_json::Value = order_resp.json().await.expect("Failed to parse order");
-    println!("Order: {:?}", order_json);
+    //println!("Order: {:?}", order_json);
     assert_eq!(order_json["orderId"], order_id);
     assert_eq!(order_json["status"], "finalized");
 

@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use crate::integrity::IntegrityTrait;
-use crate::solver_adapter_service::{SolverAdapterError, SolverAdapterService, SolverAdapterTrait};
+use crate::solver_adapter::{SolverAdapterError, SolverAdapterService, SolverAdapterTrait};
 use async_trait::async_trait;
 use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;

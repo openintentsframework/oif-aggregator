@@ -1,5 +1,8 @@
 //! Quote request model and validation
 
+use crate::constants::limits::{
+	MAX_GLOBAL_TIMEOUT_MS, MAX_PRIORITY_THRESHOLD, MAX_SOLVER_TIMEOUT_MS, MIN_SOLVER_TIMEOUT_MS,
+};
 use crate::{models::InteropAddress, AvailableInput, QuotePreference, RequestedOutput};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "openapi")]
@@ -7,16 +10,18 @@ use utoipa::ToSchema;
 
 use super::{QuoteValidationError, QuoteValidationResult};
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize, PartialEq)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[serde(rename_all = "lowercase")]
 pub enum SolverSelection {
+	#[default]
 	All,
 	Sampled,
 	Priority,
 }
 
 /// API request body for /v1/quotes endpoint
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SolverOptions {
@@ -36,6 +41,108 @@ pub struct SolverOptions {
 	pub sample_size: Option<u64>,
 	/// Min solver confidence threshold
 	pub priority_threshold: Option<u64>,
+}
+
+impl SolverOptions {
+	/// Validate solver options to prevent abuse and logical errors
+	pub fn validate(&self) -> QuoteValidationResult<()> {
+		// Validate minQuotes - must be positive
+		if let Some(min_quotes) = self.min_quotes {
+			if min_quotes == 0 {
+				return Err(QuoteValidationError::InvalidSolverOptions {
+					field: "minQuotes".to_string(),
+					reason: "minQuotes must be at least 1 (cannot aggregate 0 quotes)".to_string(),
+				});
+			}
+		}
+
+		// Validate sampleSize - must be positive when specified
+		if let Some(sample_size) = self.sample_size {
+			if sample_size == 0 {
+				return Err(QuoteValidationError::InvalidSolverOptions {
+					field: "sampleSize".to_string(),
+					reason: "sampleSize must be at least 1 when using sampled selection"
+						.to_string(),
+				});
+			}
+		}
+
+		// Validate priorityThreshold - should be reasonable range (0-100)
+		if let Some(threshold) = self.priority_threshold {
+			if threshold > MAX_PRIORITY_THRESHOLD {
+				return Err(QuoteValidationError::InvalidSolverOptions {
+					field: "priorityThreshold".to_string(),
+					reason: format!(
+						"priorityThreshold must be between 0-{}",
+						MAX_PRIORITY_THRESHOLD
+					),
+				});
+			}
+		}
+
+		// Validate timeout values
+		// Validate global timeout (allow more generous limits for aggregation)
+		if let Some(timeout) = self.timeout {
+			if timeout < MIN_SOLVER_TIMEOUT_MS {
+				return Err(QuoteValidationError::InvalidSolverOptions {
+					field: "timeout".to_string(),
+					reason: format!(
+						"Global timeout {}ms is too low (minimum: {}ms)",
+						timeout, MIN_SOLVER_TIMEOUT_MS
+					),
+				});
+			}
+
+			// Allow up to 2 minutes for global timeout (longer than individual solver timeout)
+			if timeout > MAX_GLOBAL_TIMEOUT_MS {
+				return Err(QuoteValidationError::InvalidSolverOptions {
+					field: "timeout".to_string(),
+					reason: format!(
+						"Global timeout {}ms is too high (maximum: {}ms)",
+						timeout, MAX_GLOBAL_TIMEOUT_MS
+					),
+				});
+			}
+		}
+
+		// Validate per-solver timeout
+		if let Some(solver_timeout) = self.solver_timeout {
+			if solver_timeout < MIN_SOLVER_TIMEOUT_MS {
+				return Err(QuoteValidationError::InvalidSolverOptions {
+					field: "solverTimeout".to_string(),
+					reason: format!(
+						"Per-solver timeout {}ms is too low (minimum: {}ms)",
+						solver_timeout, MIN_SOLVER_TIMEOUT_MS
+					),
+				});
+			}
+
+			if solver_timeout > MAX_SOLVER_TIMEOUT_MS {
+				return Err(QuoteValidationError::InvalidSolverOptions {
+					field: "solverTimeout".to_string(),
+					reason: format!(
+						"Per-solver timeout {}ms is too high (maximum: {}ms)",
+						solver_timeout, MAX_SOLVER_TIMEOUT_MS
+					),
+				});
+			}
+		}
+
+		// Validate logical consistency: global timeout should be >= per-solver timeout
+		if let (Some(global), Some(per_solver)) = (self.timeout, self.solver_timeout) {
+			if global < per_solver {
+				return Err(QuoteValidationError::InvalidSolverOptions {
+					field: "timeout".to_string(),
+					reason: format!(
+						"Global timeout ({}ms) should not be less than per-solver timeout ({}ms)",
+						global, per_solver
+					),
+				});
+			}
+		}
+
+		Ok(())
+	}
 }
 
 /// API request body for /v1/quotes endpoint
@@ -124,6 +231,11 @@ impl QuoteRequest {
 					reason: "Amount must be greater than zero".to_string(),
 				});
 			}
+		}
+
+		// Validate solver options if provided
+		if let Some(options) = &self.solver_options {
+			options.validate()?;
 		}
 
 		Ok(())

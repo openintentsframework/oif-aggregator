@@ -155,7 +155,7 @@ async fn test_orders_endpoint_with_mock_data() {
 	let quotes = quotes_json["quotes"].as_array().expect("No quotes array");
 
 	if quotes.is_empty() {
-		println!("No quotes returned from mock adapter");
+		//println!("No quotes returned from mock adapter");
 		server.handle.abort();
 		return;
 	}
@@ -185,7 +185,7 @@ async fn test_orders_endpoint_with_mock_data() {
 			.text()
 			.await
 			.expect("Failed to read error body");
-		println!("Order failed with status {}: {}", status, error_body);
+		//println!("Order failed with status {}: {}", status, error_body);
 	}
 
 	// Should now work with proper integrity checksum

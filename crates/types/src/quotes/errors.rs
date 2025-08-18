@@ -25,6 +25,9 @@ pub enum QuoteValidationError {
 
 	#[error("Unsupported chain: {chain_id}")]
 	UnsupportedChain { chain_id: u64 },
+
+	#[error("Invalid solver options: {field} - {reason}")]
+	InvalidSolverOptions { field: String, reason: String },
 }
 
 /// General quote-related errors

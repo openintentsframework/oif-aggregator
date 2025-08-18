@@ -411,7 +411,7 @@ async fn test_quote_and_order_workflow() {
 	let quotes = quotes_json["quotes"].as_array().expect("No quotes array");
 
 	if quotes.is_empty() {
-		println!("No quotes returned from mock adapter");
+		//println!("No quotes returned from mock adapter");
 		panic!()
 	}
 

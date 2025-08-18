@@ -5,6 +5,8 @@ use oif_aggregator::{api::routes::create_router, AggregatorBuilder};
 
 use tokio::task::JoinHandle;
 
+pub mod timing_controlled_mocks;
+
 // E2E test utilities - no longer need AppStateBuilder as we use AggregatorBuilder
 
 /// Test server instance with configurable settings
@@ -87,6 +89,92 @@ impl TestServer {
 		tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
 		Ok(Self { base_url, handle })
+	}
+
+	/// Spawn a test server with multiple timing-controlled adapters for sophisticated testing
+	pub async fn spawn_with_timing_controlled_adapters() -> Result<
+		(Self, Vec<timing_controlled_mocks::TimingControlledAdapter>),
+		Box<dyn std::error::Error>,
+	> {
+		// Set required environment variable for tests
+		std::env::set_var(
+			"INTEGRITY_SECRET",
+			"test-secret-for-e2e-tests-12345678901234567890",
+		);
+
+		let mut settings = oif_config::Settings::default();
+		settings.security.integrity_secret =
+			oif_config::ConfigurableValue::from_env("INTEGRITY_SECRET");
+
+		// Create multiple adapters with different timing characteristics
+		let fast_adapter = timing_controlled_mocks::TimingControlledAdapter::fast("fast");
+		let slow_adapter = timing_controlled_mocks::TimingControlledAdapter::slow("slow");
+		let timeout_adapter = timing_controlled_mocks::TimingControlledAdapter::timeout("timeout");
+		let failing_adapter = timing_controlled_mocks::TimingControlledAdapter::failing("failing");
+
+		// Create corresponding solvers
+		let fast_solver = oif_types::Solver::new(
+			"fast-solver".to_string(),
+			"timing-fast".to_string(),
+			"http://localhost:8080".to_string(),
+			3000,
+		);
+		let slow_solver = oif_types::Solver::new(
+			"slow-solver".to_string(),
+			"timing-slow".to_string(),
+			"http://localhost:8081".to_string(),
+			3000,
+		);
+		let timeout_solver = oif_types::Solver::new(
+			"timeout-solver".to_string(),
+			"timing-timeout".to_string(),
+			"http://localhost:8082".to_string(),
+			3000,
+		);
+		let failing_solver = oif_types::Solver::new(
+			"failing-solver".to_string(),
+			"timing-failing".to_string(),
+			"http://localhost:8083".to_string(),
+			3000,
+		);
+
+		// Keep references to adapters for call tracking
+		let adapters = vec![
+			fast_adapter.clone(),
+			slow_adapter.clone(),
+			timeout_adapter.clone(),
+			failing_adapter.clone(),
+		];
+
+		let (_router, state) = AggregatorBuilder::default()
+			.with_settings(settings)
+			.with_adapter(Box::new(fast_adapter))
+			.with_adapter(Box::new(slow_adapter))
+			.with_adapter(Box::new(timeout_adapter))
+			.with_adapter(Box::new(failing_adapter))
+			.with_solver(fast_solver)
+			.with_solver(slow_solver)
+			.with_solver(timeout_solver)
+			.with_solver(failing_solver)
+			.start()
+			.await?;
+
+		let app: Router = create_router().with_state(state);
+
+		let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+			.await
+			.expect("bind test port");
+		let addr = listener.local_addr().unwrap();
+		let base_url = format!("http://{}:{}", addr.ip(), addr.port());
+
+		let handle = tokio::spawn(async move {
+			let _ = axum::serve(listener, app).await;
+		});
+
+		// Give server time to start
+		tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+		Ok((Self { base_url, handle }, adapters))
 	}
 
 	#[allow(dead_code)]

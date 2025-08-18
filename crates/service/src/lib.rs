@@ -5,15 +5,17 @@
 pub mod aggregator;
 pub mod integrity;
 pub mod order;
-pub mod solver;
-pub mod solver_adapter_service;
+pub mod solver_adapter;
+pub mod solver_filter;
+pub mod solver_repository;
 
 pub use aggregator::{
-	AggregatorResult, AggregatorService, AggregatorServiceError, AggregatorTrait,
+	AggregationConfig, AggregatorResult, AggregatorService, AggregatorServiceError,
+	AggregatorTrait, SolverTaskResult, TaskExecutor, TaskExecutorTrait,
 };
 
 #[cfg(test)]
-pub use aggregator::MockAggregatorTrait;
+pub use aggregator::{MockAggregatorTrait, MockTaskExecutorTrait};
 #[cfg(test)]
 pub use integrity::MockIntegrityTrait;
 pub use integrity::{IntegrityService, IntegrityTrait};
@@ -21,7 +23,12 @@ pub use oif_types::IntegrityPayload;
 #[cfg(test)]
 pub use order::MockOrderServiceTrait;
 pub use order::{OrderService, OrderServiceError, OrderServiceTrait};
+pub use solver_adapter::{SolverAdapterError, SolverAdapterService, SolverAdapterTrait};
 #[cfg(test)]
-pub use solver::MockSolverServiceTrait;
-pub use solver::{SolverService, SolverServiceError, SolverServiceTrait, SolverStats};
-pub use solver_adapter_service::{SolverAdapterError, SolverAdapterService, SolverAdapterTrait};
+pub use solver_filter::MockSolverFilterTrait;
+pub use solver_filter::{
+	CompatibilityCalculator, SelectionEngine, SolverFilterService, SolverFilterTrait,
+};
+#[cfg(test)]
+pub use solver_repository::MockSolverServiceTrait;
+pub use solver_repository::{SolverService, SolverServiceError, SolverServiceTrait, SolverStats};

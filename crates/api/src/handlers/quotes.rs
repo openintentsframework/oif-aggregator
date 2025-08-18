@@ -47,8 +47,8 @@ pub async fn post_quotes(
 		request.requested_outputs.len()
 	);
 
-	let quotes = match state.aggregator_service.fetch_quotes(request.clone()).await {
-		Ok(quotes) => quotes,
+	let (quotes, metadata) = match state.aggregator_service.fetch_quotes(request.clone()).await {
+		Ok((quotes, metadata)) => (quotes, metadata),
 		Err(e) => {
 			return Err((
 				StatusCode::BAD_REQUEST,
@@ -61,7 +61,22 @@ pub async fn post_quotes(
 		},
 	};
 
-	let response = match QuotesResponse::from_domain_quotes(quotes) {
+	// Convert service metadata to API metadata
+	let api_metadata = oif_types::quotes::response::AggregationMetadata {
+		total_duration_ms: metadata.total_duration_ms,
+		solver_timeout_ms: metadata.solver_timeout_ms,
+		global_timeout_ms: metadata.global_timeout_ms,
+		early_termination: metadata.early_termination,
+		total_solvers_available: metadata.total_solvers_available,
+		solvers_queried: metadata.solvers_queried,
+		solvers_responded_success: metadata.solvers_responded_success,
+		solvers_responded_error: metadata.solvers_responded_error,
+		solvers_timed_out: metadata.solvers_timed_out,
+		min_quotes_required: metadata.min_quotes_required,
+		solver_selection_mode: metadata.solver_selection_mode,
+	};
+
+	let response = match QuotesResponse::from_domain_quotes_with_metadata(quotes, api_metadata) {
 		Ok(resp) => resp,
 		Err(e) => {
 			return Err((
@@ -75,6 +90,9 @@ pub async fn post_quotes(
 		},
 	};
 
-	info!("Returning {} quotes for request", response.total_quotes);
+	info!(
+		"Returning {} quotes for request (duration: {}ms, {} solvers queried)",
+		response.total_quotes, metadata.total_duration_ms, metadata.solvers_queried
+	);
 	Ok(Json(response))
 }
