@@ -9,5 +9,5 @@ pub mod startup_logger;
 
 pub use configurable_value::{ConfigurableValue, ConfigurableValueError, ValueType};
 pub use loader::load_config;
-pub use settings::Settings;
+pub use settings::{AggregationConfig, AggregationSettings, Settings};
 pub use startup_logger::{log_service_info, log_service_shutdown, log_startup_complete};

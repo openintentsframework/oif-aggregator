@@ -81,7 +81,13 @@ async fn test_aggregation_service_creation() {
 		"test-secret",
 	)));
 
-	let service = AggregatorService::new(solvers, adapter_registry, 5000, integrity_service);
+	let service = AggregatorService::new(
+		solvers,
+		adapter_registry,
+		integrity_service,
+		Arc::new(oif_service::SolverFilterService::new())
+			as Arc<dyn oif_service::SolverFilterTrait>,
+	);
 
 	// Just verify service was created successfully
 	// We can't format debug or get stats, so just verify it exists
@@ -130,9 +136,15 @@ async fn test_quote_aggregation_with_mock() {
 	let quotes_result = state.aggregator_service.fetch_quotes(request).await;
 	assert!(quotes_result.is_ok());
 
-	let quotes = quotes_result.unwrap();
+	let (quotes, metadata) = quotes_result.unwrap();
 	// Should get at least one quote from mock adapter
 	assert!(!quotes.is_empty());
+	// Verify metadata was returned with meaningful values
+	assert!(metadata.solvers_queried > 0);
+	assert_eq!(
+		metadata.solver_selection_mode,
+		oif_types::quotes::request::SolverSelection::All
+	);
 }
 
 #[tokio::test]

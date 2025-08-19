@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use utoipa::ToSchema;
 
 use crate::constants::{MAX_SOLVER_RETRIES, MAX_SOLVER_TIMEOUT_MS, MIN_SOLVER_TIMEOUT_MS};
-use crate::models::{Asset, Network};
+use crate::models::Asset;
 use url::Url;
 
 pub mod config;
@@ -118,9 +118,6 @@ pub struct SolverMetadata {
 
 	/// Version of the solver API
 	pub version: Option<String>,
-
-	/// Supported blockchain networks
-	pub supported_networks: Vec<Network>,
 
 	/// Supported assets/tokens
 	pub supported_assets: Vec<Asset>,
@@ -348,14 +345,9 @@ impl Solver {
 	/// Check if solver supports a specific chain
 	pub fn supports_chain(&self, chain_id: u64) -> bool {
 		self.metadata
-			.supported_networks
+			.supported_assets
 			.iter()
-			.any(|n| n.chain_id == chain_id)
-	}
-
-	/// Check if solver supports a specific network
-	pub fn supports_network(&self, network: &Network) -> bool {
-		self.metadata.supported_networks.contains(network)
+			.any(|a| a.chain_id == chain_id)
 	}
 
 	/// Check if solver supports a specific asset by symbol
@@ -366,12 +358,12 @@ impl Solver {
 			.any(|a| a.symbol.eq_ignore_ascii_case(symbol))
 	}
 
-	/// Check if solver supports a specific asset by address
-	pub fn supports_asset_address(&self, address: &str) -> bool {
+	/// Check if solver supports a specific asset on a specific chain
+	pub fn supports_asset_on_chain(&self, chain_id: u64, address: &str) -> bool {
 		self.metadata
 			.supported_assets
 			.iter()
-			.any(|a| a.address.eq_ignore_ascii_case(address))
+			.any(|asset| asset.chain_id == chain_id && asset.address.eq_ignore_ascii_case(address))
 	}
 
 	/// Check if solver supports a specific asset
@@ -419,11 +411,6 @@ impl Solver {
 		self
 	}
 
-	pub fn with_networks(mut self, networks: Vec<Network>) -> Self {
-		self.metadata.supported_networks = networks;
-		self
-	}
-
 	pub fn with_assets(mut self, assets: Vec<Asset>) -> Self {
 		self.metadata.supported_assets = assets;
 		self
@@ -451,7 +438,6 @@ impl Default for SolverMetadata {
 			name: None,
 			description: None,
 			version: None,
-			supported_networks: Vec::new(),
 			supported_assets: Vec::new(),
 			max_retries: 1,
 			headers: None,
@@ -625,7 +611,6 @@ mod tests {
 		let solver = create_test_solver()
 			.with_name("Test Solver".to_string())
 			.with_version("1.0.0".to_string())
-			.with_networks(vec![Network::new(1, "Ethereum".to_string(), false)])
 			.with_assets(vec![Asset::new(
 				"0x0000000000000000000000000000000000000000".to_string(),
 				"ETH".to_string(),
@@ -637,8 +622,51 @@ mod tests {
 
 		assert_eq!(solver.metadata.name, Some("Test Solver".to_string()));
 		assert_eq!(solver.metadata.version, Some("1.0.0".to_string()));
-		assert_eq!(solver.metadata.supported_networks.len(), 1);
 		assert!(solver.supports_chain(1));
 		assert_eq!(solver.metadata.max_retries, 5);
+	}
+
+	#[test]
+	fn test_supports_asset_on_chain() {
+		let solver = create_test_solver().with_assets(vec![
+			Asset::new(
+				"0x1234567890123456789012345678901234567890".to_string(),
+				"USDC".to_string(),
+				"USD Coin".to_string(),
+				6,
+				1, // Ethereum
+			),
+			Asset::new(
+				"0x1234567890123456789012345678901234567890".to_string(), // Same address
+				"USDC".to_string(),
+				"USD Coin".to_string(),
+				6,
+				137, // Polygon
+			),
+			Asset::new(
+				"0xAbCdEf1234567890123456789012345678901234".to_string(),
+				"WETH".to_string(),
+				"Wrapped Ether".to_string(),
+				18,
+				1, // Ethereum
+			),
+		]);
+
+		// Test: Same address on different chains
+		assert!(solver.supports_asset_on_chain(1, "0x1234567890123456789012345678901234567890")); // USDC on Ethereum
+		assert!(solver.supports_asset_on_chain(137, "0x1234567890123456789012345678901234567890")); // USDC on Polygon
+		assert!(
+			!solver.supports_asset_on_chain(42161, "0x1234567890123456789012345678901234567890")
+		); // USDC on Arbitrum (not supported)
+
+		// Test: Different address on supported chain
+		assert!(solver.supports_asset_on_chain(1, "0xAbCdEf1234567890123456789012345678901234")); // WETH on Ethereum
+		assert!(!solver.supports_asset_on_chain(137, "0xAbCdEf1234567890123456789012345678901234")); // WETH on Polygon (not supported)
+
+		// Test: Case insensitive address matching
+		assert!(solver.supports_asset_on_chain(1, "0x1234567890123456789012345678901234567890")); // lowercase
+		assert!(solver.supports_asset_on_chain(1, "0X1234567890123456789012345678901234567890")); // uppercase
+		assert!(solver.supports_asset_on_chain(1, "0x1234567890123456789012345678901234567890"));
+		// mixed case
 	}
 }

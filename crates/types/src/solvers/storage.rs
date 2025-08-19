@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::{Asset, Network};
+use crate::Asset;
 
 use super::{HealthCheckResult, Solver, SolverError, SolverMetadata, SolverMetrics, SolverStatus};
 
@@ -35,7 +35,6 @@ pub struct SolverMetadataStorage {
 	pub name: Option<String>,
 	pub description: Option<String>,
 	pub version: Option<String>,
-	pub supported_networks: Vec<Network>,
 	pub supported_assets: Vec<Asset>,
 	pub max_retries: u32,
 	pub headers: Option<HashMap<String, String>>,
@@ -163,7 +162,6 @@ impl From<SolverMetadata> for SolverMetadataStorage {
 			name: metadata.name,
 			description: metadata.description,
 			version: metadata.version,
-			supported_networks: metadata.supported_networks,
 			supported_assets: metadata.supported_assets,
 			max_retries: metadata.max_retries,
 			headers: metadata.headers,
@@ -178,7 +176,6 @@ impl From<SolverMetadataStorage> for SolverMetadata {
 			name: storage.name,
 			description: storage.description,
 			version: storage.version,
-			supported_networks: storage.supported_networks,
 			supported_assets: storage.supported_assets,
 			max_retries: storage.max_retries,
 			headers: storage.headers,
@@ -279,7 +276,7 @@ impl TryFrom<HealthCheckStorage> for HealthCheckResult {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::{solvers::Solver, Network};
+	use crate::solvers::Solver;
 
 	fn create_test_solver() -> Solver {
 		Solver::new(
@@ -289,7 +286,6 @@ mod tests {
 			2000,
 		)
 		.with_name("Test Solver".to_string())
-		.with_networks(vec![Network::new(1, "Ethereum".to_string(), false)])
 	}
 
 	#[test]

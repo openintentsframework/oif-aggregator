@@ -11,6 +11,7 @@ oif-adapters = { path = "../adapters" }
 oif-config = { path = "../config" }
 async-trait = "0.1"
 futures = "0.3"
+rand = "0.9"
 tracing = "0.1"
 tokio = { version = "1.0", features = ["full"] }
 thiserror = "2.0"

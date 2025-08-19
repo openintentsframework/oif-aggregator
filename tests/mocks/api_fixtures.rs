@@ -1,9 +1,13 @@
 //! API request/response fixtures for e2e and integration tests
 
 use oif_aggregator::{api::routes::AppState, AggregatorBuilder};
+use oif_service::IntegrityService;
 use oif_types::{
+	chrono,
+	quotes::QuoteResponse,
 	serde_json::{json, Value},
-	InteropAddress,
+	AvailableInput, InteropAddress, Quote, QuoteDetails, QuoteOrder, RequestedOutput, SecretString,
+	SignatureType, U256,
 };
 
 use super::entities::TestConstants;
@@ -196,6 +200,99 @@ impl ApiFixtures {
 	pub fn malformed_json() -> &'static str {
 		"{ invalid json structure"
 	}
+
+	/// Create a properly signed order request for testing with integrity verification
+	pub fn valid_order_request_with_integrity() -> Value {
+		// Use the EXACT same secret as the TestServer
+		let test_secret = SecretString::from(INTEGRITY_SECRET);
+		let integrity_service = IntegrityService::new(test_secret);
+
+		// Create test addresses using constants
+		let user_addr =
+			InteropAddress::from_chain_and_address(1, TestConstants::TEST_USER_ADDRESS).unwrap();
+		let eth_addr =
+			InteropAddress::from_chain_and_address(1, TestConstants::WETH_ADDRESS).unwrap();
+		let usdc_addr =
+			InteropAddress::from_chain_and_address(1, TestConstants::USDC_ADDRESS).unwrap();
+
+		// Create quote details
+		let details = QuoteDetails {
+			available_inputs: vec![AvailableInput {
+				user: user_addr.clone(),
+				asset: eth_addr.clone(),
+				amount: U256::new(TestConstants::ONE_ETH_WEI.to_string()), // 1 ETH
+				lock: None,
+			}],
+			requested_outputs: vec![RequestedOutput {
+				asset: usdc_addr.clone(),
+				amount: U256::new(TestConstants::TWO_THOUSAND_USDC.to_string()), // 2000 USDC
+				receiver: user_addr.clone(),
+				calldata: None,
+			}],
+		};
+
+		// Create quote order
+		let quote_order = QuoteOrder {
+			signature_type: SignatureType::Eip712,
+			domain: user_addr.clone(),
+			primary_type: "Order".to_string(),
+			message: json!({
+				"orderType": "swap",
+				"inputAsset": eth_addr.to_hex(),
+				"outputAsset": usdc_addr.to_hex(),
+				"mockProvider": "Mock Demo Adapter"
+			}),
+		};
+
+		// Create quote (without checksum first)
+		let mut quote = Quote::new(
+			"mock-demo-solver".to_string(), // Match the solver ID used in TestServer
+			vec![quote_order],
+			details,
+			"Mock Demo Adapter Provider".to_string(), // Match MockDemoAdapter format
+			String::new(),                            // Empty checksum initially
+		);
+
+		// Set other fields
+		quote.valid_until = Some(chrono::Utc::now().timestamp() as u64 + 300); // 5 minutes from now
+		quote.eta = Some(30);
+
+		// Generate the integrity checksum
+		let integrity_checksum = integrity_service.generate_checksum(&quote).unwrap();
+		quote.integrity_checksum = integrity_checksum;
+
+		// Convert to QuoteResponse
+		let quote_response = QuoteResponse::try_from(quote).unwrap();
+
+		// Create OrderRequest
+		json!({
+			"userAddress": user_addr.to_hex(),
+			"quoteResponse": quote_response
+		})
+	}
+
+	pub fn invalid_order_request_missing_quote() -> Value {
+		// Create a request missing quote data
+		let user_addr =
+			InteropAddress::from_chain_and_address(1, "0x1234567890123456789012345678901234567890")
+				.unwrap();
+
+		json!({
+			"userAddress": user_addr.to_hex()
+			// Missing both quoteResponse and quoteId
+		})
+	}
+
+	pub fn order_request_with_invalid_quote_id() -> Value {
+		let user_addr =
+			InteropAddress::from_chain_and_address(1, "0x1234567890123456789012345678901234567890")
+				.unwrap();
+
+		json!({
+			"userAddress": user_addr.to_hex(),
+			"quoteId": "non-existent-quote-id"
+		})
+	}
 }
 
 /// Application state builders for tests
@@ -253,4 +350,41 @@ impl AppStateBuilder {
 			.await?;
 		Ok(state)
 	}
+}
+
+/// Helper function to validate metadata in successful responses
+#[allow(dead_code)]
+pub fn assert_metadata_present_and_valid(body: &serde_json::Value) {
+	let metadata = body["metadata"]
+		.as_object()
+		.expect("Metadata should be present in response");
+
+	// Verify all required metadata fields are present
+	assert!(metadata.contains_key("totalDurationMs"));
+	assert!(metadata.contains_key("solverTimeoutMs"));
+	assert!(metadata.contains_key("globalTimeoutMs"));
+	assert!(metadata.contains_key("earlyTermination"));
+	assert!(metadata.contains_key("totalSolversAvailable"));
+	assert!(metadata.contains_key("solversQueried"));
+	assert!(metadata.contains_key("solversRespondedSuccess"));
+	assert!(metadata.contains_key("solversRespondedError"));
+	assert!(metadata.contains_key("solversTimedOut"));
+	assert!(metadata.contains_key("minQuotesRequired"));
+	assert!(metadata.contains_key("solverSelectionMode"));
+
+	// Verify basic constraints
+	let total_available = metadata["totalSolversAvailable"].as_u64().unwrap();
+	let queried = metadata["solversQueried"].as_u64().unwrap();
+	let success = metadata["solversRespondedSuccess"].as_u64().unwrap();
+	let error = metadata["solversRespondedError"].as_u64().unwrap();
+	let timeout = metadata["solversTimedOut"].as_u64().unwrap();
+
+	assert!(
+		queried <= total_available,
+		"Queried solvers cannot exceed available solvers"
+	);
+	assert!(
+		success + error + timeout <= queried,
+		"Response counts cannot exceed queried solvers"
+	);
 }

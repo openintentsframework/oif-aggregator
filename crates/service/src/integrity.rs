@@ -7,20 +7,34 @@ use hmac::{Hmac, Mac};
 use oif_types::{IntegrityPayload, SecretString};
 use sha2::Sha256;
 use std::fmt::Write;
+use thiserror::Error;
 
 type HmacSha256 = Hmac<Sha256>;
+
+/// Errors that can occur during integrity operations
+#[derive(Debug, Error)]
+pub enum IntegrityError {
+	#[error("Failed to create HMAC: {0}")]
+	HmacCreation(String),
+
+	#[error("Checksum verification failed")]
+	VerificationFailed,
+
+	#[error("Invalid checksum format")]
+	InvalidFormat,
+}
 
 #[cfg_attr(test, mockall::automock)]
 pub trait IntegrityTrait: Send + Sync {
 	/// Generate checksum directly from a payload string
-	fn generate_checksum_from_payload(&self, payload: &str) -> Result<String, String>;
+	fn generate_checksum_from_payload(&self, payload: &str) -> Result<String, IntegrityError>;
 
 	/// Verify checksum directly from a payload string
 	fn verify_checksum_from_payload(
 		&self,
 		payload: &str,
 		expected_checksum: &str,
-	) -> Result<bool, String>;
+	) -> Result<bool, IntegrityError>;
 }
 
 /// Generic integrity verification service
@@ -40,10 +54,10 @@ impl IntegrityService {
 
 impl IntegrityTrait for IntegrityService {
 	/// Generate checksum directly from a payload string
-	fn generate_checksum_from_payload(&self, payload: &str) -> Result<String, String> {
+	fn generate_checksum_from_payload(&self, payload: &str) -> Result<String, IntegrityError> {
 		// Create HMAC instance
 		let mut mac = HmacSha256::new_from_slice(self.secret_key.expose_secret().as_bytes())
-			.map_err(|e| format!("Failed to create HMAC: {}", e))?;
+			.map_err(|e| IntegrityError::HmacCreation(e.to_string()))?;
 
 		// Update with payload
 		mac.update(payload.as_bytes());
@@ -55,8 +69,9 @@ impl IntegrityTrait for IntegrityService {
 		// Convert to hex string
 		let mut hex_string = String::with_capacity(code_bytes.len() * 2);
 		for byte in code_bytes {
-			write!(&mut hex_string, "{:02x}", byte)
-				.map_err(|e| format!("Failed to format hex: {}", e))?;
+			write!(&mut hex_string, "{:02x}", byte).map_err(|e| {
+				IntegrityError::HmacCreation(format!("Failed to format hex: {}", e))
+			})?;
 		}
 
 		Ok(hex_string)
@@ -67,7 +82,7 @@ impl IntegrityTrait for IntegrityService {
 		&self,
 		payload: &str,
 		expected_checksum: &str,
-	) -> Result<bool, String> {
+	) -> Result<bool, IntegrityError> {
 		let calculated_checksum = self.generate_checksum_from_payload(payload)?;
 		Ok(constant_time_eq(
 			calculated_checksum.as_bytes(),
@@ -78,29 +93,15 @@ impl IntegrityTrait for IntegrityService {
 
 impl IntegrityService {
 	/// Generate HMAC-SHA256 checksum for any data implementing IntegrityPayload
-	pub fn generate_checksum<T: IntegrityPayload>(&self, data: &T) -> Result<String, String> {
+	pub fn generate_checksum<T: IntegrityPayload>(
+		&self,
+		data: &T,
+	) -> Result<String, IntegrityError> {
 		// Create the payload to be signed
 		let payload = data.to_integrity_payload();
 
-		// Create HMAC instance
-		let mut mac = HmacSha256::new_from_slice(self.secret_key.expose_secret().as_bytes())
-			.map_err(|e| format!("Failed to create HMAC: {}", e))?;
-
-		// Update with payload
-		mac.update(payload.as_bytes());
-
-		// Finalize and convert to hex string
-		let result = mac.finalize();
-		let code_bytes = result.into_bytes();
-
-		// Convert to hex string
-		let mut hex_string = String::with_capacity(code_bytes.len() * 2);
-		for byte in code_bytes {
-			write!(&mut hex_string, "{:02x}", byte)
-				.map_err(|e| format!("Failed to format hex: {}", e))?;
-		}
-
-		Ok(hex_string)
+		// Delegate to the trait method
+		self.generate_checksum_from_payload(&payload)
 	}
 
 	/// Verify integrity checksum for any data implementing IntegrityPayload
@@ -108,58 +109,26 @@ impl IntegrityService {
 		&self,
 		data: &T,
 		expected_checksum: &str,
-	) -> Result<bool, String> {
-		let calculated_checksum = self.generate_checksum(data)?;
-		Ok(constant_time_eq(
-			calculated_checksum.as_bytes(),
-			expected_checksum.as_bytes(),
-		))
+	) -> Result<bool, IntegrityError> {
+		// Create the payload to be signed
+		let payload = data.to_integrity_payload();
+
+		// Delegate to the trait method
+		self.verify_checksum_from_payload(&payload, expected_checksum)
 	}
 
 	/// Convenience method to generate and attach checksum to a string field
-	pub fn sign<T: IntegrityPayload>(&self, data: &T) -> Result<String, String> {
+	pub fn sign<T: IntegrityPayload>(&self, data: &T) -> Result<String, IntegrityError> {
 		self.generate_checksum(data)
 	}
 
 	/// Convenience method to verify a checksum
-	pub fn verify<T: IntegrityPayload>(&self, data: &T, checksum: &str) -> Result<bool, String> {
-		self.verify_checksum(data, checksum)
-	}
-
-	/// Generate checksum directly from a payload string
-	pub fn generate_checksum_from_payload(&self, payload: &str) -> Result<String, String> {
-		// Create HMAC instance
-		let mut mac = HmacSha256::new_from_slice(self.secret_key.expose_secret().as_bytes())
-			.map_err(|e| format!("Failed to create HMAC: {}", e))?;
-
-		// Update with payload
-		mac.update(payload.as_bytes());
-
-		// Finalize and convert to hex string
-		let result = mac.finalize();
-		let code_bytes = result.into_bytes();
-
-		// Convert to hex string
-		let mut hex_string = String::with_capacity(code_bytes.len() * 2);
-		for byte in code_bytes {
-			write!(&mut hex_string, "{:02x}", byte)
-				.map_err(|e| format!("Failed to format hex: {}", e))?;
-		}
-
-		Ok(hex_string)
-	}
-
-	/// Verify checksum directly from a payload string
-	pub fn verify_checksum_from_payload(
+	pub fn verify<T: IntegrityPayload>(
 		&self,
-		payload: &str,
-		expected_checksum: &str,
-	) -> Result<bool, String> {
-		let calculated_checksum = self.generate_checksum_from_payload(payload)?;
-		Ok(constant_time_eq(
-			calculated_checksum.as_bytes(),
-			expected_checksum.as_bytes(),
-		))
+		data: &T,
+		checksum: &str,
+	) -> Result<bool, IntegrityError> {
+		self.verify_checksum(data, checksum)
 	}
 }
 

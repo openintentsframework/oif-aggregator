@@ -130,8 +130,3 @@ impl TryFrom<&Order> for OrderResponse {
 		})
 	}
 }
-
-#[cfg(test)]
-mod tests {
-	use super::*;
-}

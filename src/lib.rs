@@ -4,10 +4,10 @@
 //! providing quote aggregation, intent submission, and solver management.
 
 use oif_service::{
-	AggregatorTrait, IntegrityService, IntegrityTrait, OrderService, OrderServiceTrait,
-	SolverService, SolverServiceTrait,
+	IntegrityService, IntegrityTrait, OrderService, OrderServiceTrait, SolverFilterService,
+	SolverFilterTrait, SolverService, SolverServiceTrait,
 };
-use oif_types::{Asset, Network};
+use oif_types::Asset;
 
 // Core domain types - the most commonly used types
 pub use oif_types::{
@@ -168,6 +168,28 @@ where
 	A: Authenticator + 'static,
 	R: RateLimiter + 'static,
 {
+	/// Ensure adapter registry is initialized with defaults if not already set
+	fn ensure_adapter_registry_initialized(&mut self) {
+		if self.adapter_registry.is_none() {
+			self.adapter_registry = Some(oif_adapters::AdapterRegistry::with_defaults());
+		}
+	}
+
+	/// Validate that a solver's adapter_id exists in the adapter registry
+	fn validate_solver_adapter(&self, solver: &Solver) -> Result<(), String> {
+		if let Some(registry) = &self.adapter_registry {
+			if registry.get(&solver.adapter_id).is_none() {
+				return Err(format!(
+					"Solver '{}' references unknown adapter_id '{}'. Available adapters: [{}]",
+					solver.solver_id,
+					solver.adapter_id,
+					registry.get_adapter_ids().join(", ")
+				));
+			}
+		}
+		Ok(())
+	}
+
 	/// Upsert solvers defined in Settings into storage so that start() can
 	/// load them via `list_all_solvers()`.
 	async fn upsert_solvers_from_settings(&self, settings: &Settings) -> Result<(), String> {
@@ -186,17 +208,10 @@ where
 				.name
 				.clone()
 				.or_else(|| Some(solver_config.solver_id.clone()));
-			solver.metadata.supported_networks = vec![];
 			solver.metadata.max_retries = solver_config.max_retries;
 			solver.metadata.headers = solver_config.headers.clone();
 			if let Some(desc) = &solver_config.description {
 				solver.metadata.description = Some(desc.clone());
-			}
-			if let Some(networks) = &solver_config.supported_networks {
-				solver.metadata.supported_networks = networks
-					.iter()
-					.map(|n| Network::new(n.chain_id, n.name.clone(), n.is_testnet))
-					.collect();
 			}
 			if let Some(assets) = &solver_config.supported_assets {
 				solver.metadata.supported_assets = assets
@@ -220,6 +235,12 @@ where
 					"Solver '{}' validation failed: {}",
 					solver.solver_id, validation_error
 				));
+				continue;
+			}
+
+			// Validate adapter exists
+			if let Err(adapter_error) = self.validate_solver_adapter(&solver) {
+				errors.push(adapter_error);
 				continue;
 			}
 
@@ -253,6 +274,12 @@ where
 					"Solver '{}' validation failed: {}",
 					solver.solver_id, validation_error
 				));
+				continue;
+			}
+
+			// Validate adapter exists
+			if let Err(adapter_error) = self.validate_solver_adapter(solver) {
+				errors.push(adapter_error);
 				continue;
 			}
 
@@ -327,6 +354,18 @@ where
 		settings: Settings,
 		storage: S,
 	) -> AggregatorBuilder<S, NoAuthenticator, MemoryRateLimiter> {
+		let mut builder = AggregatorBuilder {
+			settings: Some(settings.clone()),
+			storage,
+			authenticator: NoAuthenticator,
+			rate_limiter: MemoryRateLimiter::new(),
+			adapter_registry: None,
+			solvers: Vec::new(),
+		};
+
+		// Initialize adapter registry early for validation
+		builder.ensure_adapter_registry_initialized();
+
 		// Load solvers from configuration into the provided storage
 		for solver_config in settings.enabled_solvers().values() {
 			let mut solver = Solver::new(
@@ -338,26 +377,34 @@ where
 
 			// Update metadata with configuration details
 			solver.metadata.name = Some(solver_config.solver_id.clone());
-			solver.metadata.supported_networks = vec![];
 			solver.metadata.max_retries = solver_config.max_retries;
 			solver.metadata.headers = solver_config.headers.clone();
 			solver.status = SolverStatus::Active;
-			storage
+
+			// Validate solver (including adapter validation)
+			if let Err(validation_error) = solver.validate() {
+				panic!(
+					"Solver '{}' validation failed: {}",
+					solver.solver_id, validation_error
+				);
+			}
+
+			// Validate adapter exists
+			if let Err(adapter_error) = builder.validate_solver_adapter(&solver) {
+				panic!("{}", adapter_error);
+			}
+
+			builder
+				.storage
 				.create_solver(solver)
 				.await
 				.expect("Failed to add solver to storage");
 		}
 
-		AggregatorBuilder {
-			settings: Some(settings),
-			storage,
-			authenticator: NoAuthenticator,
-			rate_limiter: MemoryRateLimiter::new(),
-			adapter_registry: None,
-			solvers: Vec::new(),
-		}
+		builder
 	}
 	/// Add a solver to the aggregator
+	/// Note: Adapter validation will be performed when start() is called
 	pub fn with_solver(mut self, solver: Solver) -> Self {
 		self.solvers.push(solver);
 		self
@@ -430,13 +477,23 @@ where
 	}
 
 	/// Start the aggregator and return the configured router with state
-	pub async fn start(self) -> Result<(axum::Router, AppState), Box<dyn std::error::Error>> {
+	pub async fn start(mut self) -> Result<(axum::Router, AppState), Box<dyn std::error::Error>> {
 		// Initialize the aggregator service
 		let settings = self.settings.clone().unwrap_or_default();
+
+		// Ensure adapter registry is initialized early for validation
+		self.ensure_adapter_registry_initialized();
+
 		// Upsert solvers from settings into storage first - fail on any configuration errors
 		self.upsert_solvers_from_settings(&settings).await?;
 		// Upsert collected solvers from with_solver() calls - fail on any validation/creation errors
 		self.upsert_collected_solvers().await?;
+
+		// Use the already-initialized adapter registry
+		let adapter_registry = Arc::new(
+			self.adapter_registry
+				.expect("Adapter registry should be initialized at this point"),
+		);
 		// Use base repository listing for solvers
 		let solvers = self
 			.storage
@@ -445,12 +502,6 @@ where
 			.map_err(|e| format!("Failed to get solvers: {}", e))?;
 
 		info!("Successfully initialized with {} solver(s)", solvers.len());
-
-		// Use custom factory or create with defaults
-		let adapter_registry = Arc::new(
-			self.adapter_registry
-				.unwrap_or_else(oif_adapters::AdapterRegistry::with_defaults),
-		);
 
 		// Get integrity secret wrapped in SecretString for secure handling
 		let integrity_secret = settings
@@ -463,17 +514,15 @@ where
 			})?;
 		let integrity_service =
 			Arc::new(IntegrityService::new(integrity_secret)) as Arc<dyn IntegrityTrait>;
-		let aggregator_service = AggregatorService::new(
+		let solver_filter_service =
+			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>;
+		let aggregator_service = AggregatorService::with_config(
 			solvers.clone(),
 			Arc::clone(&adapter_registry),
-			settings.timeouts.global_ms,
 			Arc::clone(&integrity_service),
+			Arc::clone(&solver_filter_service),
+			settings.aggregation.into(),
 		);
-
-		// Validate that all solvers have matching adapters
-		aggregator_service
-			.validate_solvers()
-			.map_err(|e| format!("Solver validation failed: {}", e))?;
 
 		// Create application state
 		let storage_arc: Arc<dyn Storage> = Arc::new(self.storage.clone());

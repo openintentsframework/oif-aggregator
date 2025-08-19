@@ -1323,6 +1323,7 @@ dependencies = [
  "oif-config",
  "oif-storage",
  "oif-types",
+ "rand",
  "serde",
  "serde_json",
  "sha2",
