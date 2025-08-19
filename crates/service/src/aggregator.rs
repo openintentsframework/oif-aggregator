@@ -113,7 +113,7 @@ use oif_types::constants::limits::DEFAULT_MIN_QUOTES;
 use oif_types::quotes::errors::QuoteValidationError;
 use oif_types::quotes::request::{SolverOptions, SolverSelection};
 use oif_types::quotes::response::AggregationMetadata;
-use oif_types::{GetQuoteRequest, IntegrityPayload, Quote, QuoteRequest, Solver};
+use oif_types::{GetQuoteRequest, IntegrityPayload, Quote, QuotePreference, QuoteRequest, Solver};
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -808,6 +808,52 @@ impl AggregatorService {
 
 		Ok((collected_quotes, metadata))
 	}
+
+	/// Sort quotes based on user preferences
+	///
+	/// Currently supports:
+	/// - Speed: Sort by eta (fastest quotes first) - DEFAULT BEHAVIOR
+	/// - Price: Sort by best rates (not yet implemented)
+	/// Default behavior is Speed sorting for optimal user experience.
+	fn sort_quotes_by_preference(
+		&self,
+		mut quotes: Vec<Quote>,
+		request: &QuoteRequest,
+	) -> AggregatorResult<Vec<Quote>> {
+		// Get user preference, default to Speed sorting for best user experience
+		let preference = request
+			.preference
+			.as_ref()
+			.unwrap_or(&QuotePreference::Speed);
+
+		match preference {
+			_ => {
+				// Sort by eta (estimated time to completion) - fastest first
+				// Quotes without eta are placed at the end
+				quotes.sort_by(|a, b| {
+					match (a.eta, b.eta) {
+						(Some(eta_a), Some(eta_b)) => eta_a.cmp(&eta_b), // Ascending: fastest first
+						(Some(_), None) => std::cmp::Ordering::Less,     // Quote with eta comes first
+						(None, Some(_)) => std::cmp::Ordering::Greater,  // Quote without eta goes last
+						(None, None) => std::cmp::Ordering::Equal,       // Both without eta, maintain order
+					}
+				});
+
+				let preference_source = if request.preference.is_some() {
+					"explicit"
+				} else {
+					"default"
+				};
+				info!(
+					"Sorted {} quotes by Speed preference ({} - eta field)",
+					quotes.len(),
+					preference_source
+				);
+			},
+		}
+
+		Ok(quotes)
+	}
 }
 
 #[async_trait]
@@ -835,10 +881,10 @@ impl AggregatorTrait for AggregatorService {
 			.await?;
 
 		// Step 3: Setup channels and spawn tasks
-		let request_arc = Arc::new(request);
+		let request_arc = Arc::new(request.clone());
 		let (result_rx, task_handles, cancel_tx) = self.setup_channels_and_spawn_tasks(
 			selected_solvers,
-			request_arc,
+			request_arc.clone(),
 			per_solver_timeout_ms,
 			global_timeout_ms,
 			min_quotes_required,
@@ -867,7 +913,10 @@ impl AggregatorTrait for AggregatorService {
 			min_quotes_required
 		);
 
-		Ok((collected_quotes, final_metadata))
+		// Step 6: Sort quotes based on user preferences before returning
+		let sorted_quotes = self.sort_quotes_by_preference(collected_quotes, &request_arc)?;
+
+		Ok((sorted_quotes, final_metadata))
 	}
 }
 
@@ -880,8 +929,8 @@ mod tests {
 	use super::*;
 	use oif_adapters::AdapterRegistry;
 	use oif_types::{
-		AvailableInput, InteropAddress, QuoteRequest, RequestedOutput, SecretString, SolverAdapter,
-		U256,
+		AvailableInput, InteropAddress, QuoteDetails, QuoteRequest, RequestedOutput, SecretString,
+		SolverAdapter, U256,
 	};
 
 	/// Simple mock adapter for testing success scenarios
@@ -2426,5 +2475,140 @@ mod tests {
 
 		// May or may not show timeouts depending on timing of early termination
 		// The slow solver might not have had time to timeout before cancellation
+	}
+
+	#[test]
+	fn test_sort_quotes_by_speed_preference() {
+		// Test the quote sorting functionality for Speed preference
+		let aggregator = create_test_aggregator();
+
+		// Create test quote details from a sample request
+		let sample_request = create_valid_quote_request();
+		let details = QuoteDetails {
+			available_inputs: sample_request.available_inputs,
+			requested_outputs: sample_request.requested_outputs,
+		};
+
+		// Create test quotes with different eta values
+		let quotes = vec![
+			Quote {
+				quote_id: "quote_3".to_string(),
+				solver_id: "solver_3".to_string(),
+				orders: vec![],
+				details: details.clone(),
+				valid_until: Some(12345),
+				eta: Some(300), // 300 seconds (slowest)
+				provider: "test_provider".to_string(),
+				integrity_checksum: "checksum_3".to_string(),
+			},
+			Quote {
+				quote_id: "quote_1".to_string(),
+				solver_id: "solver_1".to_string(),
+				orders: vec![],
+				details: details.clone(),
+				valid_until: Some(12345),
+				eta: Some(100), // 100 seconds (fastest)
+				provider: "test_provider".to_string(),
+				integrity_checksum: "checksum_1".to_string(),
+			},
+			Quote {
+				quote_id: "quote_no_eta".to_string(),
+				solver_id: "solver_no_eta".to_string(),
+				orders: vec![],
+				details: details.clone(),
+				valid_until: Some(12345),
+				eta: None, // No eta (should go last)
+				provider: "test_provider".to_string(),
+				integrity_checksum: "checksum_no_eta".to_string(),
+			},
+			Quote {
+				quote_id: "quote_2".to_string(),
+				solver_id: "solver_2".to_string(),
+				orders: vec![],
+				details: details.clone(),
+				valid_until: Some(12345),
+				eta: Some(200), // 200 seconds (middle)
+				provider: "test_provider".to_string(),
+				integrity_checksum: "checksum_2".to_string(),
+			},
+		];
+
+		// Create request with Speed preference
+		let mut request = create_valid_quote_request();
+		request.preference = Some(QuotePreference::Speed);
+
+		// Test sorting
+		let result = aggregator.sort_quotes_by_preference(quotes, &request);
+		assert!(result.is_ok());
+
+		let sorted_quotes = result.unwrap();
+		assert_eq!(sorted_quotes.len(), 4);
+
+		// Verify order: fastest ETA first, then slower, then no ETA last
+		assert_eq!(sorted_quotes[0].quote_id, "quote_1"); // eta: 100 (fastest)
+		assert_eq!(sorted_quotes[1].quote_id, "quote_2"); // eta: 200 (middle)
+		assert_eq!(sorted_quotes[2].quote_id, "quote_3"); // eta: 300 (slowest)
+		assert_eq!(sorted_quotes[3].quote_id, "quote_no_eta"); // eta: None (last)
+
+		// Verify eta values are correct
+		assert_eq!(sorted_quotes[0].eta, Some(100));
+		assert_eq!(sorted_quotes[1].eta, Some(200));
+		assert_eq!(sorted_quotes[2].eta, Some(300));
+		assert_eq!(sorted_quotes[3].eta, None);
+	}
+
+	#[test]
+	fn test_sort_quotes_no_preference_defaults_to_speed() {
+		// Test that quotes are sorted by speed (eta) when no preference is specified (default behavior)
+		let aggregator = create_test_aggregator();
+
+		// Create test quote details from a sample request
+		let sample_request = create_valid_quote_request();
+		let details = QuoteDetails {
+			available_inputs: sample_request.available_inputs,
+			requested_outputs: sample_request.requested_outputs,
+		};
+
+		// Create test quotes with different eta values in non-optimal order
+		let quotes = vec![
+			Quote {
+				quote_id: "quote_slow".to_string(),
+				solver_id: "solver_slow".to_string(),
+				orders: vec![],
+				details: details.clone(),
+				valid_until: Some(12345),
+				eta: Some(500), // Slow (should be last)
+				provider: "test_provider".to_string(),
+				integrity_checksum: "checksum_slow".to_string(),
+			},
+			Quote {
+				quote_id: "quote_fast".to_string(),
+				solver_id: "solver_fast".to_string(),
+				orders: vec![],
+				details: details.clone(),
+				valid_until: Some(12345),
+				eta: Some(50), // Fast (should be first)
+				provider: "test_provider".to_string(),
+				integrity_checksum: "checksum_fast".to_string(),
+			},
+		];
+
+		// Create request with no preference (should default to Speed sorting)
+		let request = create_valid_quote_request(); // No preference specified
+
+		// Test sorting (should default to Speed sorting)
+		let result = aggregator.sort_quotes_by_preference(quotes.clone(), &request);
+		assert!(result.is_ok());
+
+		let sorted_quotes = result.unwrap();
+		assert_eq!(sorted_quotes.len(), 2);
+
+		// Order should be sorted by eta: fastest first
+		assert_eq!(sorted_quotes[0].quote_id, "quote_fast"); // eta: 50 (fastest first)
+		assert_eq!(sorted_quotes[1].quote_id, "quote_slow"); // eta: 500 (slowest last)
+
+		// Verify eta values are in correct order
+		assert_eq!(sorted_quotes[0].eta, Some(50));
+		assert_eq!(sorted_quotes[1].eta, Some(500));
 	}
 }
