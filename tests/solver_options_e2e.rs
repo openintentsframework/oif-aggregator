@@ -12,9 +12,6 @@ use reqwest::Client;
 use serde_json::json;
 use std::time::Instant;
 
-// Move all solver options tests here from e2e/solver_options_tests.rs
-// Each test function will have full IDE support with "Run Test" buttons
-
 #[tokio::test]
 async fn test_solver_options_default_behavior() {
 	let server = TestServer::spawn_with_mock_adapter()

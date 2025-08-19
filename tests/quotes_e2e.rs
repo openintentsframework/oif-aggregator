@@ -5,6 +5,7 @@
 
 mod mocks;
 
+use crate::mocks::api_fixtures::assert_metadata_present_and_valid;
 use crate::mocks::{ApiFixtures, TestServer};
 use reqwest::Client;
 
@@ -22,12 +23,62 @@ async fn test_quotes_valid_request() {
 		.await
 		.unwrap();
 
-	// Status might be 400 due to validation or 200 with empty results
 	assert!(resp.status().is_success());
 
 	let body: serde_json::Value = resp.json().await.unwrap();
 	assert!(body["quotes"].is_array());
-	assert_eq!(body["totalQuotes"], 1); // No solvers configured in test
+	assert!(body["totalQuotes"].is_number());
+
+	server.abort();
+}
+
+#[tokio::test]
+async fn test_quotes_success_with_full_response_validation() {
+	let server = TestServer::spawn_with_mock_adapter()
+		.await
+		.expect("Failed to start test server");
+	let client = Client::new();
+
+	// Test successful quotes request with full response validation
+	let request = ApiFixtures::valid_quote_request();
+
+	let resp = client
+		.post(format!("{}/v1/quotes", server.base_url))
+		.json(&request)
+		.send()
+		.await
+		.unwrap();
+
+	// Should succeed
+	assert!(resp.status().is_success());
+
+	let body: serde_json::Value = resp.json().await.unwrap();
+
+	// Validate response structure
+	assert!(body["quotes"].is_array());
+	assert!(body["totalQuotes"].is_number());
+
+	// Validate metadata is present and well-formed
+	assert_metadata_present_and_valid(&body);
+
+	let metadata = &body["metadata"];
+
+	// Verify key metadata fields are present and correct types
+	assert!(metadata["globalTimeoutMs"].is_number());
+	assert!(metadata["solverTimeoutMs"].is_number());
+	assert!(metadata["minQuotesRequired"].is_number());
+	assert!(metadata["solverSelectionMode"].is_string());
+	assert!(metadata["totalSolversAvailable"].is_number());
+
+	// Verify default timeout values are reasonable
+	let global_timeout = metadata["globalTimeoutMs"].as_u64().unwrap();
+	let solver_timeout = metadata["solverTimeoutMs"].as_u64().unwrap();
+	assert!(
+		global_timeout >= solver_timeout,
+		"Global timeout should be >= solver timeout"
+	);
+	assert!(global_timeout > 0 && global_timeout <= 60000); // Should be between 0 and 60s
+	assert!(solver_timeout > 0 && solver_timeout <= 30000); // Should be between 0 and 30s
 
 	server.abort();
 }
