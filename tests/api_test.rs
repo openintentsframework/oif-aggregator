@@ -16,9 +16,7 @@ mod mocks;
 
 use mocks::{api_fixtures::ApiFixtures, api_fixtures::AppStateBuilder};
 
-// Import e2e fixtures for proper integrity testing
-mod e2e;
-use e2e::fixtures;
+// Import fixtures for proper integrity testing
 
 /// Create test router with async state builder
 async fn create_test_router() -> Router {
@@ -329,7 +327,7 @@ async fn test_order_workflow() {
 		.expect("Failed to create test router");
 
 	// Use proper order request with valid integrity checksum
-	let order_request = fixtures::valid_order_request_with_integrity();
+	let order_request = ApiFixtures::valid_order_request_with_integrity();
 
 	let create_response = app
 		.clone()
@@ -387,7 +385,7 @@ async fn test_quote_and_order_workflow() {
 		.expect("Failed to create test router");
 
 	// Use mock quote request for workflow test
-	let quote_request = fixtures::valid_quote_request();
+	let quote_request = ApiFixtures::valid_quote_request();
 
 	let quote_response = app
 		.clone()

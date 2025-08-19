@@ -5,11 +5,13 @@ use oif_aggregator::{api::routes::create_router, AggregatorBuilder};
 use reqwest::{get, Client};
 use tokio::task::JoinHandle;
 
-mod e2e;
-use e2e::{fixtures, TestServer};
+// TestServer and fixtures are now in mocks
 
 mod mocks;
-use mocks::api_fixtures::{ApiFixtures, INTEGRITY_SECRET};
+use mocks::{
+	api_fixtures::{ApiFixtures, INTEGRITY_SECRET},
+	TestServer,
+};
 
 async fn spawn_server() -> Result<(String, JoinHandle<()>), Box<dyn std::error::Error>> {
 	// Set required environment variable for tests
@@ -134,7 +136,7 @@ async fn test_orders_endpoint_with_mock_data() {
 	let client = Client::new();
 
 	// Get a real quote from the server first
-	let quote_request = fixtures::valid_quote_request();
+	let quote_request = ApiFixtures::valid_quote_request();
 	let quote_response = client
 		.post(format!("{}/v1/quotes", server.base_url))
 		.json(&quote_request)

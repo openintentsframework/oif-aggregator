@@ -161,7 +161,6 @@ impl TryFrom<QuoteResponse> for Quote {
 mod tests {
 	use super::*;
 	use crate::quotes::Quote;
-	use chrono::{Duration, Utc};
 
 	fn create_test_quote() -> Quote {
 		use crate::{
