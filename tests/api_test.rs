@@ -16,8 +16,6 @@ mod mocks;
 
 use mocks::{api_fixtures::ApiFixtures, api_fixtures::AppStateBuilder};
 
-// Import fixtures for proper integrity testing
-
 /// Create test router with async state builder
 async fn create_test_router() -> Router {
 	let state = AppStateBuilder::minimal()
@@ -409,7 +407,6 @@ async fn test_quote_and_order_workflow() {
 	let quotes = quotes_json["quotes"].as_array().expect("No quotes array");
 
 	if quotes.is_empty() {
-		//println!("No quotes returned from mock adapter");
 		panic!()
 	}
 
@@ -435,6 +432,5 @@ async fn test_quote_and_order_workflow() {
 		.await
 		.unwrap();
 
-	// Order might succeed or fail due to integrity verification
 	assert!(order_response.status() == StatusCode::OK);
 }
