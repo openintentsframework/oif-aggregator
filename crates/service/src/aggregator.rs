@@ -814,6 +814,7 @@ impl AggregatorService {
 	/// Currently supports:
 	/// - Speed: Sort by eta (fastest quotes first) - DEFAULT BEHAVIOR
 	/// - Price: Sort by best rates (not yet implemented)
+	///
 	/// Default behavior is Speed sorting for optimal user experience.
 	fn sort_quotes_by_preference(
 		&self,
@@ -826,6 +827,7 @@ impl AggregatorService {
 			.as_ref()
 			.unwrap_or(&QuotePreference::Speed);
 
+		#[allow(clippy::match_single_binding)]
 		match preference {
 			_ => {
 				// Sort by eta (estimated time to completion) - fastest first
