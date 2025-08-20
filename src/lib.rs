@@ -8,7 +8,7 @@ use oif_service::{
 	JobProcessorConfig, OrderService, OrderServiceTrait, SolverFilterService, SolverFilterTrait,
 	SolverService, SolverServiceTrait,
 };
-use oif_types::Asset;
+use oif_types::{solvers::AssetSource, Asset};
 
 // Core domain types - the most commonly used types
 pub use oif_types::{
@@ -251,6 +251,15 @@ where
 					)
 				})
 				.collect();
+			// Set source based on whether config has assets
+			solver.metadata.assets_source = if assets.is_empty() {
+				AssetSource::AutoDiscovered
+			} else {
+				AssetSource::Config
+			};
+		} else {
+			// No assets in config, will be auto-discovered
+			solver.metadata.assets_source = AssetSource::AutoDiscovered;
 		}
 		solver.status = SolverStatus::Active;
 

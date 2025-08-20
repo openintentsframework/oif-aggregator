@@ -6,7 +6,10 @@ use std::collections::HashMap;
 
 use crate::Asset;
 
-use super::{HealthCheckResult, Solver, SolverError, SolverMetadata, SolverMetrics, SolverStatus};
+use super::{
+	AssetSource, HealthCheckResult, Solver, SolverError, SolverMetadata, SolverMetrics,
+	SolverStatus,
+};
 
 /// Storage representation of a solver
 ///
@@ -36,6 +39,7 @@ pub struct SolverMetadataStorage {
 	pub description: Option<String>,
 	pub version: Option<String>,
 	pub supported_assets: Vec<Asset>,
+	pub assets_source: AssetSource,
 	pub max_retries: u32,
 	pub headers: Option<HashMap<String, String>>,
 	pub config: HashMap<String, serde_json::Value>,
@@ -163,6 +167,7 @@ impl From<SolverMetadata> for SolverMetadataStorage {
 			description: metadata.description,
 			version: metadata.version,
 			supported_assets: metadata.supported_assets,
+			assets_source: metadata.assets_source,
 			max_retries: metadata.max_retries,
 			headers: metadata.headers,
 			config: metadata.config,
@@ -177,6 +182,7 @@ impl From<SolverMetadataStorage> for SolverMetadata {
 			description: storage.description,
 			version: storage.version,
 			supported_assets: storage.supported_assets,
+			assets_source: storage.assets_source,
 			max_retries: storage.max_retries,
 			headers: storage.headers,
 			config: storage.config,

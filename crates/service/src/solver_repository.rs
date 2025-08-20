@@ -9,6 +9,7 @@ use crate::solver_adapter::SolverAdapterTrait;
 use async_trait::async_trait;
 use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;
+use oif_types::solvers::AssetSource;
 use oif_types::solvers::Solver;
 use oif_types::{SolverRuntimeConfig, SolverStatus};
 use serde::Serialize;
@@ -275,6 +276,22 @@ impl SolverServiceTrait for SolverService {
 				SolverServiceError::NotFound(format!("Solver '{}' not found", solver_id))
 			})?;
 
+		// Check if assets are from config (manual) or should be auto-discovered
+		if solver.metadata.assets_source == AssetSource::Config {
+			info!(
+				"Solver '{}' has {} manually configured assets, skipping auto-discovery",
+				solver_id,
+				solver.metadata.supported_assets.len()
+			);
+			return Ok(());
+		}
+
+		// Assets should be auto-discovered, proceed with fetching
+		info!(
+			"Solver '{}' is configured for auto-discovery, fetching assets from API",
+			solver_id
+		);
+
 		// Clone solver before moving it to adapter service
 		let mut updated_solver = solver.clone();
 
@@ -292,12 +309,19 @@ impl SolverServiceTrait for SolverService {
 		// Business logic: Handle assets result and update solver
 		match assets_result {
 			Ok(assets) => {
-				info!("Fetched {} assets for solver: {}", assets.len(), solver_id);
+				info!(
+					"Auto-discovered {} assets for solver: {}",
+					assets.len(),
+					solver_id
+				);
 				updated_solver.metadata.supported_assets = assets;
 				has_updates = true;
 			},
 			Err(e) => {
-				warn!("Failed to fetch assets for solver {}: {}", solver_id, e);
+				warn!(
+					"Failed to auto-discover assets for solver {}: {}",
+					solver_id, e
+				);
 				// Continue with networks even if assets failed
 			},
 		}
@@ -306,7 +330,7 @@ impl SolverServiceTrait for SolverService {
 		match networks_result {
 			Ok(networks) => {
 				info!(
-					"Fetched {} networks for solver: {}",
+					"Auto-discovered {} networks for solver: {}",
 					networks.len(),
 					solver_id
 				);
@@ -314,7 +338,10 @@ impl SolverServiceTrait for SolverService {
 				// Future: Store networks in solver metadata if needed
 			},
 			Err(e) => {
-				warn!("Failed to fetch networks for solver {}: {}", solver_id, e);
+				warn!(
+					"Failed to auto-discover networks for solver {}: {}",
+					solver_id, e
+				);
 			},
 		}
 
@@ -442,7 +469,7 @@ impl SolverServiceTrait for SolverService {
 	}
 
 	async fn fetch_assets_all_solvers(&self) -> Result<(), SolverServiceError> {
-		info!("Starting asset fetch for all solvers");
+		info!("Starting asset auto-discovery for all solvers (skipping solvers with manually configured assets)");
 
 		// Get all solvers from storage
 		let solvers = self
@@ -454,22 +481,28 @@ impl SolverServiceTrait for SolverService {
 		let mut success_count = 0;
 		let mut error_count = 0;
 
-		// Fetch assets for each solver that needs refresh
+		// Auto-discover assets for each solver (only if config assets are empty)
 		for solver in solvers {
 			match self.fetch_and_update_assets(&solver.solver_id).await {
 				Ok(()) => {
 					success_count += 1;
-					debug!("Asset fetch completed for solver: {}", solver.solver_id);
+					debug!(
+						"Asset auto-discovery completed for solver: {}",
+						solver.solver_id
+					);
 				},
 				Err(e) => {
 					error_count += 1;
-					warn!("Asset fetch failed for solver {}: {}", solver.solver_id, e);
+					warn!(
+						"Asset auto-discovery failed for solver {}: {}",
+						solver.solver_id, e
+					);
 				},
 			}
 		}
 
 		info!(
-			"Asset fetch completed - {} successful, {} failed",
+			"Asset auto-discovery completed - {} successful, {} failed",
 			success_count, error_count
 		);
 

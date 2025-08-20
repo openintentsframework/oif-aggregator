@@ -49,7 +49,7 @@ mod tests {
 	use crate::solver_repository::SolverService;
 	use oif_adapters::AdapterRegistry;
 	use oif_storage::{MemoryStore, Storage};
-	use oif_types::solvers::{SolverMetadata, SolverMetrics};
+	use oif_types::solvers::{AssetSource, SolverMetadata, SolverMetrics};
 	use oif_types::{Solver, SolverStatus};
 	use std::collections::HashMap;
 
@@ -66,6 +66,7 @@ mod tests {
 				description: Some("Test solver for unit testing".to_string()),
 				version: None,
 				supported_assets: vec![],
+				assets_source: AssetSource::AutoDiscovered, // Test solver for auto-discovery
 				max_retries: 3,
 				headers: None,
 				config: HashMap::new(),

@@ -107,6 +107,15 @@ pub enum SolverStatus {
 	Initializing,
 }
 
+/// Source of supported assets configuration
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum AssetSource {
+	/// Assets are manually defined in configuration
+	Config,
+	/// Assets are auto-discovered from solver API
+	AutoDiscovered,
+}
+
 /// Solver metadata and configuration
 #[derive(Debug, Clone, PartialEq)]
 pub struct SolverMetadata {
@@ -121,6 +130,9 @@ pub struct SolverMetadata {
 
 	/// Supported assets/tokens
 	pub supported_assets: Vec<Asset>,
+
+	/// Source of the supported assets (config vs auto-discovered)
+	pub assets_source: AssetSource,
 
 	/// Maximum retry attempts for failed requests
 	pub max_retries: u32,
@@ -439,6 +451,7 @@ impl Default for SolverMetadata {
 			description: None,
 			version: None,
 			supported_assets: Vec::new(),
+			assets_source: AssetSource::Config, // Default to config-based until determined
 			max_retries: 1,
 			headers: None,
 			config: HashMap::new(),

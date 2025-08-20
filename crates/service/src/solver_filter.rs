@@ -338,8 +338,9 @@ mod tests {
 	use super::*;
 	use oif_config::AggregationConfig;
 	use oif_types::{
-		quotes::request::SolverOptions, solvers::SolverMetadata, AvailableInput, InteropAddress,
-		QuoteRequest, RequestedOutput, Solver, U256,
+		quotes::request::SolverOptions,
+		solvers::{AssetSource, SolverMetadata},
+		AvailableInput, InteropAddress, QuoteRequest, RequestedOutput, Solver, U256,
 	};
 	use std::collections::HashMap;
 
@@ -371,6 +372,7 @@ mod tests {
 				description: Some(format!("Test solver {}", id)),
 				version: Some("1.0.0".to_string()),
 				supported_assets,
+				assets_source: AssetSource::Config, // Test solvers with pre-defined assets
 				max_retries: 3,
 				headers: Some(HashMap::new()),
 				config: HashMap::new(),
