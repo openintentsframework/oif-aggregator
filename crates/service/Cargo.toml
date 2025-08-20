@@ -10,6 +10,7 @@ oif-storage = { path = "../storage" }
 oif-adapters = { path = "../adapters" }
 oif-config = { path = "../config" }
 async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
 rand = "0.9"
 tracing = "0.1"

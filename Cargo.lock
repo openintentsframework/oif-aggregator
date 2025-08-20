@@ -1236,6 +1236,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "dashmap",
+ "lazy_static",
  "oif-types",
  "reqwest",
  "serde",
@@ -1316,6 +1318,7 @@ name = "oif-service"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
  "futures",
  "hmac",
  "mockall",

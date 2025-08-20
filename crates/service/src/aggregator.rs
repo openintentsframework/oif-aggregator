@@ -1192,6 +1192,7 @@ mod tests {
 
 		async fn get_supported_networks(
 			&self,
+			_config: &oif_types::SolverRuntimeConfig,
 		) -> oif_types::AdapterResult<Vec<oif_types::models::Network>> {
 			if self.should_fail {
 				return Err(oif_types::AdapterError::from(
@@ -1209,7 +1210,7 @@ mod tests {
 
 		async fn get_supported_assets(
 			&self,
-			_network: &oif_types::models::Network,
+			_config: &oif_types::SolverRuntimeConfig,
 		) -> oif_types::AdapterResult<Vec<oif_types::models::Asset>> {
 			if self.should_fail {
 				return Err(oif_types::AdapterError::from(

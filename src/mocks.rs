@@ -219,7 +219,10 @@ impl SolverAdapter for MockDemoAdapter {
 		})
 	}
 
-	async fn get_supported_assets(&self, _network: &Network) -> AdapterResult<Vec<Asset>> {
+	async fn get_supported_assets(
+		&self,
+		_config: &SolverRuntimeConfig,
+	) -> AdapterResult<Vec<Asset>> {
 		Ok(vec![
 			Asset::new(
 				"0x0000000000000000000000000000000000000000".to_string(),
@@ -242,7 +245,10 @@ impl SolverAdapter for MockDemoAdapter {
 		Ok(true)
 	}
 
-	async fn get_supported_networks(&self) -> AdapterResult<Vec<Network>> {
+	async fn get_supported_networks(
+		&self,
+		_config: &SolverRuntimeConfig,
+	) -> AdapterResult<Vec<Network>> {
 		Ok(vec![
 			Network::new(1, "Ethereum".to_string(), false),
 			Network::new(137, "Polygon".to_string(), false),
@@ -395,7 +401,10 @@ impl SolverAdapter for MockTestAdapter {
 		})
 	}
 
-	async fn get_supported_assets(&self, _network: &Network) -> AdapterResult<Vec<Asset>> {
+	async fn get_supported_assets(
+		&self,
+		_config: &SolverRuntimeConfig,
+	) -> AdapterResult<Vec<Asset>> {
 		if self.should_fail {
 			return Err(oif_types::AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {
@@ -410,7 +419,10 @@ impl SolverAdapter for MockTestAdapter {
 		Ok(!self.should_fail)
 	}
 
-	async fn get_supported_networks(&self) -> AdapterResult<Vec<Network>> {
+	async fn get_supported_networks(
+		&self,
+		_config: &SolverRuntimeConfig,
+	) -> AdapterResult<Vec<Network>> {
 		if self.should_fail {
 			return Err(oif_types::AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {

@@ -1,5 +1,7 @@
-use axum::routing::{get, post};
-use axum::Router;
+use axum::{
+	routing::{get, post},
+	Router,
+};
 use tower::ServiceBuilder;
 use tower_http::{
 	compression::CompressionLayer,
@@ -52,12 +54,17 @@ pub fn create_router() -> Router<AppState> {
 	// Base router
 	let base_router = Router::new()
 		.route("/health", get(health))
+		.route("/health/", get(health))
 		.route("/v1/quotes", post(post_quotes))
+		.route("/v1/quotes/", post(post_quotes))
 		.route("/v1/orders", post(post_orders))
+		.route("/v1/orders/", post(post_orders))
 		.route("/v1/orders/{id}", get(get_order))
+		.route("/v1/orders/{id}/", get(get_order))
 		.route("/v1/solvers", get(get_solvers))
-		.route("/v1/solvers/{id}", get(get_solver_by_id));
-
+		.route("/v1/solvers/", get(get_solvers))
+		.route("/v1/solvers/{id}", get(get_solver_by_id))
+		.route("/v1/solvers/{id}/", get(get_solver_by_id));
 	// Conditionally add OpenAPI endpoints
 	#[cfg(feature = "openapi")]
 	let router = {

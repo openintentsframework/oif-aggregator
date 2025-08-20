@@ -4,8 +4,9 @@
 //! providing quote aggregation, intent submission, and solver management.
 
 use oif_service::{
-	IntegrityService, IntegrityTrait, OrderService, OrderServiceTrait, SolverFilterService,
-	SolverFilterTrait, SolverService, SolverServiceTrait,
+	BackgroundJob, BackgroundJobHandler, IntegrityService, IntegrityTrait, JobProcessor,
+	JobProcessorConfig, OrderService, OrderServiceTrait, SolverFilterService, SolverFilterTrait,
+	SolverService, SolverServiceTrait,
 };
 use oif_types::Asset;
 
@@ -105,7 +106,7 @@ pub mod mocks;
 
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tracing::info;
+use tracing::{info, warn};
 
 // Re-export external dependencies for examples
 pub use async_trait;
@@ -124,6 +125,7 @@ where
 	rate_limiter: R,
 	adapter_registry: Option<oif_adapters::AdapterRegistry>,
 	solvers: Vec<Solver>,
+	job_processor_config: JobProcessorConfig,
 }
 
 impl<S> AggregatorBuilder<S, NoAuthenticator, MemoryRateLimiter>
@@ -139,6 +141,7 @@ where
 			rate_limiter: MemoryRateLimiter::new(),
 			adapter_registry: None,
 			solvers: Vec::new(),
+			job_processor_config: JobProcessorConfig::default(),
 		}
 	}
 }
@@ -190,110 +193,90 @@ where
 		Ok(())
 	}
 
-	/// Upsert solvers defined in Settings into storage so that start() can
-	/// load them via `list_all_solvers()`.
-	async fn upsert_solvers_from_settings(&self, settings: &Settings) -> Result<(), String> {
+	/// Common validation and storage logic for solvers
+	async fn upsert_solver(&self, solver: &Solver, errors: &mut Vec<String>) {
+		// Validate solver before creating
+		if let Err(validation_error) = solver.validate() {
+			errors.push(format!(
+				"Solver '{}' validation failed: {}",
+				solver.solver_id, validation_error
+			));
+			return;
+		}
+
+		// Validate adapter exists
+		if let Err(adapter_error) = self.validate_solver_adapter(solver) {
+			errors.push(adapter_error);
+			return;
+		}
+
+		// Try to create solver in storage
+		if let Err(storage_error) = self.storage.create_solver(solver.clone()).await {
+			errors.push(format!(
+				"Failed to create solver '{}': {}",
+				solver.solver_id, storage_error
+			));
+		}
+	}
+
+	/// Convert solver configuration to Solver domain object
+	fn solver_from_config(&self, solver_config: &oif_config::settings::SolverConfig) -> Solver {
+		let mut solver = Solver::new(
+			solver_config.solver_id.clone(),
+			solver_config.adapter_id.clone(),
+			solver_config.endpoint.clone(),
+			solver_config.timeout_ms,
+		);
+
+		// Populate metadata
+		solver.metadata.name = solver_config
+			.name
+			.clone()
+			.or_else(|| Some(solver_config.solver_id.clone()));
+		solver.metadata.max_retries = solver_config.max_retries;
+		solver.metadata.headers = solver_config.headers.clone();
+		if let Some(desc) = &solver_config.description {
+			solver.metadata.description = Some(desc.clone());
+		}
+		if let Some(assets) = &solver_config.supported_assets {
+			solver.metadata.supported_assets = assets
+				.iter()
+				.map(|a| {
+					Asset::new(
+						a.address.clone(),
+						a.symbol.clone(),
+						a.name.clone(),
+						a.decimals,
+						a.chain_id,
+					)
+				})
+				.collect();
+		}
+		solver.status = SolverStatus::Active;
+
+		solver
+	}
+
+	/// Upsert all solvers (from settings and collected programmatically) into storage
+	async fn upsert_all_solvers(&self, settings: &Settings) -> Result<(), String> {
 		let mut errors = Vec::new();
 
+		// Process solvers from configuration settings
 		for solver_config in settings.enabled_solvers().values() {
-			let mut solver = Solver::new(
-				solver_config.solver_id.clone(),
-				solver_config.adapter_id.clone(),
-				solver_config.endpoint.clone(),
-				solver_config.timeout_ms,
-			);
+			let solver = self.solver_from_config(solver_config);
+			self.upsert_solver(&solver, &mut errors).await;
+		}
 
-			// Populate metadata
-			solver.metadata.name = solver_config
-				.name
-				.clone()
-				.or_else(|| Some(solver_config.solver_id.clone()));
-			solver.metadata.max_retries = solver_config.max_retries;
-			solver.metadata.headers = solver_config.headers.clone();
-			if let Some(desc) = &solver_config.description {
-				solver.metadata.description = Some(desc.clone());
-			}
-			if let Some(assets) = &solver_config.supported_assets {
-				solver.metadata.supported_assets = assets
-					.iter()
-					.map(|a| {
-						Asset::new(
-							a.address.clone(),
-							a.symbol.clone(),
-							a.name.clone(),
-							a.decimals,
-							a.chain_id,
-						)
-					})
-					.collect();
-			}
-			solver.status = SolverStatus::Active;
-
-			// Validate solver before creating
-			if let Err(validation_error) = solver.validate() {
-				errors.push(format!(
-					"Solver '{}' validation failed: {}",
-					solver.solver_id, validation_error
-				));
-				continue;
-			}
-
-			// Validate adapter exists
-			if let Err(adapter_error) = self.validate_solver_adapter(&solver) {
-				errors.push(adapter_error);
-				continue;
-			}
-
-			// Try to create solver in storage
-			if let Err(storage_error) = self.storage.create_solver(solver.clone()).await {
-				errors.push(format!(
-					"Failed to create solver '{}': {}",
-					solver.solver_id, storage_error
-				));
-			}
+		// Process solvers collected programmatically via with_solver() calls
+		for solver in &self.solvers {
+			self.upsert_solver(solver, &mut errors).await;
 		}
 
 		if !errors.is_empty() {
 			return Err(format!(
-				"Configuration errors found:\n{}",
+				"Solver initialization errors found:\n{}",
 				errors.join("\n")
 			));
-		}
-
-		Ok(())
-	}
-
-	/// Upsert collected solvers into storage
-	async fn upsert_collected_solvers(&self) -> Result<(), String> {
-		let mut errors = Vec::new();
-
-		for solver in &self.solvers {
-			// Validate solver before creating
-			if let Err(validation_error) = solver.validate() {
-				errors.push(format!(
-					"Solver '{}' validation failed: {}",
-					solver.solver_id, validation_error
-				));
-				continue;
-			}
-
-			// Validate adapter exists
-			if let Err(adapter_error) = self.validate_solver_adapter(solver) {
-				errors.push(adapter_error);
-				continue;
-			}
-
-			// Try to create solver in storage
-			if let Err(storage_error) = self.storage.create_solver(solver.clone()).await {
-				errors.push(format!(
-					"Failed to create solver '{}': {}",
-					solver.solver_id, storage_error
-				));
-			}
-		}
-
-		if !errors.is_empty() {
-			return Err(format!("Solver creation errors:\n{}", errors.join("\n")));
 		}
 
 		Ok(())
@@ -311,6 +294,7 @@ where
 			rate_limiter: self.rate_limiter,
 			adapter_registry: self.adapter_registry,
 			solvers: self.solvers,
+			job_processor_config: self.job_processor_config,
 		}
 	}
 
@@ -326,6 +310,7 @@ where
 			rate_limiter,
 			adapter_registry: self.adapter_registry,
 			solvers: self.solvers,
+			job_processor_config: self.job_processor_config,
 		}
 	}
 
@@ -339,6 +324,12 @@ where
 			"Failed to register adapter during startup - this is a fatal configuration error",
 		);
 		self.adapter_registry = Some(registry);
+		self
+	}
+
+	/// Configure the job processor
+	pub fn with_job_processor_config(mut self, config: JobProcessorConfig) -> Self {
+		self.job_processor_config = config;
 		self
 	}
 }
@@ -361,6 +352,7 @@ where
 			rate_limiter: MemoryRateLimiter::new(),
 			adapter_registry: None,
 			solvers: Vec::new(),
+			job_processor_config: JobProcessorConfig::default(),
 		};
 
 		// Initialize adapter registry early for validation
@@ -484,14 +476,13 @@ where
 		// Ensure adapter registry is initialized early for validation
 		self.ensure_adapter_registry_initialized();
 
-		// Upsert solvers from settings into storage first - fail on any configuration errors
-		self.upsert_solvers_from_settings(&settings).await?;
-		// Upsert collected solvers from with_solver() calls - fail on any validation/creation errors
-		self.upsert_collected_solvers().await?;
+		// Upsert all solvers (from settings and programmatic calls) into storage
+		self.upsert_all_solvers(&settings).await?;
 
 		// Use the already-initialized adapter registry
 		let adapter_registry = Arc::new(
 			self.adapter_registry
+				.take()
 				.expect("Adapter registry should be initialized at this point"),
 		);
 		// Use base repository listing for solvers
@@ -512,34 +503,54 @@ where
 				e
 			)
 			})?;
+
+		// Initialize core services first
+		let storage_arc: Arc<dyn Storage> = Arc::new(self.storage.clone());
 		let integrity_service =
 			Arc::new(IntegrityService::new(integrity_secret)) as Arc<dyn IntegrityTrait>;
 		let solver_filter_service =
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>;
-		let aggregator_service = AggregatorService::with_config(
+		let aggregator_service = Arc::new(AggregatorService::with_config(
 			solvers.clone(),
 			Arc::clone(&adapter_registry),
 			Arc::clone(&integrity_service),
 			Arc::clone(&solver_filter_service),
 			settings.aggregation.into(),
-		);
+		)) as Arc<dyn oif_service::AggregatorTrait>;
+		let solver_service = Arc::new(SolverService::new(
+			Arc::clone(&storage_arc),
+			Arc::clone(&adapter_registry),
+		)) as Arc<dyn SolverServiceTrait>;
+
+		// Initialize background job processor with all services
+		let job_handler = Arc::new(BackgroundJobHandler::new(
+			Arc::clone(&storage_arc),
+			Arc::clone(&adapter_registry),
+			Arc::clone(&solver_service),
+			Arc::clone(&aggregator_service),
+			Arc::clone(&integrity_service),
+		));
+		let job_processor = JobProcessor::new(job_handler, self.job_processor_config.clone())
+			.map_err(|e| format!("Failed to initialize job processor: {}", e))?;
+		let job_processor_arc = Arc::new(job_processor);
+
+		// Schedule recurring maintenance jobs
+		self.schedule_recurring_jobs(&job_processor_arc).await;
+
+		info!("Background job processor initialized and solver initialization jobs submitted");
 
 		// Create application state
-		let storage_arc: Arc<dyn Storage> = Arc::new(self.storage.clone());
 		let app_state = AppState {
-			aggregator_service: Arc::new(aggregator_service)
-				as Arc<dyn oif_service::AggregatorTrait>,
+			aggregator_service,
 			order_service: Arc::new(OrderService::new(
 				Arc::clone(&storage_arc),
 				Arc::clone(&adapter_registry),
 				Arc::clone(&integrity_service),
 			)) as Arc<dyn OrderServiceTrait>,
-			solver_service: Arc::new(SolverService::new(
-				Arc::clone(&storage_arc),
-				Arc::clone(&adapter_registry),
-			)) as Arc<dyn SolverServiceTrait>,
+			solver_service,
 			storage: storage_arc,
 			integrity_service,
+			job_processor: job_processor_arc,
 		};
 
 		// Create router with state
@@ -646,5 +657,42 @@ where
 		}
 
 		Ok(())
+	}
+
+	/// Schedule recurring maintenance jobs for the system
+	async fn schedule_recurring_jobs(&self, job_processor: &Arc<JobProcessor>) {
+		// Schedule health checks for all solvers every 5 minutes (run immediately on startup)
+		if let Err(e) = job_processor
+			.schedule_job(
+				5, // 5 minutes
+				BackgroundJob::AllSolversHealthCheck,
+				"Periodic health check for all solvers".to_string(),
+				Some("health-check-all-solvers".to_string()), // ID used for both scheduling and deduplication
+				true,                                         // Run immediately on startup
+				None, // No retry policy for now, but could be added if needed
+			)
+			.await
+		{
+			warn!("Failed to schedule health check job: {}", e);
+		} else {
+			info!("Scheduled health checks to run immediately and then every 5 minutes for all solvers");
+		}
+
+		// Schedule asset fetching for all solvers every 20 minutes (run immediately on startup)
+		if let Err(e) = job_processor
+			.schedule_job(
+				20, // 20 minutes
+				BackgroundJob::AllSolversFetchAssets,
+				"Periodic asset fetch for all solvers".to_string(),
+				Some("fetch-assets-all-solvers".to_string()), // ID used for both scheduling and deduplication
+				true,                                         // Run immediately on startup
+				None, // No retry policy for now, but could be added if needed
+			)
+			.await
+		{
+			warn!("Failed to schedule asset fetch job: {}", e);
+		} else {
+			info!("Scheduled asset fetching to run immediately and then every 20 minutes for all solvers");
+		}
 	}
 }
