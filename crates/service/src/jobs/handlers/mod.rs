@@ -7,23 +7,30 @@ use crate::{AggregatorTrait, IntegrityTrait, SolverServiceTrait};
 use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;
 
+use super::generic_handler::{
+	BulkFetchAssetsParams, BulkHealthCheckParams, GenericJobHandler, SolverFetchAssetsParams,
+	SolverHealthCheckParams,
+};
 use super::processor::JobHandler;
 use super::types::{BackgroundJob, JobResult};
 
-pub mod bulk_solver_operations;
 pub mod solver_fetch_assets;
 pub mod solver_health_check;
+pub mod solvers_fetch_assets;
+pub mod solvers_health_check;
 
 // Re-export handler structs for convenience
-pub use bulk_solver_operations::BulkSolverOperationsHandler;
 pub use solver_fetch_assets::SolverFetchAssetsHandler;
 pub use solver_health_check::SolverHealthCheckHandler;
+pub use solvers_fetch_assets::SolversFetchAssetsHandler;
+pub use solvers_health_check::SolversHealthCheckHandler;
 
 /// Handler for background jobs (solver management, system maintenance, etc.)
 pub struct BackgroundJobHandler {
 	health_check_handler: SolverHealthCheckHandler,
 	fetch_assets_handler: SolverFetchAssetsHandler,
-	bulk_operations_handler: BulkSolverOperationsHandler,
+	solvers_health_check_handler: SolversHealthCheckHandler,
+	solvers_fetch_assets_handler: SolversFetchAssetsHandler,
 	solver_service: Arc<dyn SolverServiceTrait>,
 	aggregator_service: Arc<dyn AggregatorTrait>,
 	integrity_service: Arc<dyn IntegrityTrait>,
@@ -32,22 +39,21 @@ pub struct BackgroundJobHandler {
 impl BackgroundJobHandler {
 	/// Create a new background job handler
 	pub fn new(
-		storage: Arc<dyn Storage>,
-		adapter_registry: Arc<AdapterRegistry>,
+		_storage: Arc<dyn Storage>,
+		_adapter_registry: Arc<AdapterRegistry>,
 		solver_service: Arc<dyn SolverServiceTrait>,
 		aggregator_service: Arc<dyn AggregatorTrait>,
 		integrity_service: Arc<dyn IntegrityTrait>,
 	) -> Self {
 		Self {
-			health_check_handler: SolverHealthCheckHandler::new(
-				Arc::clone(&storage),
-				Arc::clone(&adapter_registry),
-			),
-			fetch_assets_handler: SolverFetchAssetsHandler::new(
-				Arc::clone(&storage),
-				Arc::clone(&adapter_registry),
-			),
-			bulk_operations_handler: BulkSolverOperationsHandler::new(storage, adapter_registry),
+			health_check_handler: SolverHealthCheckHandler::new(Arc::clone(&solver_service)),
+			fetch_assets_handler: SolverFetchAssetsHandler::new(Arc::clone(&solver_service)),
+			solvers_health_check_handler: SolversHealthCheckHandler::new(Arc::clone(
+				&solver_service,
+			)),
+			solvers_fetch_assets_handler: SolversFetchAssetsHandler::new(Arc::clone(
+				&solver_service,
+			)),
 			solver_service,
 			aggregator_service,
 			integrity_service,
@@ -60,20 +66,20 @@ impl JobHandler for BackgroundJobHandler {
 	async fn handle(&self, job: BackgroundJob) -> JobResult {
 		match job {
 			BackgroundJob::SolverHealthCheck { solver_id } => {
-				self.health_check_handler.handle(&solver_id).await
+				let params = SolverHealthCheckParams { solver_id };
+				self.health_check_handler.handle(params).await
 			},
 			BackgroundJob::FetchSolverAssets { solver_id } => {
-				self.fetch_assets_handler.handle(&solver_id).await
+				let params = SolverFetchAssetsParams { solver_id };
+				self.fetch_assets_handler.handle(params).await
 			},
 			BackgroundJob::AllSolversHealthCheck => {
-				self.bulk_operations_handler
-					.handle_all_solvers_health_check()
-					.await
+				let params = BulkHealthCheckParams;
+				self.solvers_health_check_handler.handle(params).await
 			},
 			BackgroundJob::AllSolversFetchAssets => {
-				self.bulk_operations_handler
-					.handle_all_solvers_fetch_assets()
-					.await
+				let params = BulkFetchAssetsParams;
+				self.solvers_fetch_assets_handler.handle(params).await
 			},
 		}
 	}

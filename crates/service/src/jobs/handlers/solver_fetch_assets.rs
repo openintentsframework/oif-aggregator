@@ -1,97 +1,44 @@
 //! Solver asset fetching job handler
 
-use chrono::Utc;
+use async_trait::async_trait;
 use std::sync::Arc;
-use tracing::{debug, info, warn};
+use tracing::debug;
 
-use crate::solver_adapter::{SolverAdapterService, SolverAdapterTrait};
-use oif_adapters::AdapterRegistry;
-use oif_storage::Storage;
-
+use crate::jobs::generic_handler::{GenericJobHandler, SolverFetchAssetsParams};
 use crate::jobs::types::{JobError, JobResult};
+use crate::solver_repository::SolverServiceTrait;
 
-/// Handler for solver asset fetching jobs
+/// Handler for individual solver asset fetching jobs
 pub struct SolverFetchAssetsHandler {
-	storage: Arc<dyn Storage>,
-	adapter_registry: Arc<AdapterRegistry>,
+	solver_service: Arc<dyn SolverServiceTrait>,
 }
 
 impl SolverFetchAssetsHandler {
 	/// Create a new solver fetch assets handler
-	pub fn new(storage: Arc<dyn Storage>, adapter_registry: Arc<AdapterRegistry>) -> Self {
-		Self {
-			storage,
-			adapter_registry,
-		}
+	pub fn new(solver_service: Arc<dyn SolverServiceTrait>) -> Self {
+		Self { solver_service }
 	}
+}
 
-	/// Fetch and update supported assets and networks for a solver
-	pub async fn handle(&self, solver_id: &str) -> JobResult {
-		debug!("Starting asset fetch for solver: {}", solver_id);
+#[async_trait]
+impl GenericJobHandler<SolverFetchAssetsParams> for SolverFetchAssetsHandler {
+	async fn handle(&self, params: SolverFetchAssetsParams) -> JobResult<()> {
+		debug!("Starting asset fetch for solver: {}", params.solver_id);
 
-		// Get solver from storage
-		let solver = self
-			.storage
-			.get_solver(solver_id)
+		// Delegate to the solver service which contains the business logic
+		self.solver_service
+			.fetch_and_update_assets(&params.solver_id)
 			.await
-			.map_err(|e| JobError::Storage(e.to_string()))?
-			.ok_or_else(|| JobError::InvalidConfig(format!("Solver '{}' not found", solver_id)))?;
+			.map_err(|e| match e {
+				crate::solver_repository::SolverServiceError::Storage(msg) => {
+					JobError::Storage(msg)
+				},
+				crate::solver_repository::SolverServiceError::NotFound(msg) => {
+					JobError::InvalidConfig(msg)
+				},
+			})?;
 
-		// Create adapter service for the solver
-		let adapter_service =
-			SolverAdapterService::from_solver(solver.clone(), Arc::clone(&self.adapter_registry))
-				.map_err(|e| JobError::Adapter(e.to_string()))?;
-
-		// Fetch supported assets and networks
-		let assets_result = adapter_service.get_supported_assets().await;
-		let networks_result = adapter_service.get_supported_networks().await;
-
-		let mut updated_solver = solver.clone();
-		let mut has_updates = false;
-
-		// Update assets if fetched successfully
-		match assets_result {
-			Ok(assets) => {
-				info!("Fetched {} assets for solver: {}", assets.len(), solver_id);
-				updated_solver.metadata.supported_assets = assets;
-				has_updates = true;
-			},
-			Err(e) => {
-				warn!("Failed to fetch assets for solver {}: {}", solver_id, e);
-				// Continue with networks even if assets failed
-			},
-		}
-
-		// Update networks if fetched successfully
-		// Note: We don't store networks directly in solver metadata currently,
-		// but we can log them for verification
-		match networks_result {
-			Ok(networks) => {
-				info!(
-					"Fetched {} networks for solver: {}",
-					networks.len(),
-					solver_id
-				);
-				debug!("Networks for solver {}: {:?}", solver_id, networks);
-				// Future: Store networks in solver metadata if needed
-			},
-			Err(e) => {
-				warn!("Failed to fetch networks for solver {}: {}", solver_id, e);
-			},
-		}
-
-		// Update solver in storage if we have updates
-		if has_updates {
-			updated_solver.last_seen = Some(Utc::now());
-			self.storage
-				.update_solver(updated_solver)
-				.await
-				.map_err(|e| JobError::Storage(e.to_string()))?;
-
-			info!("Updated solver metadata for: {}", solver_id);
-		}
-
-		debug!("Asset fetch completed for solver: {}", solver_id);
+		debug!("Asset fetch completed for solver: {}", params.solver_id);
 		Ok(())
 	}
 }
@@ -99,6 +46,7 @@ impl SolverFetchAssetsHandler {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::solver_repository::SolverService;
 	use oif_adapters::AdapterRegistry;
 	use oif_storage::{MemoryStore, Storage};
 	use oif_types::solvers::{SolverMetadata, SolverMetrics};
@@ -138,12 +86,19 @@ mod tests {
 		}
 	}
 
-	#[tokio::test]
-	async fn test_fetch_assets_handler_creation() {
+	/// Helper to create test services
+	async fn create_test_solver_service() -> (Arc<dyn Storage>, Arc<SolverService>) {
 		let storage = Arc::new(MemoryStore::new());
 		let adapter_registry = Arc::new(AdapterRegistry::with_defaults());
+		let solver_service = Arc::new(SolverService::new(storage.clone(), adapter_registry));
+		(storage, solver_service)
+	}
 
-		let handler = SolverFetchAssetsHandler::new(storage, adapter_registry);
+	#[tokio::test]
+	async fn test_fetch_assets_handler_creation() {
+		let (_, solver_service) = create_test_solver_service().await;
+
+		let handler = SolverFetchAssetsHandler::new(solver_service);
 
 		// Just verify we can create the handler without panic
 		assert!(std::ptr::addr_of!(handler).is_aligned());
@@ -151,11 +106,13 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_fetch_assets_solver_not_found() {
-		let storage = Arc::new(MemoryStore::new());
-		let adapter_registry = Arc::new(AdapterRegistry::with_defaults());
-		let handler = SolverFetchAssetsHandler::new(storage, adapter_registry);
+		let (_, solver_service) = create_test_solver_service().await;
+		let handler = SolverFetchAssetsHandler::new(solver_service);
 
-		let result = handler.handle("nonexistent-solver").await;
+		let params = SolverFetchAssetsParams {
+			solver_id: "nonexistent-solver".to_string(),
+		};
+		let result = handler.handle(params).await;
 
 		assert!(result.is_err());
 		if let Err(JobError::InvalidConfig(msg)) = result {
@@ -167,9 +124,8 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_fetch_assets_with_existing_solver() {
-		let storage = Arc::new(MemoryStore::new());
-		let adapter_registry = Arc::new(AdapterRegistry::with_defaults());
-		let handler = SolverFetchAssetsHandler::new(storage.clone(), adapter_registry);
+		let (storage, solver_service) = create_test_solver_service().await;
+		let handler = SolverFetchAssetsHandler::new(solver_service);
 
 		// Create and store a test solver
 		let test_solver = create_test_solver();
@@ -177,14 +133,17 @@ mod tests {
 
 		// The asset fetch will likely fail since we don't have a real adapter,
 		// but we should get a proper error, not a panic
-		let result = handler.handle("test-solver").await;
+		let params = SolverFetchAssetsParams {
+			solver_id: "test-solver".to_string(),
+		};
+		let result = handler.handle(params).await;
 
-		// We expect this to fail with an Adapter error since there's no real adapter
+		// We expect this to fail with a Storage error since there's no real adapter
 		assert!(result.is_err());
-		if let Err(JobError::Adapter(_)) = result {
+		if let Err(JobError::Storage(_)) = result {
 			// This is expected - no real adapter available
 		} else {
-			panic!("Expected Adapter error, got: {:?}", result);
+			panic!("Expected Storage error, got: {:?}", result);
 		}
 	}
 
@@ -192,25 +151,29 @@ mod tests {
 	async fn test_fetch_assets_handles_partial_failures() {
 		// This test would ideally use a mock adapter that fails asset fetch but succeeds network fetch
 		// For now, we just verify the handler doesn't panic with valid input
-		let storage = Arc::new(MemoryStore::new());
-		let adapter_registry = Arc::new(AdapterRegistry::with_defaults());
-		let handler = SolverFetchAssetsHandler::new(storage.clone(), adapter_registry);
+		let (storage, solver_service) = create_test_solver_service().await;
+		let handler = SolverFetchAssetsHandler::new(solver_service);
 
 		let test_solver = create_test_solver();
 		storage.create_solver(test_solver.clone()).await.unwrap();
 
 		// This will fail but shouldn't panic
-		let result = handler.handle("test-solver").await;
+		let params = SolverFetchAssetsParams {
+			solver_id: "test-solver".to_string(),
+		};
+		let result = handler.handle(params).await;
 		assert!(result.is_err());
 	}
 
 	#[tokio::test]
 	async fn test_fetch_assets_empty_solver_id() {
-		let storage = Arc::new(MemoryStore::new());
-		let adapter_registry = Arc::new(AdapterRegistry::with_defaults());
-		let handler = SolverFetchAssetsHandler::new(storage, adapter_registry);
+		let (_, solver_service) = create_test_solver_service().await;
+		let handler = SolverFetchAssetsHandler::new(solver_service);
 
-		let result = handler.handle("").await;
+		let params = SolverFetchAssetsParams {
+			solver_id: "".to_string(),
+		};
+		let result = handler.handle(params).await;
 
 		assert!(result.is_err());
 		// Should fail because empty solver ID won't be found
