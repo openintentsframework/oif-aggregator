@@ -7,9 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use oif_types::adapters::models::SubmitOrderRequest;
 use oif_types::adapters::GetOrderResponse;
-use oif_types::{
-	Adapter, AdapterQuote, Asset, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig,
-};
+use oif_types::{Adapter, Asset, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig};
 use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -160,7 +158,7 @@ impl SolverAdapter for OifAdapter {
 			request.requested_outputs.len()
 		);
 
-		let quote_url = format!("{}/quote", config.endpoint);
+		let quote_url = format!("{}/quotes", config.endpoint);
 		let client = self.get_client(config)?;
 
 		let response = client
@@ -176,7 +174,7 @@ impl SolverAdapter for OifAdapter {
 			});
 		}
 
-		let quote: AdapterQuote =
+		let quote_response: GetQuoteResponse =
 			response
 				.json()
 				.await
@@ -184,9 +182,7 @@ impl SolverAdapter for OifAdapter {
 					reason: format!("Failed to parse OIF quote response: {}", e),
 				})?;
 
-		Ok(GetQuoteResponse {
-			quotes: vec![quote],
-		})
+		Ok(quote_response)
 	}
 
 	async fn submit_order(

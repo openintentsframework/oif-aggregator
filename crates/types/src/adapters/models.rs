@@ -99,7 +99,7 @@ pub struct AdapterQuote {
 	pub eta: Option<u64>,
 	/// Unique quote identifier
 	pub quote_id: String,
-
+	/// Quote provider identifier
 	pub provider: String,
 }
 
