@@ -1,5 +1,7 @@
 # OIF Aggregator
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/openintentsframework/oif-aggregator)
+
 A high-performance aggregator for **Open Intent Framework (OIF)** solvers, providing quote aggregation, intent submission, and solver management.
 
 ## 🚀 Quick Start
