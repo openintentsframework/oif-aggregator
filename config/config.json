@@ -13,16 +13,7 @@
       "max_retries": 1,
       "headers": null,
       "name": "OIF Solver",
-      "description": "OIF Solver Description",
-      "supported_assets": [
-        {
-          "address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
-          "symbol": "TOKA",
-          "name": "TOKA",
-          "decimals": 18,
-          "chain_id": 31338
-      }
-      ]
+      "description": "OIF Solver Description"
     }
   },
   "aggregation": {
