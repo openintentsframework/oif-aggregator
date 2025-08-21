@@ -1203,8 +1203,8 @@ mod tests {
 			}
 			Ok(vec![oif_types::models::Network::new(
 				1,
-				"Ethereum Mainnet".to_string(),
-				false,
+				Some("Ethereum Mainnet".to_string()),
+				Some(false),
 			)])
 		}
 

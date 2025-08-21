@@ -7,7 +7,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use oif_types::adapters::models::SubmitOrderRequest;
 use oif_types::adapters::GetOrderResponse;
-use oif_types::{Adapter, Asset, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig};
+use oif_types::{
+	Adapter, AdapterQuote, Asset, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig,
+};
 use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -45,39 +47,6 @@ pub struct OifAdapter {
 }
 
 impl OifAdapter {
-	/// Convert chain ID to network name and detect if it's a testnet
-	fn chain_id_to_network_info(chain_id: u64) -> (String, bool) {
-		match chain_id {
-			// Mainnets
-			1 => ("Ethereum".to_string(), false),
-			137 => ("Polygon".to_string(), false),
-			56 => ("BSC".to_string(), false),
-			42161 => ("Arbitrum One".to_string(), false),
-			8453 => ("Base".to_string(), false),
-			10 => ("Optimism".to_string(), false),
-			43114 => ("Avalanche".to_string(), false),
-			250 => ("Fantom".to_string(), false),
-
-			// Testnets
-			11155111 => ("Sepolia".to_string(), true),
-			80001 => ("Mumbai".to_string(), true),
-			5 => ("Goerli".to_string(), true),
-			421613 => ("Arbitrum Goerli".to_string(), true),
-			84531 => ("Base Goerli".to_string(), true),
-			420 => ("Optimism Goerli".to_string(), true),
-
-			// Local/dev networks (common dev chain IDs)
-			31337 | 31338 | 1337 => (format!("Local Dev ({})", chain_id), true),
-
-			// Unknown chain IDs - try to detect testnet patterns
-			_ => {
-				let is_testnet = chain_id > 1000000 || // Very high chain IDs often testnets
-					chain_id.to_string().contains("000"); // Chain IDs with lots of zeros often testnets
-				let name = format!("Chain {}", chain_id);
-				(name, is_testnet)
-			},
-		}
-	}
 	/// Create a new OIF adapter with optimized client caching (recommended)
 	///
 	/// This constructor provides optimal performance with connection pooling,
@@ -191,7 +160,33 @@ impl SolverAdapter for OifAdapter {
 			request.requested_outputs.len()
 		);
 
-		unimplemented!()
+		let quote_url = format!("{}/quote", config.endpoint);
+		let client = self.get_client(config)?;
+
+		let response = client
+			.post(quote_url)
+			.json(&request)
+			.send()
+			.await
+			.map_err(AdapterError::HttpError)?;
+
+		if !response.status().is_success() {
+			return Err(AdapterError::InvalidResponse {
+				reason: format!("OIF quote endpoint returned status {}", response.status()),
+			});
+		}
+
+		let quote: AdapterQuote =
+			response
+				.json()
+				.await
+				.map_err(|e| AdapterError::InvalidResponse {
+					reason: format!("Failed to parse OIF quote response: {}", e),
+				})?;
+
+		Ok(GetQuoteResponse {
+			quotes: vec![quote],
+		})
 	}
 
 	async fn submit_order(
@@ -311,9 +306,7 @@ impl SolverAdapter for OifAdapter {
 		for (chain_id_str, network_data) in oif_response.networks {
 			let chain_id = chain_id_str.parse::<u64>().unwrap_or(network_data.chain_id);
 
-			let (name, is_testnet) = Self::chain_id_to_network_info(chain_id);
-
-			let network = Network::new(chain_id, name, is_testnet);
+			let network = Network::new(chain_id, None, None);
 			networks.push(network);
 		}
 
@@ -567,118 +560,5 @@ mod tests {
 			"0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
 		);
 		assert_eq!(usdc_poly.decimals, 6);
-	}
-
-	#[test]
-	fn test_chain_id_to_network_info() {
-		// Test mainnet networks
-		assert_eq!(
-			OifAdapter::chain_id_to_network_info(1),
-			("Ethereum".to_string(), false)
-		);
-		assert_eq!(
-			OifAdapter::chain_id_to_network_info(137),
-			("Polygon".to_string(), false)
-		);
-		assert_eq!(
-			OifAdapter::chain_id_to_network_info(8453),
-			("Base".to_string(), false)
-		);
-
-		// Test testnet networks
-		assert_eq!(
-			OifAdapter::chain_id_to_network_info(11155111),
-			("Sepolia".to_string(), true)
-		);
-		assert_eq!(
-			OifAdapter::chain_id_to_network_info(80001),
-			("Mumbai".to_string(), true)
-		);
-
-		// Test local dev networks
-		assert_eq!(
-			OifAdapter::chain_id_to_network_info(31337),
-			("Local Dev (31337)".to_string(), true)
-		);
-		assert_eq!(
-			OifAdapter::chain_id_to_network_info(31338),
-			("Local Dev (31338)".to_string(), true)
-		);
-
-		// Test unknown chain IDs
-		assert_eq!(
-			OifAdapter::chain_id_to_network_info(999999),
-			("Chain 999999".to_string(), false)
-		);
-		assert_eq!(
-			OifAdapter::chain_id_to_network_info(9999999),
-			("Chain 9999999".to_string(), true)
-		); // High chain ID = testnet
-	}
-
-	#[test]
-	fn test_oif_networks_extraction() {
-		let oif_response = OifTokensResponse {
-			networks: {
-				let mut networks = HashMap::new();
-				networks.insert(
-					"1".to_string(),
-					OifNetwork {
-						chain_id: 1,
-						input_settler: "0x123".to_string(),
-						output_settler: "0x456".to_string(),
-						tokens: vec![],
-					},
-				);
-				networks.insert(
-					"137".to_string(),
-					OifNetwork {
-						chain_id: 137,
-						input_settler: "0x789".to_string(),
-						output_settler: "0xabc".to_string(),
-						tokens: vec![],
-					},
-				);
-				networks.insert(
-					"31337".to_string(),
-					OifNetwork {
-						chain_id: 31337,
-						input_settler: "0xdef".to_string(),
-						output_settler: "0x123".to_string(),
-						tokens: vec![],
-					},
-				);
-				networks
-			},
-		};
-
-		// Extract networks (simulating the logic from get_supported_networks)
-		let mut networks = Vec::new();
-		for (chain_id_str, network_data) in oif_response.networks {
-			let chain_id = chain_id_str.parse::<u64>().unwrap_or(network_data.chain_id);
-
-			let (name, is_testnet) = OifAdapter::chain_id_to_network_info(chain_id);
-
-			let network = Network::new(chain_id, name, is_testnet);
-			networks.push(network);
-		}
-
-		// Verify extraction
-		assert_eq!(networks.len(), 3);
-
-		// Find Ethereum
-		let ethereum = networks.iter().find(|n| n.chain_id == 1).unwrap();
-		assert_eq!(ethereum.name, "Ethereum");
-		assert!(!ethereum.is_testnet);
-
-		// Find Polygon
-		let polygon = networks.iter().find(|n| n.chain_id == 137).unwrap();
-		assert_eq!(polygon.name, "Polygon");
-		assert!(!polygon.is_testnet);
-
-		// Find Local Dev
-		let local_dev = networks.iter().find(|n| n.chain_id == 31337).unwrap();
-		assert_eq!(local_dev.name, "Local Dev (31337)");
-		assert!(local_dev.is_testnet);
 	}
 }

@@ -250,8 +250,8 @@ impl SolverAdapter for MockDemoAdapter {
 		_config: &SolverRuntimeConfig,
 	) -> AdapterResult<Vec<Network>> {
 		Ok(vec![
-			Network::new(1, "Ethereum".to_string(), false),
-			Network::new(137, "Polygon".to_string(), false),
+			Network::new(1, Some("Ethereum".to_string()), Some(false)),
+			Network::new(137, Some("Polygon".to_string()), Some(false)),
 		])
 	}
 }
