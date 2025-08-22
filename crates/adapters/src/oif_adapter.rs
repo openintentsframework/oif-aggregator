@@ -6,7 +6,6 @@ use reqwest::{
 	header::{HeaderMap, HeaderValue},
 	Client,
 };
-use std::time::Duration;
 use std::{str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
@@ -90,10 +89,7 @@ impl OifAdapter {
 	}
 
 	/// Create a new HTTP client with OIF headers and specified timeout
-	fn create_client(
-		timeout_ms: u64,
-		solver_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Arc<reqwest::Client>> {
+	fn create_client(solver_config: &SolverRuntimeConfig) -> AdapterResult<Arc<reqwest::Client>> {
 		let mut headers = HeaderMap::new();
 		headers.insert("Content-Type", HeaderValue::from_static("application/json"));
 		headers.insert("User-Agent", HeaderValue::from_static("OIF-Aggregator/1.0"));
@@ -113,7 +109,6 @@ impl OifAdapter {
 
 		let client = Client::builder()
 			.default_headers(headers)
-			.timeout(Duration::from_millis(timeout_ms))
 			.build()
 			.map_err(AdapterError::HttpError)?;
 
@@ -130,9 +125,7 @@ impl OifAdapter {
 				let client_config = ClientConfig::from(solver_config);
 				cache.get_client(&client_config)
 			},
-			ClientStrategy::OnDemand => {
-				Self::create_client(solver_config.timeout_ms, solver_config)
-			},
+			ClientStrategy::OnDemand => Self::create_client(solver_config),
 		}
 	}
 

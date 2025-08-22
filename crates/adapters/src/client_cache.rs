@@ -143,8 +143,6 @@ impl ClientCache {
             // Connection pool optimization
             .pool_max_idle_per_host(config.max_idle_per_host)
             .pool_idle_timeout(Duration::from_millis(config.keep_alive_timeout_ms))
-            // Request timeout (per-request)
-            .timeout(Duration::from_millis(config.timeout_ms))
             // Enable keep-alive and HTTP/2
             .http2_keep_alive_timeout(Duration::from_millis(config.keep_alive_timeout_ms))
             .tcp_keepalive(Duration::from_secs(60));
