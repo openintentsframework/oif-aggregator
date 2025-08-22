@@ -24,6 +24,7 @@ pub struct SolverStorage {
 	pub status: SolverStatus,
 	pub metadata: SolverMetadataStorage,
 	pub metrics: SolverMetricsStorage,
+	pub headers: Option<HashMap<String, String>>,
 
 	// Storage-specific metadata
 	pub version: u32,
@@ -91,6 +92,7 @@ impl From<Solver> for SolverStorage {
 			created_at: solver.created_at,
 			last_seen: solver.last_seen,
 			metrics: SolverMetricsStorage::from(solver.metrics),
+			headers: solver.headers,
 			version: 1,
 			last_updated: Utc::now(),
 		}
@@ -111,6 +113,7 @@ impl TryFrom<SolverStorage> for Solver {
 			created_at: storage.created_at,
 			last_seen: storage.last_seen,
 			metrics: storage.metrics.try_into()?,
+			headers: storage.headers,
 		})
 	}
 }

@@ -88,6 +88,9 @@ pub struct Solver {
 
 	/// Performance and health metrics
 	pub metrics: SolverMetrics,
+
+	/// Custom HTTP headers for requests
+	pub headers: Option<HashMap<String, String>>,
 }
 
 /// Solver operational status
@@ -190,6 +193,7 @@ impl Solver {
 			created_at: now,
 			last_seen: None,
 			metrics: SolverMetrics::new(),
+			headers: None,
 		}
 	}
 

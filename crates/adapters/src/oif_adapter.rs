@@ -2,7 +2,12 @@
 //!
 //! This adapter uses an optimized client cache for connection pooling and keep-alive.
 
-use std::sync::Arc;
+use reqwest::{
+	header::{HeaderMap, HeaderValue},
+	Client,
+};
+use std::time::Duration;
+use std::{str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
 use oif_types::adapters::models::{SubmitOrderRequest, SubmitOrderResponse};
@@ -37,12 +42,20 @@ struct OifToken {
 	decimals: u8,
 }
 
+/// Client strategy for the OIF adapter
+#[derive(Debug)]
+enum ClientStrategy {
+	/// Use optimized client cache for connection pooling and reuse
+	Cached(ClientCache),
+	/// Create clients on-demand with no caching
+	OnDemand,
+}
+
 /// OIF v1 adapter for HTTP-based solvers
-/// This adapter supports optional client caching for optimal connection management
 #[derive(Debug)]
 pub struct OifAdapter {
 	config: Adapter,
-	cache: Option<ClientCache>,
+	client_strategy: ClientStrategy,
 }
 
 impl OifAdapter {
@@ -61,61 +74,65 @@ impl OifAdapter {
 	pub fn with_cache(config: Adapter, cache: ClientCache) -> AdapterResult<Self> {
 		Ok(Self {
 			config,
-			cache: Some(cache),
+			client_strategy: ClientStrategy::Cached(cache),
 		})
 	}
 
 	/// Create OIF adapter without client caching
 	///
-	/// This creates a basic adapter without optimization. Each request will create
-	/// a new HTTP client. Only recommended for simple use cases or when you want
-	/// to implement your own client management.
+	/// Creates clients on-demand for each request. Simpler but less efficient
+	/// than the cached approach.
 	pub fn without_cache(config: Adapter) -> AdapterResult<Self> {
 		Ok(Self {
 			config,
-			cache: None,
+			client_strategy: ClientStrategy::OnDemand,
 		})
 	}
 
+	/// Create a new HTTP client with OIF headers and specified timeout
+	fn create_client(
+		timeout_ms: u64,
+		solver_config: &SolverRuntimeConfig,
+	) -> AdapterResult<Arc<reqwest::Client>> {
+		let mut headers = HeaderMap::new();
+		headers.insert("Content-Type", HeaderValue::from_static("application/json"));
+		headers.insert("User-Agent", HeaderValue::from_static("OIF-Aggregator/1.0"));
+		headers.insert("X-Adapter-Type", HeaderValue::from_static("OIF-v1"));
+
+		// Add custom headers from the solver config
+		if let Some(solver_headers) = &solver_config.headers {
+			for (key, value) in solver_headers {
+				if let (Ok(header_name), Ok(header_value)) = (
+					reqwest::header::HeaderName::from_str(key),
+					HeaderValue::from_str(value),
+				) {
+					headers.insert(header_name, header_value);
+				}
+			}
+		}
+
+		let client = Client::builder()
+			.default_headers(headers)
+			.timeout(Duration::from_millis(timeout_ms))
+			.build()
+			.map_err(AdapterError::HttpError)?;
+
+		Ok(Arc::new(client))
+	}
+
 	/// Get an HTTP client for the given solver configuration
-	///
-	/// Returns either an optimized cached client (if cache is enabled) or a basic client
 	fn get_client(
 		&self,
 		solver_config: &SolverRuntimeConfig,
 	) -> AdapterResult<Arc<reqwest::Client>> {
-		if let Some(cache) = &self.cache {
-			// Optimized path: use cached client with configuration
-			let mut client_config = ClientConfig::from(solver_config);
-
-			// Add OIF-specific headers
-			client_config
-				.headers
-				.push(("X-Adapter-Type".to_string(), "OIF-v1".to_string()));
-
-			cache.get_client(&client_config)
-		} else {
-			// Basic path: create simple client for each request
-			debug!("Creating basic HTTP client for OIF adapter (no cache)");
-
-			use reqwest::{
-				header::{HeaderMap, HeaderValue},
-				Client,
-			};
-			use std::time::Duration;
-
-			let mut headers = HeaderMap::new();
-			headers.insert("Content-Type", HeaderValue::from_static("application/json"));
-			headers.insert("User-Agent", HeaderValue::from_static("OIF-Aggregator/1.0"));
-			headers.insert("X-Adapter-Type", HeaderValue::from_static("OIF-v1"));
-
-			let client = Client::builder()
-				.default_headers(headers)
-				.timeout(Duration::from_millis(solver_config.timeout_ms))
-				.build()
-				.map_err(AdapterError::HttpError)?;
-
-			Ok(Arc::new(client))
+		match &self.client_strategy {
+			ClientStrategy::Cached(cache) => {
+				let client_config = ClientConfig::from(solver_config);
+				cache.get_client(&client_config)
+			},
+			ClientStrategy::OnDemand => {
+				Self::create_client(solver_config.timeout_ms, solver_config)
+			},
 		}
 	}
 
@@ -250,15 +267,11 @@ impl SolverAdapter for OifAdapter {
 		let client = self.get_client(config)?;
 
 		debug!(
-			"Health checking OIF adapter at {} (solver: {}) via /tokens endpoint with optimized client",
+			"Health checking OIF adapter at {} (solver: {}) via /tokens endpoint",
 			tokens_url, config.solver_id
 		);
 
-		match client
-			.get(&tokens_url)
-			.send() // Timeout is configured at client level
-			.await
-		{
+		match client.get(&tokens_url).send().await {
 			Ok(response) => {
 				let is_healthy = response.status().is_success();
 				if is_healthy {
@@ -427,13 +440,13 @@ impl SolverAdapter for OifAdapter {
 		let networks_count = oif_response.networks.len();
 
 		for (chain_id_str, network) in oif_response.networks {
-			let chain_id = chain_id_str.parse::<u64>().unwrap_or(network.chain_id); // Use parsed chain_id or fallback to network.chain_id
+			let chain_id = chain_id_str.parse::<u64>().unwrap_or(network.chain_id);
 
 			for token in network.tokens {
 				let asset = Asset::new(
 					token.address,
 					token.symbol.clone(),
-					token.symbol, // Use symbol as name for now (could be enhanced with a token registry)
+					token.symbol, // Use symbol as name for now
 					token.decimals,
 					chain_id,
 				);
@@ -467,16 +480,25 @@ mod tests {
 
 		// Test optimized constructor (default)
 		let adapter_optimized = OifAdapter::new(config.clone()).unwrap();
-		assert!(adapter_optimized.cache.is_some());
+		assert!(matches!(
+			adapter_optimized.client_strategy,
+			ClientStrategy::Cached(_)
+		));
 
 		// Test custom cache constructor
 		let custom_cache = ClientCache::with_ttl(Duration::from_secs(60));
 		let adapter_custom = OifAdapter::with_cache(config.clone(), custom_cache).unwrap();
-		assert!(adapter_custom.cache.is_some());
+		assert!(matches!(
+			adapter_custom.client_strategy,
+			ClientStrategy::Cached(_)
+		));
 
-		// Test basic constructor (no cache)
-		let adapter_basic = OifAdapter::without_cache(config.clone()).unwrap();
-		assert!(adapter_basic.cache.is_none());
+		// Test on-demand constructor
+		let adapter_on_demand = OifAdapter::without_cache(config.clone()).unwrap();
+		assert!(matches!(
+			adapter_on_demand.client_strategy,
+			ClientStrategy::OnDemand
+		));
 	}
 
 	#[test]
@@ -484,7 +506,7 @@ mod tests {
 		let adapter = OifAdapter::with_default_config().unwrap();
 		assert_eq!(adapter.adapter_id(), "oif-v1");
 		assert_eq!(adapter.adapter_name(), "OIF v1 Adapter");
-		assert!(adapter.cache.is_some()); // Should use optimized cache by default
+		assert!(matches!(adapter.client_strategy, ClientStrategy::Cached(_)));
 	}
 
 	#[test]

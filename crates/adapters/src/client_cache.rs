@@ -258,7 +258,6 @@ mod tests {
 			endpoint: "https://api.example.com".to_string(),
 			timeout_ms: 5000,
 			headers: None,
-			max_retries: Some(3),
 		};
 
 		let client_config = ClientConfig::from(&solver_config);

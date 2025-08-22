@@ -84,6 +84,7 @@ mod tests {
 				consecutive_failures: 0,
 				last_updated: chrono::Utc::now(),
 			},
+			headers: None,
 		}
 	}
 

@@ -36,9 +36,6 @@ pub struct SolverRuntimeConfig {
 
 	/// Optional custom HTTP headers for requests
 	pub headers: Option<HashMap<String, String>>,
-
-	/// Maximum retry attempts for failed requests
-	pub max_retries: Option<u32>,
 }
 
 impl SolverRuntimeConfig {
@@ -49,19 +46,12 @@ impl SolverRuntimeConfig {
 			endpoint,
 			timeout_ms,
 			headers: None,
-			max_retries: None,
 		}
 	}
 
 	/// Create runtime config with optional headers
 	pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
 		self.headers = Some(headers);
-		self
-	}
-
-	/// Create runtime config with max retries
-	pub fn with_max_retries(mut self, max_retries: u32) -> Self {
-		self.max_retries = Some(max_retries);
 		self
 	}
 }
@@ -72,8 +62,7 @@ impl From<&crate::solvers::Solver> for SolverRuntimeConfig {
 			solver_id: solver.solver_id.clone(),
 			endpoint: solver.endpoint.clone(),
 			timeout_ms: solver.timeout_ms,
-			headers: None,     // TODO: Map from solver when available
-			max_retries: None, // TODO: Map from solver when available
+			headers: solver.headers.clone(),
 		}
 	}
 }

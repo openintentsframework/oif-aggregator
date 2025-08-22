@@ -380,6 +380,7 @@ mod tests {
 			created_at: Utc::now(),
 			last_seen: Some(Utc::now()),
 			metrics: SolverMetrics::default(),
+			headers: None,
 		}
 	}
 
