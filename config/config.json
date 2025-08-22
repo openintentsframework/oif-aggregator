@@ -8,7 +8,9 @@
       "solver_id": "example-solver",
       "adapter_id": "oif-v1",
       "endpoint": "http://127.0.0.1:3000/api",
+      "timeout_ms": 1500,
       "enabled": true,
+      "max_retries": 1,
       "headers": null,
       "name": "OIF Solver",
       "description": "OIF Solver Description"
