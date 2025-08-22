@@ -150,7 +150,6 @@ async fn test_solver_maintenance_handler() {
 		"test-solver".to_string(),
 		"demo".to_string(), // Use demo adapter
 		"http://localhost:8080".to_string(),
-		5000,
 	);
 
 	// Store the solver

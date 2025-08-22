@@ -1,0 +1,18 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.35s
+     Running `target/debug/oif-aggregator`
+[2m2025-08-22T10:01:07.969648Z[0m [32m INFO[0m [2moif_aggregator[0m[2m:[0m Logging configuration applied: level=debug, format=Compact, structured=false
+[2m2025-08-22T10:01:07.969781Z[0m [32m INFO[0m [2moif_config::startup_logger[0m[2m:[0m === OIF Aggregator Service Starting ===
+[2m2025-08-22T10:01:07.969798Z[0m [32m INFO[0m [2moif_config::startup_logger[0m[2m:[0m 🚀 Service: oif-aggregator v0.1.0
+[2m2025-08-22T10:01:07.969802Z[0m [32m INFO[0m [2moif_config::startup_logger[0m[2m:[0m 🦀 Rust Edition: 2021
+[2m2025-08-22T10:01:07.969806Z[0m [32m INFO[0m [2moif_config::startup_logger[0m[2m:[0m 💻 Platform: macos
+[2m2025-08-22T10:01:07.969809Z[0m [32m INFO[0m [2moif_config::startup_logger[0m[2m:[0m 🏗️ Architecture: aarch64
+[2m2025-08-22T10:01:07.969848Z[0m [32m INFO[0m [2moif_config::startup_logger[0m[2m:[0m 📁 Working Directory: /Users/zeljkomarkovic/Documents/Projects/openzeppelin/oif-aggregator
+[2m2025-08-22T10:01:07.969883Z[0m [32m INFO[0m [2moif_config::startup_logger[0m[2m:[0m 🕒 Started at: 2025-08-22 10:01:07 UTC
+[2m2025-08-22T10:01:07.969895Z[0m [32m INFO[0m [2moif_config::startup_logger[0m[2m:[0m 🎯 Starting aggregator initialization...
+[2m2025-08-22T10:01:07.969910Z[0m [32m INFO[0m [2moif_aggregator[0m[2m:[0m Using configuration: loaded from config file or defaults
+[2m2025-08-22T10:01:07.969915Z[0m [32m INFO[0m [2moif_aggregator[0m[2m:[0m Configuration loaded successfully
+[2m2025-08-22T10:01:07.969930Z[0m [32m INFO[0m [2moif_aggregator[0m[2m:[0m 🔧 Configuring OIF Aggregator server
+[2m2025-08-22T10:01:07.969962Z[0m [32m INFO[0m [2moif_aggregator[0m[2m:[0m Enabled solvers: 1
+[2m2025-08-22T10:01:07.969979Z[0m [32m INFO[0m [2moif_aggregator[0m[2m:[0m   - example-solver: http://127.0.0.1:3000/api (1500ms timeout)
+[2m2025-08-22T10:01:07.970728Z[0m [32m INFO[0m [2moif_aggregator[0m[2m:[0m Successfully initialized with 1 solver(s)
+Error: "Failed to resolve integrity secret: Environment variable 'INTEGRITY_SECRET' not found. Please set the INTEGRITY_SECRET environment variable with a secure random string (minimum 32 characters)."

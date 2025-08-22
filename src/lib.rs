@@ -225,7 +225,6 @@ where
 			solver_config.solver_id.clone(),
 			solver_config.adapter_id.clone(),
 			solver_config.endpoint.clone(),
-			solver_config.timeout_ms,
 		);
 
 		// Populate metadata
@@ -233,7 +232,6 @@ where
 			.name
 			.clone()
 			.or_else(|| Some(solver_config.solver_id.clone()));
-		solver.metadata.max_retries = solver_config.max_retries;
 		solver.metadata.headers = solver_config.headers.clone();
 		if let Some(desc) = &solver_config.description {
 			solver.metadata.description = Some(desc.clone());
@@ -373,12 +371,10 @@ where
 				solver_config.solver_id.clone(),
 				solver_config.adapter_id.clone(),
 				solver_config.endpoint.clone(),
-				solver_config.timeout_ms,
 			);
 
 			// Update metadata with configuration details
 			solver.metadata.name = Some(solver_config.solver_id.clone());
-			solver.metadata.max_retries = solver_config.max_retries;
 			solver.metadata.headers = solver_config.headers.clone();
 			solver.status = SolverStatus::Active;
 
@@ -608,10 +604,7 @@ where
 		let enabled_solvers = settings.enabled_solvers();
 		info!("Enabled solvers: {}", enabled_solvers.len());
 		for (id, solver) in &enabled_solvers {
-			info!(
-				"  - {}: {} ({}ms timeout)",
-				id, solver.endpoint, solver.timeout_ms
-			);
+			info!("  - {}: {}", id, solver.endpoint);
 		}
 
 		// Parse bind address

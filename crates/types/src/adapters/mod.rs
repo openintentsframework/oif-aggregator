@@ -31,20 +31,16 @@ pub struct SolverRuntimeConfig {
 	/// HTTP endpoint for the solver API
 	pub endpoint: String,
 
-	/// Timeout for requests in milliseconds
-	pub timeout_ms: u64,
-
 	/// Optional custom HTTP headers for requests
 	pub headers: Option<HashMap<String, String>>,
 }
 
 impl SolverRuntimeConfig {
 	/// Create a new runtime config
-	pub fn new(solver_id: String, endpoint: String, timeout_ms: u64) -> Self {
+	pub fn new(solver_id: String, endpoint: String) -> Self {
 		Self {
 			solver_id,
 			endpoint,
-			timeout_ms,
 			headers: None,
 		}
 	}
@@ -61,7 +57,6 @@ impl From<&crate::solvers::Solver> for SolverRuntimeConfig {
 		Self {
 			solver_id: solver.solver_id.clone(),
 			endpoint: solver.endpoint.clone(),
-			timeout_ms: solver.timeout_ms,
 			headers: solver.headers.clone(),
 		}
 	}

@@ -70,8 +70,6 @@ impl MockConfigs {
 			name: Some("Test Solver".to_string()),
 			description: Some("Test solver for unit testing".to_string()),
 			endpoint: "http://localhost:8080".to_string(),
-			timeout_ms: 1000,
-			max_retries: 3,
 			headers: Some(HashMap::new()),
 			supported_assets: Some(vec![AssetConfig {
 				address: "0x0000000000000000000000000000000000000000".to_string(),
@@ -106,8 +104,6 @@ impl SolverConfigBuilder {
 				name: Some("Test Solver".to_string()),
 				description: Some("Test solver".to_string()),
 				endpoint: "http://localhost:8080".to_string(),
-				timeout_ms: 1000,
-				max_retries: 3,
 				headers: Some(HashMap::new()),
 				supported_assets: Some(vec![AssetConfig {
 					address: "0x0000000000000000000000000000000000000000".to_string(),
@@ -143,11 +139,6 @@ impl SolverConfigBuilder {
 
 	pub fn endpoint(mut self, endpoint: &str) -> Self {
 		self.config.endpoint = endpoint.to_string();
-		self
-	}
-
-	pub fn timeout_ms(mut self, timeout_ms: u64) -> Self {
-		self.config.timeout_ms = timeout_ms;
 		self
 	}
 

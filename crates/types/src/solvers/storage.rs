@@ -20,7 +20,6 @@ pub struct SolverStorage {
 	pub solver_id: String,
 	pub adapter_id: String,
 	pub endpoint: String,
-	pub timeout_ms: u64,
 	pub status: SolverStatus,
 	pub metadata: SolverMetadataStorage,
 	pub metrics: SolverMetricsStorage,
@@ -41,7 +40,6 @@ pub struct SolverMetadataStorage {
 	pub version: Option<String>,
 	pub supported_assets: Vec<Asset>,
 	pub assets_source: AssetSource,
-	pub max_retries: u32,
 	pub headers: Option<HashMap<String, String>>,
 	pub config: HashMap<String, serde_json::Value>,
 }
@@ -86,7 +84,6 @@ impl From<Solver> for SolverStorage {
 			solver_id: solver.solver_id,
 			adapter_id: solver.adapter_id,
 			endpoint: solver.endpoint,
-			timeout_ms: solver.timeout_ms,
 			status: solver.status,
 			metadata: SolverMetadataStorage::from(solver.metadata),
 			created_at: solver.created_at,
@@ -107,7 +104,6 @@ impl TryFrom<SolverStorage> for Solver {
 			solver_id: storage.solver_id,
 			adapter_id: storage.adapter_id,
 			endpoint: storage.endpoint,
-			timeout_ms: storage.timeout_ms,
 			status: storage.status,
 			metadata: storage.metadata.into(),
 			created_at: storage.created_at,
@@ -171,7 +167,6 @@ impl From<SolverMetadata> for SolverMetadataStorage {
 			version: metadata.version,
 			supported_assets: metadata.supported_assets,
 			assets_source: metadata.assets_source,
-			max_retries: metadata.max_retries,
 			headers: metadata.headers,
 			config: metadata.config,
 		}
@@ -186,7 +181,6 @@ impl From<SolverMetadataStorage> for SolverMetadata {
 			version: storage.version,
 			supported_assets: storage.supported_assets,
 			assets_source: storage.assets_source,
-			max_retries: storage.max_retries,
 			headers: storage.headers,
 			config: storage.config,
 		}
@@ -292,7 +286,6 @@ mod tests {
 			"test-solver".to_string(),
 			"oif-v1".to_string(),
 			"https://api.example.com".to_string(),
-			2000,
 		)
 		.with_name("Test Solver".to_string())
 	}

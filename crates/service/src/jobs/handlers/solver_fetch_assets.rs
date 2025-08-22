@@ -59,7 +59,6 @@ mod tests {
 			solver_id: "test-solver".to_string(),
 			adapter_id: "test-adapter".to_string(),
 			endpoint: "https://test-solver.example.com".to_string(),
-			timeout_ms: 5000,
 			status: SolverStatus::Inactive,
 			metadata: SolverMetadata {
 				name: Some("Test Solver".to_string()),
@@ -67,7 +66,6 @@ mod tests {
 				version: None,
 				supported_assets: vec![],
 				assets_source: AssetSource::AutoDiscovered, // Test solver for auto-discovery
-				max_retries: 3,
 				headers: None,
 				config: HashMap::new(),
 			},

@@ -1240,7 +1240,6 @@ mod tests {
 					"fast-solver".to_string(),
 					"mock-fast-adapter".to_string(),
 					"http://localhost:8001".to_string(),
-					1000,
 				);
 				solver.metadata.supported_assets = vec![oif_types::models::Asset::new(
 					"0x0000000000000000000000000000000000000000".to_string(),
@@ -1257,7 +1256,6 @@ mod tests {
 					"slow-solver".to_string(),
 					"mock-slow-adapter".to_string(),
 					"http://localhost:8002".to_string(),
-					1000,
 				);
 				solver.metadata.supported_assets = vec![oif_types::models::Asset::new(
 					"0x0000000000000000000000000000000000000000".to_string(),
@@ -1274,7 +1272,6 @@ mod tests {
 					"fast-solver2".to_string(),
 					"mock-demo-v1".to_string(),
 					"http://localhost:8003".to_string(),
-					1000,
 				);
 				solver.metadata.supported_assets = vec![oif_types::models::Asset::new(
 					"0x0000000000000000000000000000000000000000".to_string(),
@@ -1317,7 +1314,6 @@ mod tests {
 				format!("demo-solver{}", i),
 				"mock-demo-v1".to_string(), // Use actual mock adapter ID
 				format!("http://localhost:800{}", i),
-				5000,
 			);
 
 			// Add network and asset support to prevent filtering issues
@@ -1357,19 +1353,16 @@ mod tests {
 				"success-solver1".to_string(),
 				"mock-demo-v1".to_string(), // Will succeed with quotes
 				"http://localhost:8001".to_string(),
-				2000,
 			),
 			Solver::new(
 				"success-solver2".to_string(),
 				"mock-test-success".to_string(), // Will succeed with empty quotes
 				"http://localhost:8002".to_string(),
-				2000,
 			),
 			Solver::new(
 				"fail-solver1".to_string(),
 				"mock-test-fail".to_string(), // Will fail
 				"http://localhost:8003".to_string(),
-				2000,
 			),
 		];
 
@@ -1390,7 +1383,6 @@ mod tests {
 				format!("solver{}", i),
 				format!("nonexistent-adapter{}", i), // These adapters don't exist
 				format!("http://localhost:800{}", i),
-				5000,
 			));
 		}
 

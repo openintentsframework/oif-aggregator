@@ -145,24 +145,17 @@ impl MockEntities {
 			"test-solver".to_string(),
 			"test-adapter".to_string(),
 			"http://localhost:8080".to_string(),
-			1000,
 		);
 		solver.status = SolverStatus::Active;
 		solver
 	}
 
 	/// Create solver with custom parameters
-	pub fn solver_with_params(
-		solver_id: &str,
-		adapter_id: &str,
-		endpoint: &str,
-		timeout_ms: u64,
-	) -> Solver {
+	pub fn solver_with_params(solver_id: &str, adapter_id: &str, endpoint: &str) -> Solver {
 		let mut solver = Solver::new(
 			solver_id.to_string(),
 			adapter_id.to_string(),
 			endpoint.to_string(),
-			timeout_ms,
 		);
 		solver.status = SolverStatus::Active;
 		solver
@@ -183,7 +176,6 @@ impl MockEntities {
 					&format!("test-solver-{}", i),
 					&format!("test-adapter-{}", i),
 					&format!("http://localhost:808{}", i),
-					1000 + (i as u64) * 100,
 				)
 			})
 			.collect()

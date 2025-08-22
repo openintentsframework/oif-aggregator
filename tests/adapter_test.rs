@@ -196,6 +196,5 @@ fn test_solver_config_creation() {
 	assert_eq!(config.solver_id, "test-solver");
 	assert_eq!(config.adapter_id, "test-adapter");
 	assert_eq!(config.endpoint, "http://localhost:8080");
-	assert_eq!(config.timeout_ms, 1000);
 	assert!(config.enabled);
 }

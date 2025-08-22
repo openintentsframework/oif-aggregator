@@ -6,7 +6,6 @@ use std::collections::HashMap;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
-use crate::constants::{MAX_SOLVER_RETRIES, MAX_SOLVER_TIMEOUT_MS, MIN_SOLVER_TIMEOUT_MS};
 use crate::models::Asset;
 use url::Url;
 
@@ -71,9 +70,6 @@ pub struct Solver {
 	/// HTTP endpoint for the solver API
 	pub endpoint: String,
 
-	/// Timeout for requests to this solver in milliseconds
-	pub timeout_ms: u64,
-
 	/// Current operational status
 	pub status: SolverStatus,
 
@@ -137,9 +133,6 @@ pub struct SolverMetadata {
 	/// Source of the supported assets (config vs auto-discovered)
 	pub assets_source: AssetSource,
 
-	/// Maximum retry attempts for failed requests
-	pub max_retries: u32,
-
 	/// Custom HTTP headers for requests
 	pub headers: Option<HashMap<String, String>>,
 
@@ -180,14 +173,13 @@ pub struct SolverMetrics {
 
 impl Solver {
 	/// Create a new solver
-	pub fn new(solver_id: String, adapter_id: String, endpoint: String, timeout_ms: u64) -> Self {
+	pub fn new(solver_id: String, adapter_id: String, endpoint: String) -> Self {
 		let now = Utc::now();
 
 		Self {
 			solver_id,
 			adapter_id,
 			endpoint,
-			timeout_ms,
 			status: SolverStatus::Initializing,
 			metadata: SolverMetadata::default(),
 			created_at: now,
@@ -208,21 +200,6 @@ impl Solver {
 			health_check.is_healthy && health_check.consecutive_failures < 3
 		} else {
 			false // No health check data means unhealthy
-		}
-	}
-
-	/// Get the effective timeout (considering health and status)
-	pub fn effective_timeout_ms(&self) -> u64 {
-		match self.status {
-			SolverStatus::Active => {
-				if self.metrics.consecutive_failures > 0 {
-					// Reduce timeout for unhealthy solvers
-					(self.timeout_ms as f64 * 0.8) as u64
-				} else {
-					self.timeout_ms
-				}
-			},
-			_ => 0, // No requests for inactive solvers
 		}
 	}
 
@@ -291,23 +268,6 @@ impl Solver {
 					reason: e.to_string(),
 				});
 			},
-		}
-
-		// Validate timeout
-		if self.timeout_ms < MIN_SOLVER_TIMEOUT_MS || self.timeout_ms > MAX_SOLVER_TIMEOUT_MS {
-			return Err(SolverValidationError::InvalidTimeout {
-				timeout_ms: self.timeout_ms,
-				min: MIN_SOLVER_TIMEOUT_MS,
-				max: MAX_SOLVER_TIMEOUT_MS,
-			});
-		}
-
-		// Validate retry count
-		if self.metadata.max_retries > MAX_SOLVER_RETRIES {
-			return Err(SolverValidationError::InvalidRetryCount {
-				retries: self.metadata.max_retries,
-				max: MAX_SOLVER_RETRIES,
-			});
 		}
 
 		Ok(())
@@ -432,11 +392,6 @@ impl Solver {
 		self
 	}
 
-	pub fn with_max_retries(mut self, retries: u32) -> Self {
-		self.metadata.max_retries = retries;
-		self
-	}
-
 	pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
 		self.metadata.headers = Some(headers);
 		self
@@ -456,7 +411,6 @@ impl Default for SolverMetadata {
 			version: None,
 			supported_assets: Vec::new(),
 			assets_source: AssetSource::Config, // Default to config-based until determined
-			max_retries: 1,
 			headers: None,
 			config: HashMap::new(),
 		}
@@ -532,7 +486,6 @@ mod tests {
 			"test-solver".to_string(),
 			"oif-v1".to_string(),
 			"https://api.example.com".to_string(),
-			2000,
 		)
 	}
 
@@ -543,7 +496,6 @@ mod tests {
 		assert_eq!(solver.solver_id, "test-solver");
 		assert_eq!(solver.adapter_id, "oif-v1");
 		assert_eq!(solver.endpoint, "https://api.example.com");
-		assert_eq!(solver.timeout_ms, 2000);
 		assert_eq!(solver.status, SolverStatus::Initializing);
 		assert!(!solver.is_available());
 	}
@@ -634,13 +586,11 @@ mod tests {
 				"Ethereum".to_string(),
 				18,
 				1,
-			)])
-			.with_max_retries(5);
+			)]);
 
 		assert_eq!(solver.metadata.name, Some("Test Solver".to_string()));
 		assert_eq!(solver.metadata.version, Some("1.0.0".to_string()));
 		assert!(solver.supports_chain(1));
-		assert_eq!(solver.metadata.max_retries, 5);
 	}
 
 	#[test]

@@ -14,8 +14,6 @@ use tracing::{debug, warn};
 pub struct ClientConfig {
 	/// Base endpoint for the solver
 	pub base_url: String,
-	/// Request timeout in milliseconds
-	pub timeout_ms: u64,
 	/// Maximum number of idle connections per host
 	pub max_idle_per_host: usize,
 	/// Connection keep-alive timeout
@@ -28,7 +26,6 @@ impl From<&SolverRuntimeConfig> for ClientConfig {
 	fn from(solver_config: &SolverRuntimeConfig) -> Self {
 		Self {
 			base_url: solver_config.endpoint.clone(),
-			timeout_ms: solver_config.timeout_ms,
 			max_idle_per_host: 10,         // Default: 10 idle connections per host
 			keep_alive_timeout_ms: 90_000, // Default: 90 seconds keep-alive
 			headers: vec![
@@ -254,14 +251,12 @@ mod tests {
 		let solver_config = SolverRuntimeConfig {
 			solver_id: "test-solver".to_string(),
 			endpoint: "https://api.example.com".to_string(),
-			timeout_ms: 5000,
 			headers: None,
 		};
 
 		let client_config = ClientConfig::from(&solver_config);
 
 		assert_eq!(client_config.base_url, "https://api.example.com");
-		assert_eq!(client_config.timeout_ms, 5000);
 		assert_eq!(client_config.max_idle_per_host, 10);
 		assert_eq!(client_config.keep_alive_timeout_ms, 90_000);
 	}
@@ -272,7 +267,6 @@ mod tests {
 
 		let config = ClientConfig {
 			base_url: "https://test.com".to_string(),
-			timeout_ms: 1000,
 			max_idle_per_host: 5,
 			keep_alive_timeout_ms: 60_000,
 			headers: vec![],
@@ -293,7 +287,6 @@ mod tests {
 
 		let config = ClientConfig {
 			base_url: "https://test-ttl.com".to_string(),
-			timeout_ms: 1000,
 			max_idle_per_host: 5,
 			keep_alive_timeout_ms: 60_000,
 			headers: vec![],
@@ -319,7 +312,6 @@ mod tests {
 		let cache = Arc::new(ClientCache::with_ttl(Duration::from_millis(100)));
 		let config = ClientConfig {
 			base_url: "https://concurrent-test.com".to_string(),
-			timeout_ms: 1000,
 			max_idle_per_host: 5,
 			keep_alive_timeout_ms: 60_000,
 			headers: vec![],
@@ -377,7 +369,6 @@ mod tests {
 		// Both caches should share the same underlying DashMap
 		let config = ClientConfig {
 			base_url: "https://clone-test.com".to_string(),
-			timeout_ms: 1000,
 			max_idle_per_host: 5,
 			keep_alive_timeout_ms: 60_000,
 			headers: vec![],

@@ -365,7 +365,6 @@ mod tests {
 			solver_id: id.to_string(),
 			adapter_id: format!("{}_adapter", id),
 			endpoint: format!("https://{}.example.com", id),
-			timeout_ms: 2000,
 			status: SolverStatus::Active,
 			metadata: SolverMetadata {
 				name: Some(format!("Test Solver {}", id)),
@@ -373,7 +372,6 @@ mod tests {
 				version: Some("1.0.0".to_string()),
 				supported_assets,
 				assets_source: AssetSource::Config, // Test solvers with pre-defined assets
-				max_retries: 3,
 				headers: Some(HashMap::new()),
 				config: HashMap::new(),
 			},

@@ -366,7 +366,6 @@ pub fn mock_solver() -> Solver {
 		"mock-demo-solver".to_string(),
 		"mock-demo-v1".to_string(),
 		"http://localhost:8080".to_string(),
-		5000,
 	)
 }
 
