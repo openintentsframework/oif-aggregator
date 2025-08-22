@@ -9,7 +9,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;
-use oif_types::adapters::models::SubmitOrderRequest;
+use oif_types::adapters::models::{SubmitOrderRequest, SubmitOrderResponse};
 use oif_types::adapters::{GetOrderResponse, GetQuoteResponse};
 use oif_types::{Asset, GetQuoteRequest, Network, Solver, SolverAdapter, SolverRuntimeConfig};
 use thiserror::Error;
@@ -40,7 +40,7 @@ pub trait SolverAdapterTrait: Send + Sync {
 	async fn submit_order(
 		&self,
 		request: &SubmitOrderRequest,
-	) -> Result<GetOrderResponse, SolverAdapterError>;
+	) -> Result<SubmitOrderResponse, SolverAdapterError>;
 
 	/// Get order details from this solver
 	async fn get_order_details(
@@ -149,7 +149,7 @@ impl SolverAdapterTrait for SolverAdapterService {
 	async fn submit_order(
 		&self,
 		request: &SubmitOrderRequest,
-	) -> Result<GetOrderResponse, SolverAdapterError> {
+	) -> Result<SubmitOrderResponse, SolverAdapterError> {
 		let adapter = self.get_adapter();
 		adapter
 			.submit_order(request, &self.config)

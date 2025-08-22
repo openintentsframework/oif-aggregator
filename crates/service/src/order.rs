@@ -3,15 +3,18 @@
 //! Service for submitting and retrieving orders.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::integrity::IntegrityTrait;
 use crate::solver_adapter::{SolverAdapterError, SolverAdapterService, SolverAdapterTrait};
 use async_trait::async_trait;
 use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;
-use oif_types::adapters::models::SubmitOrderRequest;
+use oif_types::adapters::models::{GetOrderResponse, SubmitOrderRequest};
 use oif_types::{IntegrityPayload, Order, OrderRequest, Quote};
 use thiserror::Error;
+use tokio::time::sleep;
+use tracing::{debug, warn};
 
 /// Trait for order service operations
 #[cfg_attr(test, mockall::automock)]
@@ -67,6 +70,79 @@ impl OrderService {
 			integrity_service,
 		}
 	}
+
+	/// Retry getting order details with exponential backoff
+	/// Orders might not be immediately available after submission due to eventual consistency
+	async fn get_order_details_with_retry(
+		&self,
+		order_id: &str,
+		solver_adapter: &SolverAdapterService,
+	) -> Result<GetOrderResponse, SolverAdapterError> {
+		const MAX_RETRIES: u32 = 5;
+		const INITIAL_DELAY_MS: u64 = 100; // Start with 100ms
+		const MAX_DELAY_MS: u64 = 6000; // Cap at 6 seconds
+
+		let mut delay_ms = INITIAL_DELAY_MS;
+
+		for attempt in 1..=MAX_RETRIES {
+			debug!(
+				"Attempting to get order details for order {} (attempt {}/{})",
+				order_id, attempt, MAX_RETRIES
+			);
+
+			match solver_adapter.get_order_details(order_id).await {
+				Ok(order) => {
+					debug!(
+						"Successfully retrieved order {} on attempt {}",
+						order_id, attempt
+					);
+					return Ok(order);
+				},
+				Err(e) => {
+					if attempt == MAX_RETRIES {
+						warn!(
+							"Failed to get order {} after {} attempts: {}",
+							order_id, MAX_RETRIES, e
+						);
+						return Err(e);
+					}
+
+					// Check if this is a retryable error (not found, temporary failure)
+					let should_retry =
+						match &e {
+							SolverAdapterError::Adapter(reason) => {
+								// Retry on HTTP errors that might be temporary or not found errors
+								reason.contains("404")
+									|| reason.contains("not found")
+									|| reason.contains("Not Found")
+									|| reason.contains("503") || reason.contains("502")
+									|| reason.contains("500") || reason.contains("HttpError")
+									|| reason.contains("Invalid response")
+							},
+							SolverAdapterError::SolverNotFound(_) => false, // Don't retry solver not found
+							SolverAdapterError::AdapterNotFound(_) => false, // Don't retry adapter not found
+							SolverAdapterError::Storage(_) => false,        // Don't retry storage errors
+						};
+
+					if should_retry {
+						warn!(
+							"Order {} not available yet (attempt {}), retrying in {}ms: {}",
+							order_id, attempt, delay_ms, e
+						);
+						sleep(Duration::from_millis(delay_ms)).await;
+						// Exponential backoff with jitter
+						delay_ms = (delay_ms * 2).min(MAX_DELAY_MS);
+					} else {
+						// Non-retryable error, fail immediately
+						warn!("Non-retryable error getting order {}: {}", order_id, e);
+						return Err(e);
+					}
+				},
+			}
+		}
+
+		unreachable!("Loop should have returned or errored by now")
+	}
 }
 
 #[async_trait]
@@ -116,16 +192,29 @@ impl OrderServiceTrait for OrderService {
 
 		let order_response = solver_adapter.submit_order(&submit_order_request).await?;
 
-		let order: Order = Order::try_from((
-			order_response.order,
-			request.quote_response.solver_id.clone(),
-		))
-		.map_err(|e| {
-			OrderServiceError::Validation(format!(
-				"Failed to convert GetOrderResponse to Order: {}",
-				e
-			))
-		})?;
+		let order_id = order_response
+			.order_id
+			.ok_or(OrderServiceError::Validation(
+				"Order ID is required".to_string(),
+			))?;
+
+		// TODO: Remove fetching order details and retry logic once solver starts to return order details immediately
+		// Use retry logic since orders might not be immediately available
+		debug!(
+			"Retrieving order details for order {} with retry logic",
+			order_id
+		);
+		let order = self
+			.get_order_details_with_retry(&order_id, &solver_adapter)
+			.await?;
+
+		let order: Order = Order::try_from((order.order, request.quote_response.solver_id.clone()))
+			.map_err(|e| {
+				OrderServiceError::Validation(format!(
+					"Failed to convert GetOrderResponse to Order: {}",
+					e
+				))
+			})?;
 
 		// 5. Save the order to storage
 		self.storage

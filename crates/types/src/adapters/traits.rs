@@ -2,7 +2,10 @@
 
 use super::{AdapterResult, SolverRuntimeConfig};
 use crate::{
-	adapters::{models::SubmitOrderRequest, GetOrderResponse},
+	adapters::{
+		models::{SubmitOrderRequest, SubmitOrderResponse},
+		GetOrderResponse,
+	},
 	models::{Asset, Network},
 };
 use crate::{Adapter, GetQuoteRequest, GetQuoteResponse};
@@ -37,7 +40,7 @@ pub trait SolverAdapter: Send + Sync + Debug {
 		&self,
 		order: &SubmitOrderRequest,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetOrderResponse>;
+	) -> AdapterResult<SubmitOrderResponse>;
 
 	/// Health check for the solver using runtime configuration
 	async fn health_check(&self, config: &SolverRuntimeConfig) -> AdapterResult<bool>;

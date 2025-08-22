@@ -5,11 +5,12 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use oif_types::adapters::models::SubmitOrderRequest;
+use oif_types::adapters::models::{SubmitOrderRequest, SubmitOrderResponse};
 use oif_types::adapters::GetOrderResponse;
 use oif_types::{Adapter, Asset, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig};
 use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 use serde::{Deserialize, Serialize};
+use serde_json;
 use std::collections::HashMap;
 use tracing::{debug, warn};
 
@@ -174,13 +175,15 @@ impl SolverAdapter for OifAdapter {
 			});
 		}
 
+		// Get response body as text first so we can print it
+		let body = response.text().await.unwrap_or_default();
+		debug!("OIF quote endpoint response body: {}", body);
+
+		// Parse the response body manually since we already consumed it
 		let quote_response: GetQuoteResponse =
-			response
-				.json()
-				.await
-				.map_err(|e| AdapterError::InvalidResponse {
-					reason: format!("Failed to parse OIF quote response: {}", e),
-				})?;
+			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Failed to parse OIF quote response: {}", e),
+			})?;
 
 		Ok(quote_response)
 	}
@@ -189,13 +192,57 @@ impl SolverAdapter for OifAdapter {
 		&self,
 		order: &SubmitOrderRequest,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetOrderResponse> {
+	) -> AdapterResult<SubmitOrderResponse> {
 		debug!(
 			"Submitting order {} to OIF adapter {} via solver {}",
 			order.order, self.config.adapter_id, config.solver_id
 		);
 
-		unimplemented!()
+		let orders_url = format!("{}/orders", config.endpoint);
+		let client = self.get_client(config)?;
+
+		debug!(
+			"Submitting order to OIF adapter {} via solver {}",
+			self.config.adapter_id, config.solver_id
+		);
+
+		let response = client
+			.post(orders_url)
+			.json(&order)
+			.send()
+			.await
+			.map_err(AdapterError::HttpError)?;
+
+		if !response.status().is_success() {
+			return Err(AdapterError::InvalidResponse {
+				reason: format!(
+					"OIF order endpoint returned status {} with body {}",
+					response.status(),
+					response.text().await.unwrap_or_default()
+				),
+			});
+		}
+
+		// Get response body as text first so we can print it
+		let body = response.text().await.unwrap_or_default();
+		debug!("OIF order endpoint response body: {}", body);
+
+		// Parse the response body manually since we already consumed it
+		let order_response: SubmitOrderResponse =
+			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Failed to parse OIF order response: {}", e),
+			})?;
+
+		if order_response.status != "success" || order_response.order_id.is_none() {
+			return Err(AdapterError::InvalidResponse {
+				reason: format!(
+					"OIF order endpoint returned status {}",
+					order_response.status
+				),
+			});
+		}
+
+		Ok(order_response)
 	}
 
 	async fn health_check(&self, config: &SolverRuntimeConfig) -> AdapterResult<bool> {
@@ -216,7 +263,10 @@ impl SolverAdapter for OifAdapter {
 				let is_healthy = response.status().is_success();
 				if is_healthy {
 					// Optionally validate the response format for more thorough health check
-					match response.json::<OifTokensResponse>().await {
+					let body = response.text().await.unwrap_or_default();
+					debug!("OIF health check endpoint response body: {}", body);
+
+					match serde_json::from_str::<OifTokensResponse>(&body) {
 						Ok(_) => {
 							debug!("OIF adapter {} is healthy - /tokens endpoint responded with valid JSON", self.config.adapter_id);
 							Ok(true)
@@ -260,7 +310,32 @@ impl SolverAdapter for OifAdapter {
 			order_id, config.endpoint, config.solver_id
 		);
 
-		unimplemented!()
+		let order_url = format!("{}/orders/{}", config.endpoint, order_id);
+		let client = self.get_client(config)?;
+
+		let response = client
+			.get(order_url)
+			.send()
+			.await
+			.map_err(AdapterError::HttpError)?;
+
+		if !response.status().is_success() {
+			return Err(AdapterError::InvalidResponse {
+				reason: format!("OIF order endpoint returned status {}", response.status()),
+			});
+		}
+
+		// Get response body as text first so we can print it
+		let body = response.text().await.unwrap_or_default();
+		debug!("OIF get order endpoint response body: {}", body);
+
+		// Parse the response body manually since we already consumed it
+		let order_response: GetOrderResponse =
+			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Failed to parse OIF get order response: {}", e),
+			})?;
+
+		Ok(order_response)
 	}
 
 	async fn get_supported_networks(
@@ -288,14 +363,15 @@ impl SolverAdapter for OifAdapter {
 			});
 		}
 
+		// Get response body as text first so we can print it
+		let body = response.text().await.unwrap_or_default();
+		debug!("OIF networks endpoint response body: {}", body);
+
 		// Parse the OIF tokens response
 		let oif_response: OifTokensResponse =
-			response
-				.json()
-				.await
-				.map_err(|e| AdapterError::InvalidResponse {
-					reason: format!("Failed to parse OIF tokens response: {}", e),
-				})?;
+			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Failed to parse OIF tokens response: {}", e),
+			})?;
 
 		// Extract networks from the response
 		let mut networks = Vec::new();
@@ -336,14 +412,15 @@ impl SolverAdapter for OifAdapter {
 			});
 		}
 
+		// Get response body as text first so we can print it
+		let body = response.text().await.unwrap_or_default();
+		debug!("OIF tokens endpoint response body: {}", body);
+
 		// Parse the OIF tokens response
 		let oif_response: OifTokensResponse =
-			response
-				.json()
-				.await
-				.map_err(|e| AdapterError::InvalidResponse {
-					reason: format!("Failed to parse OIF tokens response: {}", e),
-				})?;
+			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Failed to parse OIF tokens response: {}", e),
+			})?;
 
 		// Convert OIF tokens to Assets
 		let mut assets = Vec::new();

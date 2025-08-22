@@ -114,7 +114,7 @@ impl ApiFixtures {
 			InteropAddress::from_chain_and_address(1, TestConstants::TEST_USER_ADDRESS).unwrap();
 
 		json!({
-			"userAddress": user_addr.to_hex(),
+			"sponsor": user_addr.to_hex(),
 			"quoteResponse": {
 				"quoteId": "test-quote-123",
 				"solverId": "mock-demo-solver",
@@ -128,7 +128,8 @@ impl ApiFixtures {
 				"provider": "Test Provider",
 				"integrityChecksum": "test-checksum"
 			},
-			"signature": null
+			"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
+			"order": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 		})
 	}
 
@@ -266,8 +267,10 @@ impl ApiFixtures {
 
 		// Create OrderRequest
 		json!({
-			"userAddress": user_addr.to_hex(),
-			"quoteResponse": quote_response
+			"sponsor": user_addr.to_hex(),
+			"quoteResponse": quote_response,
+			"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
+			"order": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 		})
 	}
 
@@ -278,8 +281,10 @@ impl ApiFixtures {
 				.unwrap();
 
 		json!({
-			"userAddress": user_addr.to_hex()
-			// Missing both quoteResponse and quoteId
+			"sponsor": user_addr.to_hex(),
+			"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
+			"order": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
+			// Missing quoteResponse
 		})
 	}
 
@@ -289,7 +294,9 @@ impl ApiFixtures {
 				.unwrap();
 
 		json!({
-			"userAddress": user_addr.to_hex(),
+			"sponsor": user_addr.to_hex(),
+			"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
+			"order": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
 			"quoteId": "non-existent-quote-id"
 		})
 	}

@@ -26,6 +26,7 @@ pub use solvers_fetch_assets::SolversFetchAssetsHandler;
 pub use solvers_health_check::SolversHealthCheckHandler;
 
 /// Handler for background jobs (solver management, system maintenance, etc.)
+#[allow(dead_code)]
 pub struct BackgroundJobHandler {
 	health_check_handler: SolverHealthCheckHandler,
 	fetch_assets_handler: SolverFetchAssetsHandler,

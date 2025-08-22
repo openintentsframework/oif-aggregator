@@ -1080,7 +1080,7 @@ mod tests {
 			&self,
 			_request: &oif_types::adapters::models::SubmitOrderRequest,
 			_config: &oif_types::SolverRuntimeConfig,
-		) -> oif_types::AdapterResult<oif_types::adapters::GetOrderResponse> {
+		) -> oif_types::AdapterResult<oif_types::adapters::models::SubmitOrderResponse> {
 			// Simulate delay if configured
 			if let Some(delay_ms) = self.delay_ms {
 				tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
@@ -1102,33 +1102,10 @@ mod tests {
 				self.id,
 				oif_types::chrono::Utc::now().timestamp()
 			);
-			Ok(oif_types::adapters::GetOrderResponse {
-				order: OrderResponse {
-					id: order_id,
-					quote_id: None,
-					status: OrderStatus::Finalized,
-					created_at: oif_types::chrono::Utc::now().timestamp() as u64,
-					updated_at: oif_types::chrono::Utc::now().timestamp() as u64,
-					input_amount: AssetAmount {
-						asset: oif_types::InteropAddress::from_hex(
-							"0x0000000000000000000000000000000000000000",
-						)
-						.unwrap(),
-						amount: oif_types::U256::new("1000000000000000000".to_string()),
-					},
-					output_amount: AssetAmount {
-						asset: oif_types::InteropAddress::from_hex(
-							"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
-						)
-						.unwrap(),
-						amount: oif_types::U256::new("1000000".to_string()),
-					},
-					settlement: Settlement {
-						settlement_type: SettlementType::Escrow,
-						data: json!({}),
-					},
-					fill_transaction: None,
-				},
+			Ok(oif_types::adapters::models::SubmitOrderResponse {
+				status: "success".to_string(),
+				order_id: Some(order_id.clone()),
+				message: Some("Order submitted successfully".to_string()),
 			})
 		}
 
@@ -1161,17 +1138,11 @@ mod tests {
 					created_at: oif_types::chrono::Utc::now().timestamp() as u64,
 					updated_at: oif_types::chrono::Utc::now().timestamp() as u64,
 					input_amount: AssetAmount {
-						asset: oif_types::InteropAddress::from_hex(
-							"0x0000000000000000000000000000000000000000",
-						)
-						.unwrap(),
+						asset: "0x0000000000000000000000000000000000000000".to_string(),
 						amount: oif_types::U256::new("1000000000000000000".to_string()),
 					},
 					output_amount: AssetAmount {
-						asset: oif_types::InteropAddress::from_hex(
-							"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
-						)
-						.unwrap(),
+						asset: "0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0".to_string(),
 						amount: oif_types::U256::new("1000000".to_string()),
 					},
 					settlement: Settlement {

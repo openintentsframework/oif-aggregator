@@ -549,9 +549,7 @@ impl JobProcessor {
 	/// - `interval_minutes`: How often to run the job
 	/// - `job`: The job to execute
 	/// - `description`: Human-readable description
-	/// - `schedule_id`: Optional ID for this schedule. Used for both scheduling management AND deduplication.
-	///                  If provided, prevents both duplicate schedules and overlapping executions.
-	///                  Auto-generated if None.
+	/// - `schedule_id`: Optional ID for this schedule. Used for both scheduling management AND deduplication. If provided, prevents both duplicate schedules and overlapping executions. Auto-generated if None.
 	/// - `run_immediately`: If true, runs the job immediately before starting the recurring schedule
 	/// - `retry_policy`: Optional retry policy for this scheduled job
 	pub async fn schedule_job(

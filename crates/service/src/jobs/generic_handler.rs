@@ -30,6 +30,7 @@ pub struct BulkHealthCheckParams;
 pub struct BulkFetchAssetsParams;
 
 /// Universal job handler that can handle any job type via SolverService
+#[allow(dead_code)]
 pub struct UniversalJobHandler {
 	solver_service: Arc<dyn SolverServiceTrait>,
 }

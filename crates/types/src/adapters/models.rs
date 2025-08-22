@@ -154,6 +154,7 @@ pub enum SettlementType {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct Settlement {
 	/// Settlement mechanism type
+	#[serde(rename = "type")]
 	pub settlement_type: SettlementType,
 	/// Settlement-specific data
 	pub data: serde_json::Value,
@@ -197,7 +198,7 @@ pub enum OrderStatus {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AssetAmount {
 	/// Asset address in ERC-7930 interoperable format
-	pub asset: InteropAddress,
+	pub asset: String,
 	/// Amount as a big integer
 	pub amount: U256,
 }
@@ -240,15 +241,27 @@ pub struct GetOrderResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SubmitOrderResponse {
+	/// Status
+	pub status: String,
+	/// Order ID
+	pub order_id: Option<String>,
+	/// Message
+	pub message: Option<String>,
+}
+
+/// Response containing order details.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SubmitOrderRequest {
-	// TODO: This should be a domain object
 	pub order: String,
 
 	/// User's wallet address
-	pub user_address: String,
+	pub sponsor: String,
 
 	/// User's signature for authorization
-	pub signature: Option<String>,
+	pub signature: String,
 }
 
 // ================================
@@ -279,14 +292,9 @@ impl TryFrom<crate::orders::OrderRequest> for SubmitOrderRequest {
 	type Error = String;
 
 	fn try_from(req: crate::orders::OrderRequest) -> Result<Self, Self::Error> {
-		// For now, we serialize the quote response into a compact string payload.
-		// In the future, replace `order: String` with a proper domain struct.
-		let order_payload = serde_json::to_string(&req.quote_response)
-			.map_err(|e| format!("Failed to serialize QuoteResponse: {}", e))?;
-
 		Ok(Self {
-			order: order_payload,
-			user_address: req.user_address,
+			order: req.order,
+			sponsor: req.sponsor,
 			signature: req.signature,
 		})
 	}

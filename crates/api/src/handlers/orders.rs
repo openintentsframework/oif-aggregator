@@ -4,7 +4,7 @@ use axum::{
 	http::StatusCode,
 	response::Json,
 };
-use tracing::{debug, info};
+use tracing::debug;
 
 use crate::handlers::common::ErrorResponse;
 use crate::state::AppState;
@@ -28,10 +28,7 @@ pub async fn post_orders(
 	State(state): State<AppState>,
 	Json(request): Json<OrderRequest>,
 ) -> Result<Json<OrderResponse>, (StatusCode, Json<ErrorResponse>)> {
-	info!(
-		"Received order submission for user {}",
-		request.user_address
-	);
+	debug!("Received order submission for user {}", request.sponsor);
 
 	let order: oif_types::Order = match state.order_service.submit_order(&request).await {
 		Ok(order) => order,
@@ -103,7 +100,7 @@ pub async fn post_orders(
 		},
 	};
 
-	info!("Created order {}", order.order_id);
+	debug!("Created order {}", order.order_id);
 	Ok(Json(response))
 }
 
@@ -182,6 +179,6 @@ pub async fn get_order(
 		},
 	};
 
-	info!("Retrieved order {}", order.order_id);
+	debug!("Retrieved order {}", order.order_id);
 	Ok(Json(response))
 }

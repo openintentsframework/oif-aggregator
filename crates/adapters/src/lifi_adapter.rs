@@ -3,7 +3,10 @@
 //! This adapter uses an optimized client cache for connection pooling and keep-alive.
 
 use async_trait::async_trait;
-use oif_types::adapters::{models::SubmitOrderRequest, GetOrderResponse};
+use oif_types::adapters::{
+	models::{SubmitOrderRequest, SubmitOrderResponse},
+	GetOrderResponse,
+};
 use oif_types::{Adapter, Asset, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig};
 use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 use tracing::debug;
@@ -18,6 +21,7 @@ pub struct LifiAdapter {
 	cache: Option<ClientCache>,
 }
 
+#[allow(dead_code)]
 impl LifiAdapter {
 	/// Create a new LiFi adapter with optimized client caching (recommended)
 	///
@@ -142,7 +146,7 @@ impl SolverAdapter for LifiAdapter {
 		&self,
 		order: &SubmitOrderRequest,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetOrderResponse> {
+	) -> AdapterResult<SubmitOrderResponse> {
 		debug!(
 			"LiFi adapter submitting order: {:?} via solver: {}",
 			order, config.solver_id

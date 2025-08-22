@@ -243,25 +243,6 @@ pub fn global_client_cache() -> &'static ClientCache {
 	&GLOBAL_CLIENT_CACHE
 }
 
-/// Convenience method for adapters to get an optimized client cache
-///
-/// This is the recommended way for adapter implementations to get access
-/// to the shared client cache infrastructure for optimal performance.
-///
-/// # Example
-///
-/// ```rust,no_run
-/// use oif_adapters::ClientCache;
-///
-/// # struct MyCustomAdapter { cache: ClientCache }
-/// impl MyCustomAdapter {
-///     pub fn new() -> Self {
-///         Self {
-///             cache: ClientCache::for_adapter(),
-///         }
-///     }
-/// }
-/// ```
 pub fn adapter_client_cache() -> ClientCache {
 	global_client_cache().clone()
 }
