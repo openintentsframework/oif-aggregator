@@ -37,9 +37,6 @@
 //!     fn get_client(&self, solver_config: &SolverRuntimeConfig) -> AdapterResult<Arc<reqwest::Client>> {
 //!         let mut client_config = oif_adapters::ClientConfig::from(solver_config);
 //!         
-//!         // Add your custom headers
-//!         client_config.headers.push(("X-Custom-Header".to_string(), "MyValue".to_string()));
-//!         
 //!         self.cache.get_client(&client_config)
 //!     }
 //! }
