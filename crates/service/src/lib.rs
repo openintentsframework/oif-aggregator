@@ -4,6 +4,7 @@
 
 pub mod aggregator;
 pub mod integrity;
+pub mod jobs;
 pub mod order;
 pub mod solver_adapter;
 pub mod solver_filter;
@@ -35,3 +36,11 @@ pub use solver_filter::{
 #[cfg(test)]
 pub use solver_repository::MockSolverServiceTrait;
 pub use solver_repository::{SolverService, SolverServiceError, SolverServiceTrait, SolverStats};
+
+// Background job processing
+#[cfg(test)]
+pub use jobs::processor::JobHandler;
+pub use jobs::{
+	BackgroundJob, BackgroundJobHandler, JobError, JobInfo, JobInfoStats, JobProcessor,
+	JobProcessorConfig, JobResult, JobStatus, RetryPolicy, ScheduledJob,
+};

@@ -50,14 +50,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		"demo-solver-v2".to_string(),
 		"mock-demo-v1".to_string(),
 		"http://localhost:8080".to_string(),
-		3000,
 	);
 
 	let test_solver = Solver::new(
 		"test-solver-v1".to_string(),
 		"mock-test-v1".to_string(),
 		"http://localhost:8081".to_string(),
-		5000,
 	);
 
 	let (_app3, state3) = AggregatorBuilder::default()
@@ -96,7 +94,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		"server-demo-solver".to_string(),
 		"mock-demo-v1".to_string(),
 		"http://localhost:8080".to_string(),
-		3000,
 	);
 
 	let (_app4, _state4) = AggregatorBuilder::default()

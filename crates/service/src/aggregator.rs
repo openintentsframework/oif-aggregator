@@ -1080,7 +1080,7 @@ mod tests {
 			&self,
 			_request: &oif_types::adapters::models::SubmitOrderRequest,
 			_config: &oif_types::SolverRuntimeConfig,
-		) -> oif_types::AdapterResult<oif_types::adapters::GetOrderResponse> {
+		) -> oif_types::AdapterResult<oif_types::adapters::models::SubmitOrderResponse> {
 			// Simulate delay if configured
 			if let Some(delay_ms) = self.delay_ms {
 				tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
@@ -1102,33 +1102,10 @@ mod tests {
 				self.id,
 				oif_types::chrono::Utc::now().timestamp()
 			);
-			Ok(oif_types::adapters::GetOrderResponse {
-				order: OrderResponse {
-					id: order_id,
-					quote_id: None,
-					status: OrderStatus::Finalized,
-					created_at: oif_types::chrono::Utc::now().timestamp() as u64,
-					updated_at: oif_types::chrono::Utc::now().timestamp() as u64,
-					input_amount: AssetAmount {
-						asset: oif_types::InteropAddress::from_hex(
-							"0x0000000000000000000000000000000000000000",
-						)
-						.unwrap(),
-						amount: oif_types::U256::new("1000000000000000000".to_string()),
-					},
-					output_amount: AssetAmount {
-						asset: oif_types::InteropAddress::from_hex(
-							"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
-						)
-						.unwrap(),
-						amount: oif_types::U256::new("1000000".to_string()),
-					},
-					settlement: Settlement {
-						settlement_type: SettlementType::Escrow,
-						data: json!({}),
-					},
-					fill_transaction: None,
-				},
+			Ok(oif_types::adapters::models::SubmitOrderResponse {
+				status: "success".to_string(),
+				order_id: Some(order_id.clone()),
+				message: Some("Order submitted successfully".to_string()),
 			})
 		}
 
@@ -1161,17 +1138,11 @@ mod tests {
 					created_at: oif_types::chrono::Utc::now().timestamp() as u64,
 					updated_at: oif_types::chrono::Utc::now().timestamp() as u64,
 					input_amount: AssetAmount {
-						asset: oif_types::InteropAddress::from_hex(
-							"0x0000000000000000000000000000000000000000",
-						)
-						.unwrap(),
+						asset: "0x0000000000000000000000000000000000000000".to_string(),
 						amount: oif_types::U256::new("1000000000000000000".to_string()),
 					},
 					output_amount: AssetAmount {
-						asset: oif_types::InteropAddress::from_hex(
-							"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
-						)
-						.unwrap(),
+						asset: "0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0".to_string(),
 						amount: oif_types::U256::new("1000000".to_string()),
 					},
 					settlement: Settlement {
@@ -1192,6 +1163,7 @@ mod tests {
 
 		async fn get_supported_networks(
 			&self,
+			_config: &oif_types::SolverRuntimeConfig,
 		) -> oif_types::AdapterResult<Vec<oif_types::models::Network>> {
 			if self.should_fail {
 				return Err(oif_types::AdapterError::from(
@@ -1202,14 +1174,14 @@ mod tests {
 			}
 			Ok(vec![oif_types::models::Network::new(
 				1,
-				"Ethereum Mainnet".to_string(),
-				false,
+				Some("Ethereum Mainnet".to_string()),
+				Some(false),
 			)])
 		}
 
 		async fn get_supported_assets(
 			&self,
-			_network: &oif_types::models::Network,
+			_config: &oif_types::SolverRuntimeConfig,
 		) -> oif_types::AdapterResult<Vec<oif_types::models::Asset>> {
 			if self.should_fail {
 				return Err(oif_types::AdapterError::from(
@@ -1268,7 +1240,6 @@ mod tests {
 					"fast-solver".to_string(),
 					"mock-fast-adapter".to_string(),
 					"http://localhost:8001".to_string(),
-					1000,
 				);
 				solver.metadata.supported_assets = vec![oif_types::models::Asset::new(
 					"0x0000000000000000000000000000000000000000".to_string(),
@@ -1285,7 +1256,6 @@ mod tests {
 					"slow-solver".to_string(),
 					"mock-slow-adapter".to_string(),
 					"http://localhost:8002".to_string(),
-					1000,
 				);
 				solver.metadata.supported_assets = vec![oif_types::models::Asset::new(
 					"0x0000000000000000000000000000000000000000".to_string(),
@@ -1302,7 +1272,6 @@ mod tests {
 					"fast-solver2".to_string(),
 					"mock-demo-v1".to_string(),
 					"http://localhost:8003".to_string(),
-					1000,
 				);
 				solver.metadata.supported_assets = vec![oif_types::models::Asset::new(
 					"0x0000000000000000000000000000000000000000".to_string(),
@@ -1345,7 +1314,6 @@ mod tests {
 				format!("demo-solver{}", i),
 				"mock-demo-v1".to_string(), // Use actual mock adapter ID
 				format!("http://localhost:800{}", i),
-				5000,
 			);
 
 			// Add network and asset support to prevent filtering issues
@@ -1385,19 +1353,16 @@ mod tests {
 				"success-solver1".to_string(),
 				"mock-demo-v1".to_string(), // Will succeed with quotes
 				"http://localhost:8001".to_string(),
-				2000,
 			),
 			Solver::new(
 				"success-solver2".to_string(),
 				"mock-test-success".to_string(), // Will succeed with empty quotes
 				"http://localhost:8002".to_string(),
-				2000,
 			),
 			Solver::new(
 				"fail-solver1".to_string(),
 				"mock-test-fail".to_string(), // Will fail
 				"http://localhost:8003".to_string(),
-				2000,
 			),
 		];
 
@@ -1418,7 +1383,6 @@ mod tests {
 				format!("solver{}", i),
 				format!("nonexistent-adapter{}", i), // These adapters don't exist
 				format!("http://localhost:800{}", i),
-				5000,
 			));
 		}
 

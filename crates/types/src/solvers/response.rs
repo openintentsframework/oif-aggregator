@@ -85,7 +85,6 @@ mod tests {
 			"test-solver".to_string(),
 			"oif-v1".to_string(),
 			"https://api.example.com".to_string(),
-			2000,
 		)
 		.with_name("Test Solver".to_string())
 	}

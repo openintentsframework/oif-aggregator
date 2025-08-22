@@ -9,9 +9,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;
-use oif_types::adapters::models::SubmitOrderRequest;
+use oif_types::adapters::models::{SubmitOrderRequest, SubmitOrderResponse};
 use oif_types::adapters::{GetOrderResponse, GetQuoteResponse};
-use oif_types::{GetQuoteRequest, Solver, SolverAdapter, SolverRuntimeConfig};
+use oif_types::{Asset, GetQuoteRequest, Network, Solver, SolverAdapter, SolverRuntimeConfig};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -40,7 +40,7 @@ pub trait SolverAdapterTrait: Send + Sync {
 	async fn submit_order(
 		&self,
 		request: &SubmitOrderRequest,
-	) -> Result<GetOrderResponse, SolverAdapterError>;
+	) -> Result<SubmitOrderResponse, SolverAdapterError>;
 
 	/// Get order details from this solver
 	async fn get_order_details(
@@ -53,6 +53,12 @@ pub trait SolverAdapterTrait: Send + Sync {
 
 	/// Get the solver ID this service is connected to
 	fn solver_id(&self) -> &str;
+
+	/// Get the supported networks for this solver
+	async fn get_supported_networks(&self) -> Result<Vec<Network>, SolverAdapterError>;
+
+	/// Get the supported assets for this solver
+	async fn get_supported_assets(&self) -> Result<Vec<Asset>, SolverAdapterError>;
 }
 
 /// Service for interacting with a specific solver through its adapter
@@ -60,7 +66,7 @@ pub trait SolverAdapterTrait: Send + Sync {
 pub struct SolverAdapterService {
 	solver: Solver,
 	config: SolverRuntimeConfig,
-	adapter_registry: Arc<AdapterRegistry>,
+	solver_adapter: Arc<dyn SolverAdapter>,
 }
 
 impl SolverAdapterService {
@@ -78,7 +84,7 @@ impl SolverAdapterService {
 			.ok_or_else(|| SolverAdapterError::SolverNotFound(solver_id.to_string()))?;
 
 		// 2. Verify the adapter exists
-		let _adapter = adapter_registry.get(&solver.adapter_id).ok_or_else(|| {
+		let solver_adapter = adapter_registry.get(&solver.adapter_id).ok_or_else(|| {
 			SolverAdapterError::AdapterNotFound(format!(
 				"No adapter found for solver {} (adapter_id: {})",
 				solver.solver_id, solver.adapter_id
@@ -90,7 +96,7 @@ impl SolverAdapterService {
 		Ok(Self {
 			solver,
 			config,
-			adapter_registry,
+			solver_adapter,
 		})
 	}
 
@@ -100,7 +106,7 @@ impl SolverAdapterService {
 		adapter_registry: Arc<AdapterRegistry>,
 	) -> Result<Self, SolverAdapterError> {
 		// Verify the adapter exists
-		let _adapter = adapter_registry.get(&solver.adapter_id).ok_or_else(|| {
+		let solver_adapter = adapter_registry.get(&solver.adapter_id).ok_or_else(|| {
 			SolverAdapterError::AdapterNotFound(format!(
 				"No adapter found for solver {} (adapter_id: {})",
 				solver.solver_id, solver.adapter_id
@@ -111,20 +117,17 @@ impl SolverAdapterService {
 		Ok(Self {
 			solver,
 			config,
-			adapter_registry,
+			solver_adapter,
 		})
 	}
 
 	/// Get the adapter for this service's solver
-	fn get_adapter(&self) -> Result<&dyn SolverAdapter, SolverAdapterError> {
-		self.adapter_registry
-			.get(&self.solver.adapter_id)
-			.ok_or_else(|| {
-				SolverAdapterError::AdapterNotFound(format!(
-					"No adapter found for solver {} (adapter_id: {})",
-					self.solver.solver_id, self.solver.adapter_id
-				))
-			})
+	///
+	/// This method is guaranteed to succeed because the adapter existence
+	/// is verified during construction in both `new()` and `from_solver()`.
+	/// We can safely unwrap here to avoid redundant error handling.
+	fn get_adapter(&self) -> &dyn SolverAdapter {
+		self.solver_adapter.as_ref()
 	}
 }
 
@@ -135,7 +138,7 @@ impl SolverAdapterTrait for SolverAdapterService {
 		&self,
 		request: &GetQuoteRequest,
 	) -> Result<GetQuoteResponse, SolverAdapterError> {
-		let adapter = self.get_adapter()?;
+		let adapter = self.get_adapter();
 		adapter
 			.get_quotes(request, &self.config)
 			.await
@@ -146,8 +149,8 @@ impl SolverAdapterTrait for SolverAdapterService {
 	async fn submit_order(
 		&self,
 		request: &SubmitOrderRequest,
-	) -> Result<GetOrderResponse, SolverAdapterError> {
-		let adapter = self.get_adapter()?;
+	) -> Result<SubmitOrderResponse, SolverAdapterError> {
+		let adapter = self.get_adapter();
 		adapter
 			.submit_order(request, &self.config)
 			.await
@@ -159,7 +162,7 @@ impl SolverAdapterTrait for SolverAdapterService {
 		&self,
 		order_id: &str,
 	) -> Result<GetOrderResponse, SolverAdapterError> {
-		let adapter = self.get_adapter()?;
+		let adapter = self.get_adapter();
 		adapter
 			.get_order_details(order_id, &self.config)
 			.await
@@ -168,9 +171,27 @@ impl SolverAdapterTrait for SolverAdapterService {
 
 	/// Perform health check on this solver
 	async fn health_check(&self) -> Result<bool, SolverAdapterError> {
-		let adapter = self.get_adapter()?;
+		let adapter = self.get_adapter();
 		adapter
 			.health_check(&self.config)
+			.await
+			.map_err(|e| SolverAdapterError::Adapter(e.to_string()))
+	}
+
+	/// Get the supported networks for this solver
+	async fn get_supported_networks(&self) -> Result<Vec<Network>, SolverAdapterError> {
+		let adapter = self.get_adapter();
+		adapter
+			.get_supported_networks(&self.config)
+			.await
+			.map_err(|e| SolverAdapterError::Adapter(e.to_string()))
+	}
+
+	/// Get the supported assets for this solver
+	async fn get_supported_assets(&self) -> Result<Vec<Asset>, SolverAdapterError> {
+		let adapter = self.get_adapter();
+		adapter
+			.get_supported_assets(&self.config)
 			.await
 			.map_err(|e| SolverAdapterError::Adapter(e.to_string()))
 	}

@@ -28,7 +28,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		"default-storage-solver".to_string(),
 		"mock-demo-v1".to_string(),
 		"http://localhost:8080".to_string(),
-		3000,
 	);
 
 	let (_app1, state1) = AggregatorBuilder::default()
@@ -53,7 +52,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		"custom-storage-solver".to_string(),
 		"mock-demo-v1".to_string(),
 		"http://localhost:8081".to_string(),
-		4000,
 	);
 
 	let (_app2, state2) = AggregatorBuilder::with_storage(custom_storage)
@@ -79,7 +77,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		"pre-existing-solver".to_string(),
 		"mock-demo-v1".to_string(),
 		"http://localhost:8082".to_string(),
-		2000,
 	);
 	pre_populated_storage.create_solver(pre_solver).await?;
 
@@ -88,7 +85,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 		"additional-solver".to_string(),
 		"mock-demo-v1".to_string(),
 		"http://localhost:8083".to_string(),
-		3000,
 	);
 
 	let (_app3, state3) = AggregatorBuilder::with_storage(pre_populated_storage)

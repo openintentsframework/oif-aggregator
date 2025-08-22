@@ -1,28 +1,19 @@
 {
   "server": {
     "host": "127.0.0.1",
-    "port": 3000
+    "port": 4000
   },
   "solvers": {
     "example-solver": {
       "solver_id": "example-solver",
       "adapter_id": "oif-v1",
-      "endpoint": "https://api.example.com/v1",
+      "endpoint": "http://127.0.0.1:3000/api",
       "timeout_ms": 1500,
       "enabled": true,
       "max_retries": 1,
       "headers": null,
-      "name": "Example Solver",
-      "description": "Example Solver Description",
-      "supported_assets": [
-        {
-          "address": "0x0000000000000000000000000000000000000000",
-          "symbol": "ETH",
-          "name": "Ethereum",
-          "decimals": 18,
-          "chain_id": 1
-        }
-      ]
+      "name": "OIF Solver",
+      "description": "OIF Solver Description"
     }
   },
   "aggregation": {
@@ -40,7 +31,7 @@
     }
   },
   "logging": {
-    "level": "info",
+    "level": "debug",
     "format": "compact",
     "structured": false
   },

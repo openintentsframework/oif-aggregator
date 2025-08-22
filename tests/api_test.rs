@@ -249,8 +249,10 @@ async fn test_post_orders_with_quote_response() {
 
 	// Step 2: Create order request with the real quote
 	let order_request = json!({
-		"userAddress": user_addr,
-		"quoteResponse": first_quote
+		"sponsor": user_addr,
+		"quoteResponse": first_quote,
+		"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
+		"order": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	});
 
 	let response = app
@@ -346,6 +348,7 @@ async fn test_order_workflow() {
 	let create_body = axum::body::to_bytes(create_response.into_body(), usize::MAX)
 		.await
 		.unwrap();
+
 	let create_json: serde_json::Value = serde_json::from_slice(&create_body).unwrap();
 	let order_id = create_json["orderId"].as_str().unwrap();
 
@@ -416,8 +419,10 @@ async fn test_quote_and_order_workflow() {
 		.expect("No user in quote request");
 
 	let order_request = serde_json::json!({
-			"userAddress": user_addr,
-			"quoteResponse": first_quote
+			"sponsor": user_addr,
+			"quoteResponse": first_quote,
+			"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
+			"order": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	});
 
 	let order_response = app

@@ -81,25 +81,21 @@ impl TestServer {
 			"fast-solver".to_string(),
 			"timing-fast".to_string(),
 			"http://localhost:8080".to_string(),
-			3000,
 		);
 		let slow_solver = oif_types::Solver::new(
 			"slow-solver".to_string(),
 			"timing-slow".to_string(),
 			"http://localhost:8081".to_string(),
-			3000,
 		);
 		let timeout_solver = oif_types::Solver::new(
 			"timeout-solver".to_string(),
 			"timing-timeout".to_string(),
 			"http://localhost:8082".to_string(),
-			3000,
 		);
 		let failing_solver = oif_types::Solver::new(
 			"failing-solver".to_string(),
 			"timing-failing".to_string(),
 			"http://localhost:8083".to_string(),
-			3000,
 		);
 
 		// Keep references to adapters for call tracking

@@ -169,8 +169,10 @@ async fn test_orders_endpoint_with_mock_data() {
 
 	// Create order request using the real quote
 	let order_request = serde_json::json!({
-		"userAddress": user_addr,
-		"quoteResponse": first_quote
+		"sponsor": user_addr,
+		"quoteResponse": first_quote,
+		"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
+		"order": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	});
 
 	// Submit the order

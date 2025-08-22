@@ -1,6 +1,8 @@
 use std::sync::Arc;
 
-use oif_service::{AggregatorTrait, IntegrityTrait, OrderServiceTrait, SolverServiceTrait};
+use oif_service::{
+	AggregatorTrait, IntegrityTrait, JobProcessor, OrderServiceTrait, SolverServiceTrait,
+};
 use oif_storage::Storage;
 
 /// Application state shared across handlers
@@ -11,4 +13,6 @@ pub struct AppState {
 	pub solver_service: Arc<dyn SolverServiceTrait>,
 	pub integrity_service: Arc<dyn IntegrityTrait>,
 	pub storage: Arc<dyn Storage>,
+	/// Background job processor for maintenance tasks
+	pub job_processor: Arc<JobProcessor>,
 }

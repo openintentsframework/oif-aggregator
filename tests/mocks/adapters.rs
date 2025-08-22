@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use oif_types::adapters::models::SubmitOrderResponse;
 use oif_types::chrono::Utc;
 
 use oif_types::adapters::{
@@ -163,38 +164,13 @@ impl SolverAdapter for MockDemoAdapter {
 		&self,
 		_request: &SubmitOrderRequest,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetOrderResponse> {
+	) -> AdapterResult<SubmitOrderResponse> {
 		let order_id = format!("mock-order-{}", Utc::now().timestamp());
 
-		Ok(GetOrderResponse {
-			order: OrderResponse {
-				id: order_id.clone(),
-				quote_id: Some("mock-quote-123".to_string()),
-				status: OrderStatus::Created,
-				created_at: Utc::now().timestamp() as u64,
-				updated_at: Utc::now().timestamp() as u64,
-				input_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0x0000000000000000000000000000000000000000",
-					)
-					.unwrap(),
-					amount: U256::new("1000000000000000000".to_string()),
-				},
-				output_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
-					)
-					.unwrap(),
-					amount: U256::new("1000000".to_string()),
-				},
-				settlement: Settlement {
-					settlement_type: SettlementType::Escrow,
-					data: json!({"escrow_address": "0x1234567890123456789012345678901234567890"}),
-				},
-				fill_transaction: None,
-			},
+		Ok(SubmitOrderResponse {
+			status: "success".to_string(),
+			order_id: Some(order_id.clone()),
+			message: Some("Order submitted successfully".to_string()),
 		})
 	}
 
@@ -211,19 +187,11 @@ impl SolverAdapter for MockDemoAdapter {
 				created_at: Utc::now().timestamp() as u64 - 60,
 				updated_at: Utc::now().timestamp() as u64,
 				input_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0x0000000000000000000000000000000000000000",
-					)
-					.unwrap(),
+					asset: "0x0000000000000000000000000000000000000000".to_string(),
 					amount: U256::new("1000000000000000000".to_string()),
 				},
 				output_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
-					)
-					.unwrap(),
+					asset: "0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0".to_string(),
 					amount: U256::new("1000000".to_string()),
 				},
 				settlement: Settlement {
@@ -235,7 +203,10 @@ impl SolverAdapter for MockDemoAdapter {
 		})
 	}
 
-	async fn get_supported_assets(&self, _network: &Network) -> AdapterResult<Vec<Asset>> {
+	async fn get_supported_assets(
+		&self,
+		_config: &SolverRuntimeConfig,
+	) -> AdapterResult<Vec<Asset>> {
 		Ok(vec![
 			Asset::new(
 				"0x0000000000000000000000000000000000000000".to_string(),
@@ -258,10 +229,13 @@ impl SolverAdapter for MockDemoAdapter {
 		Ok(true)
 	}
 
-	async fn get_supported_networks(&self) -> AdapterResult<Vec<Network>> {
+	async fn get_supported_networks(
+		&self,
+		_config: &SolverRuntimeConfig,
+	) -> AdapterResult<Vec<Network>> {
 		Ok(vec![
-			Network::new(1, "Ethereum".to_string(), false),
-			Network::new(137, "Polygon".to_string(), false),
+			Network::new(1, Some("Ethereum".to_string()), Some(false)),
+			Network::new(137, Some("Polygon".to_string()), Some(false)),
 		])
 	}
 }
@@ -348,7 +322,7 @@ impl SolverAdapter for MockTestAdapter {
 		&self,
 		_request: &SubmitOrderRequest,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetOrderResponse> {
+	) -> AdapterResult<SubmitOrderResponse> {
 		if self.should_fail {
 			return Err(oif_types::AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {
@@ -358,35 +332,10 @@ impl SolverAdapter for MockTestAdapter {
 		}
 
 		let order_id = format!("test-order-{}", Utc::now().timestamp());
-		Ok(GetOrderResponse {
-			order: OrderResponse {
-				id: order_id,
-				quote_id: None,
-				status: OrderStatus::Created,
-				created_at: Utc::now().timestamp() as u64,
-				updated_at: Utc::now().timestamp() as u64,
-				input_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0x0000000000000000000000000000000000000000",
-					)
-					.unwrap(),
-					amount: U256::new("0".to_string()),
-				},
-				output_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0x0000000000000000000000000000000000000000",
-					)
-					.unwrap(),
-					amount: U256::new("0".to_string()),
-				},
-				settlement: Settlement {
-					settlement_type: SettlementType::Escrow,
-					data: json!({}),
-				},
-				fill_transaction: None,
-			},
+		Ok(SubmitOrderResponse {
+			status: "success".to_string(),
+			order_id: Some(order_id.clone()),
+			message: Some("Order submitted successfully".to_string()),
 		})
 	}
 
@@ -411,19 +360,11 @@ impl SolverAdapter for MockTestAdapter {
 				created_at: Utc::now().timestamp() as u64,
 				updated_at: Utc::now().timestamp() as u64,
 				input_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0x0000000000000000000000000000000000000000",
-					)
-					.unwrap(),
+					asset: "0x0000000000000000000000000000000000000000".to_string(),
 					amount: U256::new("0".to_string()),
 				},
 				output_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0x0000000000000000000000000000000000000000",
-					)
-					.unwrap(),
+					asset: "0x0000000000000000000000000000000000000000".to_string(),
 					amount: U256::new("0".to_string()),
 				},
 				settlement: Settlement {
@@ -435,7 +376,10 @@ impl SolverAdapter for MockTestAdapter {
 		})
 	}
 
-	async fn get_supported_assets(&self, _network: &Network) -> AdapterResult<Vec<Asset>> {
+	async fn get_supported_assets(
+		&self,
+		_config: &SolverRuntimeConfig,
+	) -> AdapterResult<Vec<Asset>> {
 		if self.should_fail {
 			return Err(oif_types::AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {
@@ -450,7 +394,10 @@ impl SolverAdapter for MockTestAdapter {
 		Ok(!self.should_fail)
 	}
 
-	async fn get_supported_networks(&self) -> AdapterResult<Vec<Network>> {
+	async fn get_supported_networks(
+		&self,
+		_config: &SolverRuntimeConfig,
+	) -> AdapterResult<Vec<Network>> {
 		if self.should_fail {
 			return Err(oif_types::AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {
@@ -658,7 +605,7 @@ impl SolverAdapter for TimingControlledAdapter {
 		&self,
 		_request: &SubmitOrderRequest,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetOrderResponse> {
+	) -> AdapterResult<SubmitOrderResponse> {
 		// Record call and simulate delay
 		self.tracker.record_call();
 		tokio::time::sleep(Duration::from_millis(self.response_delay_ms)).await;
@@ -672,35 +619,10 @@ impl SolverAdapter for TimingControlledAdapter {
 		}
 
 		let order_id = format!("{}-order-{}", self.id, Utc::now().timestamp());
-		Ok(GetOrderResponse {
-			order: OrderResponse {
-				id: order_id,
-				quote_id: None,
-				status: OrderStatus::Finalized, // Use Finalized to prevent refresh loops
-				created_at: Utc::now().timestamp() as u64,
-				updated_at: Utc::now().timestamp() as u64,
-				input_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0x0000000000000000000000000000000000000000",
-					)
-					.unwrap(),
-					amount: U256::new("1000000000000000000".to_string()),
-				},
-				output_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
-					)
-					.unwrap(),
-					amount: U256::new("1000000".to_string()),
-				},
-				settlement: Settlement {
-					settlement_type: SettlementType::Escrow,
-					data: oif_types::serde_json::json!({}),
-				},
-				fill_transaction: None,
-			},
+		Ok(SubmitOrderResponse {
+			status: "success".to_string(),
+			order_id: Some(order_id.clone()),
+			message: Some("Order submitted successfully".to_string()),
 		})
 	}
 
@@ -729,19 +651,11 @@ impl SolverAdapter for TimingControlledAdapter {
 				created_at: Utc::now().timestamp() as u64,
 				updated_at: Utc::now().timestamp() as u64,
 				input_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0x0000000000000000000000000000000000000000",
-					)
-					.unwrap(),
+					asset: "0x0000000000000000000000000000000000000000".to_string(),
 					amount: U256::new("1000000000000000000".to_string()),
 				},
 				output_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
-					)
-					.unwrap(),
+					asset: "0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0".to_string(),
 					amount: U256::new("1000000".to_string()),
 				},
 				settlement: Settlement {
@@ -765,17 +679,20 @@ impl SolverAdapter for TimingControlledAdapter {
 		Ok(true)
 	}
 
-	async fn get_supported_networks(&self) -> AdapterResult<Vec<oif_types::models::Network>> {
+	async fn get_supported_networks(
+		&self,
+		_config: &SolverRuntimeConfig,
+	) -> AdapterResult<Vec<oif_types::models::Network>> {
 		Ok(vec![oif_types::models::Network {
 			chain_id: 1,
-			name: "Ethereum Mainnet".to_string(),
-			is_testnet: false,
+			name: Some("Ethereum Mainnet".to_string()),
+			is_testnet: Some(false),
 		}])
 	}
 
 	async fn get_supported_assets(
 		&self,
-		_network: &oif_types::models::Network,
+		_config: &SolverRuntimeConfig,
 	) -> AdapterResult<Vec<oif_types::models::Asset>> {
 		Ok(vec![])
 	}
