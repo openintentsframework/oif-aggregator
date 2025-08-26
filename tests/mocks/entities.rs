@@ -121,6 +121,7 @@ impl MockEntities {
 				data: json!({}),
 			},
 			fill_transaction: None,
+			quote_details: None,
 		}
 	}
 

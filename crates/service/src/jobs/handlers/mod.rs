@@ -3,8 +3,9 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use crate::{AggregatorTrait, IntegrityTrait, SolverServiceTrait};
+use crate::{order::OrderServiceTrait, AggregatorTrait, IntegrityTrait, SolverServiceTrait};
 use oif_adapters::AdapterRegistry;
+use oif_config::Settings;
 use oif_storage::Storage;
 
 use super::generic_handler::{
@@ -13,13 +14,16 @@ use super::generic_handler::{
 };
 use super::processor::JobHandler;
 use super::types::{BackgroundJob, JobResult};
+use orders_cleanup::OrdersCleanupParams;
 
+pub mod orders_cleanup;
 pub mod solver_fetch_assets;
 pub mod solver_health_check;
 pub mod solvers_fetch_assets;
 pub mod solvers_health_check;
 
 // Re-export handler structs for convenience
+pub use orders_cleanup::OrdersCleanupHandler;
 pub use solver_fetch_assets::SolverFetchAssetsHandler;
 pub use solver_health_check::SolverHealthCheckHandler;
 pub use solvers_fetch_assets::SolversFetchAssetsHandler;
@@ -32,9 +36,11 @@ pub struct BackgroundJobHandler {
 	fetch_assets_handler: SolverFetchAssetsHandler,
 	solvers_health_check_handler: SolversHealthCheckHandler,
 	solvers_fetch_assets_handler: SolversFetchAssetsHandler,
+	orders_cleanup_handler: OrdersCleanupHandler,
 	solver_service: Arc<dyn SolverServiceTrait>,
 	aggregator_service: Arc<dyn AggregatorTrait>,
 	integrity_service: Arc<dyn IntegrityTrait>,
+	settings: Settings,
 }
 
 impl BackgroundJobHandler {
@@ -45,6 +51,8 @@ impl BackgroundJobHandler {
 		solver_service: Arc<dyn SolverServiceTrait>,
 		aggregator_service: Arc<dyn AggregatorTrait>,
 		integrity_service: Arc<dyn IntegrityTrait>,
+		order_service: Arc<dyn OrderServiceTrait>,
+		settings: Settings,
 	) -> Self {
 		Self {
 			health_check_handler: SolverHealthCheckHandler::new(Arc::clone(&solver_service)),
@@ -55,9 +63,11 @@ impl BackgroundJobHandler {
 			solvers_fetch_assets_handler: SolversFetchAssetsHandler::new(Arc::clone(
 				&solver_service,
 			)),
+			orders_cleanup_handler: OrdersCleanupHandler::new(Arc::clone(&order_service)),
 			solver_service,
 			aggregator_service,
 			integrity_service,
+			settings,
 		}
 	}
 }
@@ -81,6 +91,11 @@ impl JobHandler for BackgroundJobHandler {
 			BackgroundJob::AllSolversFetchAssets => {
 				let params = BulkFetchAssetsParams;
 				self.solvers_fetch_assets_handler.handle(params).await
+			},
+			BackgroundJob::OrdersCleanup => {
+				let retention_days = self.settings.get_order_retention_days();
+				let params = OrdersCleanupParams::new(retention_days);
+				self.orders_cleanup_handler.handle(params).await
 			},
 		}
 	}

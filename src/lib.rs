@@ -54,7 +54,7 @@ pub use oif_service::{
 
 // Storage layer
 pub use oif_storage::{
-	traits::{OrderStorage, QuoteStorage, SolverStorage, StorageError, StorageResult},
+	traits::{OrderStorage, SolverStorage, StorageError, StorageResult},
 	MemoryStore, Storage,
 };
 
@@ -520,12 +520,17 @@ where
 			Arc::clone(&adapter_registry),
 			Arc::clone(&integrity_service),
 			Arc::clone(&solver_filter_service),
-			settings.aggregation.into(),
+			settings.aggregation.clone().into(),
 		)) as Arc<dyn oif_service::AggregatorTrait>;
 		let solver_service = Arc::new(SolverService::new(
 			Arc::clone(&storage_arc),
 			Arc::clone(&adapter_registry),
 		)) as Arc<dyn SolverServiceTrait>;
+		let order_service = Arc::new(oif_service::order::OrderService::new(
+			Arc::clone(&storage_arc),
+			Arc::clone(&adapter_registry),
+			Arc::clone(&integrity_service),
+		)) as Arc<dyn oif_service::order::OrderServiceTrait>;
 
 		// Initialize background job processor with all services
 		let job_handler = Arc::new(BackgroundJobHandler::new(
@@ -534,6 +539,8 @@ where
 			Arc::clone(&solver_service),
 			Arc::clone(&aggregator_service),
 			Arc::clone(&integrity_service),
+			Arc::clone(&order_service),
+			settings.clone(),
 		));
 		let job_processor = JobProcessor::new(job_handler, self.job_processor_config.clone())
 			.map_err(|e| format!("Failed to initialize job processor: {}", e))?;
@@ -695,6 +702,23 @@ where
 			warn!("Failed to schedule asset fetch job: {}", e);
 		} else {
 			info!("Scheduled asset fetching to run immediately and then every 20 minutes for all solvers");
+		}
+
+		// Schedule orders cleanup once a day (24 * 60 = 1440 minutes)
+		if let Err(e) = job_processor
+			.schedule_job(
+				1440, // 24 hours (1440 minutes)
+				BackgroundJob::OrdersCleanup,
+				"Daily cleanup of old orders in final status".to_string(),
+				Some("orders-cleanup-daily".to_string()), // ID used for both scheduling and deduplication
+				true,                                     // Run immediately on startup
+				None, // No retry policy for now, but could be added if needed
+			)
+			.await
+		{
+			warn!("Failed to schedule orders cleanup job: {}", e);
+		} else {
+			info!("Scheduled daily orders cleanup to run every 24 hours");
 		}
 	}
 }

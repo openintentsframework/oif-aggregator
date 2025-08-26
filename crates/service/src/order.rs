@@ -5,6 +5,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::Utc;
+
 use crate::integrity::IntegrityTrait;
 use crate::solver_adapter::{SolverAdapterError, SolverAdapterService, SolverAdapterTrait};
 use async_trait::async_trait;
@@ -31,6 +33,9 @@ pub trait OrderServiceTrait: Send + Sync {
 		&self,
 		order_id: &str,
 	) -> Result<Option<Order>, OrderServiceError>;
+
+	/// Clean up old orders in final status (Finalized or Failed) older than the specified retention period
+	async fn cleanup_old_orders(&self, retention_days: u32) -> Result<usize, OrderServiceError>;
 }
 
 #[derive(Debug, Error)]
@@ -208,13 +213,12 @@ impl OrderServiceTrait for OrderService {
 			.get_order_details_with_retry(&order_id, &solver_adapter)
 			.await?;
 
-		let order: Order = Order::try_from((order.order, request.quote_response.solver_id.clone()))
-			.map_err(|e| {
-				OrderServiceError::Validation(format!(
-					"Failed to convert GetOrderResponse to Order: {}",
-					e
-				))
-			})?;
+		let order: Order = Order::try_from((order.order, quote_domain)).map_err(|e| {
+			OrderServiceError::Validation(format!(
+				"Failed to convert GetOrderResponse to Order: {}",
+				e
+			))
+		})?;
 
 		// 5. Save the order to storage
 		self.storage
@@ -291,7 +295,7 @@ impl OrderServiceTrait for OrderService {
 		// 5. Convert adapter response to domain order
 		let updated_order: Order = Order::try_from((
 			updated_order_response.order,
-			current_order.solver_id.clone(),
+			current_order.quote_details.clone().unwrap(),
 		))
 		.map_err(|e| {
 			OrderServiceError::Validation(format!(
@@ -322,6 +326,55 @@ impl OrderServiceTrait for OrderService {
 
 		Ok(Some(current_order))
 	}
+
+	/// Clean up old orders in final status (Finalized or Failed) older than the specified retention period
+	async fn cleanup_old_orders(&self, retention_days: u32) -> Result<usize, OrderServiceError> {
+		let cutoff_date = Utc::now() - chrono::Duration::days(retention_days as i64);
+		let mut deleted_count = 0usize;
+
+		// Get all orders with final status
+		let final_statuses = [
+			oif_types::OrderStatus::Finalized,
+			oif_types::OrderStatus::Failed,
+		];
+
+		for status in final_statuses {
+			let orders = self
+				.storage
+				.get_orders_by_status(status)
+				.await
+				.map_err(|e| OrderServiceError::Storage(e.to_string()))?;
+
+			// Filter by age and delete old orders
+			for order in orders {
+				if order.updated_at < cutoff_date {
+					let deleted = self
+						.storage
+						.delete_order(&order.order_id)
+						.await
+						.map_err(|e| OrderServiceError::Storage(e.to_string()))?;
+
+					if deleted {
+						deleted_count += 1;
+						tracing::info!(
+							"Deleted old order {} with status {:?}, last updated: {}",
+							order.order_id,
+							order.status,
+							order.updated_at
+						);
+					}
+				}
+			}
+		}
+
+		tracing::info!(
+			"Order cleanup completed: deleted {} orders older than {} days",
+			deleted_count,
+			retention_days
+		);
+
+		Ok(deleted_count)
+	}
 }
 
 impl OrderService {
@@ -347,11 +400,16 @@ mod tests {
 
 		mock.expect_refresh_order_status().returning(|_| Ok(None));
 
+		mock.expect_cleanup_old_orders().returning(|_| Ok(0));
+
 		// Test the mock methods work as expected
 		let retrieved_order = mock.get_order("test-order").await.unwrap();
 		assert!(retrieved_order.is_none());
 
 		let refreshed_order = mock.refresh_order_status("test-order").await.unwrap();
 		assert!(refreshed_order.is_none());
+
+		let cleanup_result = mock.cleanup_old_orders(10).await.unwrap();
+		assert_eq!(cleanup_result, 0);
 	}
 }

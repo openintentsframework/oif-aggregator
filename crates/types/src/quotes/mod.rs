@@ -1,6 +1,9 @@
 //! Core Quote domain model and business logic
 
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
+#[cfg(feature = "openapi")]
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 pub mod errors;
@@ -23,7 +26,8 @@ pub type QuoteValidationResult<T> = Result<T, QuoteValidationError>;
 ///
 /// This represents a quote in the domain layer with business logic.
 /// It should be converted from QuoteRequest and to QuoteStorage/QuoteResponse.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct Quote {
 	/// Unique identifier for the quote
 	pub quote_id: String,

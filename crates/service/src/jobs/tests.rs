@@ -5,8 +5,8 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 use crate::{
-	AggregatorService, AggregatorTrait, IntegrityService, IntegrityTrait, SolverFilterService,
-	SolverFilterTrait, SolverService, SolverServiceTrait,
+	AggregatorService, AggregatorTrait, IntegrityService, IntegrityTrait, OrderService,
+	OrderServiceTrait, SolverFilterService, SolverFilterTrait, SolverService, SolverServiceTrait,
 };
 use oif_adapters::AdapterRegistry;
 use oif_storage::{MemoryStore, Storage};
@@ -20,6 +20,7 @@ use super::types::{BackgroundJob, JobError};
 fn create_test_services(
 	storage: Arc<dyn Storage>,
 	adapter_registry: Arc<AdapterRegistry>,
+	_order_service: Arc<dyn OrderServiceTrait>,
 ) -> (
 	Arc<dyn SolverServiceTrait>,
 	Arc<dyn AggregatorTrait>,
@@ -49,18 +50,34 @@ fn create_test_services(
 
 #[tokio::test]
 async fn test_job_processor_basic_functionality() {
-	let storage = Arc::new(MemoryStore::new());
+	let storage = Arc::new(MemoryStore::new()) as Arc<dyn Storage>;
 	let adapter_registry = Arc::new(AdapterRegistry::with_defaults());
 
+	// Create integrity service first
+	let integrity_service = Arc::new(IntegrityService::new(
+		"test_secret_key_1234567890123456".to_string().into(),
+	)) as Arc<dyn IntegrityTrait>;
+
+	let order_service = Arc::new(OrderService::new(
+		Arc::clone(&storage),
+		Arc::clone(&adapter_registry),
+		Arc::clone(&integrity_service),
+	)) as Arc<dyn OrderServiceTrait>;
+
 	// Create job handler with all required services
-	let (solver_service, aggregator_service, integrity_service) =
-		create_test_services(storage.clone(), adapter_registry.clone());
+	let (solver_service, aggregator_service, _) = create_test_services(
+		storage.clone(),
+		adapter_registry.clone(),
+		order_service.clone(),
+	);
 	let handler = Arc::new(BackgroundJobHandler::new(
 		storage.clone(),
 		adapter_registry,
 		solver_service,
 		aggregator_service,
 		integrity_service,
+		order_service,
+		oif_config::Settings::default(),
 	));
 
 	// Create job processor with minimal config for testing
@@ -91,16 +108,33 @@ async fn test_job_processor_basic_functionality() {
 
 #[tokio::test]
 async fn test_job_processor_queue_capacity() {
-	let storage = Arc::new(MemoryStore::new());
+	let storage = Arc::new(MemoryStore::new()) as Arc<dyn Storage>;
 	let adapter_registry = Arc::new(AdapterRegistry::with_defaults());
-	let (solver_service, aggregator_service, integrity_service) =
-		create_test_services(storage.clone(), adapter_registry.clone());
+
+	// Create integrity service first
+	let integrity_service = Arc::new(IntegrityService::new(
+		"test_secret_key_1234567890123456".to_string().into(),
+	)) as Arc<dyn IntegrityTrait>;
+
+	let order_service = Arc::new(OrderService::new(
+		Arc::clone(&storage),
+		Arc::clone(&adapter_registry),
+		Arc::clone(&integrity_service),
+	)) as Arc<dyn OrderServiceTrait>;
+
+	let (solver_service, aggregator_service, _) = create_test_services(
+		storage.clone(),
+		adapter_registry.clone(),
+		order_service.clone(),
+	);
 	let handler = Arc::new(BackgroundJobHandler::new(
 		storage,
 		adapter_registry,
 		solver_service,
 		aggregator_service,
 		integrity_service,
+		order_service,
+		oif_config::Settings::default(),
 	));
 
 	// Create processor with very small queue
@@ -142,9 +176,19 @@ async fn test_job_processor_queue_capacity() {
 
 #[tokio::test]
 async fn test_solver_maintenance_handler() {
-	let storage = Arc::new(MemoryStore::new());
+	let storage = Arc::new(MemoryStore::new()) as Arc<dyn Storage>;
 	let adapter_registry = Arc::new(AdapterRegistry::with_defaults());
 
+	// Create integrity service first
+	let integrity_service = Arc::new(IntegrityService::new(
+		"test_secret_key_1234567890123456".to_string().into(),
+	)) as Arc<dyn IntegrityTrait>;
+
+	let order_service = Arc::new(OrderService::new(
+		Arc::clone(&storage),
+		Arc::clone(&adapter_registry),
+		Arc::clone(&integrity_service),
+	)) as Arc<dyn OrderServiceTrait>;
 	// Create a test solver
 	let solver = Solver::new(
 		"test-solver".to_string(),
@@ -156,14 +200,19 @@ async fn test_solver_maintenance_handler() {
 	storage.create_solver(solver.clone()).await.unwrap();
 
 	// Create handler
-	let (solver_service, aggregator_service, integrity_service) =
-		create_test_services(storage.clone(), adapter_registry.clone());
+	let (solver_service, aggregator_service, _) = create_test_services(
+		storage.clone(),
+		adapter_registry.clone(),
+		order_service.clone(),
+	);
 	let handler = BackgroundJobHandler::new(
 		storage.clone(),
 		adapter_registry,
 		solver_service,
 		aggregator_service,
 		integrity_service,
+		order_service,
+		oif_config::Settings::default(),
 	);
 
 	// Test health check job
@@ -193,6 +242,9 @@ async fn test_background_job_descriptions() {
 		solver_id: "test-solver".to_string(),
 	};
 	assert_eq!(job2.description(), "Fetch assets for solver 'test-solver'");
+
+	let job3 = BackgroundJob::OrdersCleanup;
+	assert_eq!(job3.description(), "Clean up old orders in final status");
 }
 
 #[tokio::test]
@@ -206,22 +258,41 @@ async fn test_background_job_solver_id() {
 		solver_id: "test-solver".to_string(),
 	};
 	assert_eq!(job2.solver_id(), Some("test-solver"));
+
+	let job3 = BackgroundJob::OrdersCleanup;
+	assert_eq!(job3.solver_id(), None);
 }
 
 #[tokio::test]
 async fn test_job_scheduling() {
-	let storage = Arc::new(MemoryStore::new());
+	let storage = Arc::new(MemoryStore::new()) as Arc<dyn Storage>;
 	let adapter_registry = Arc::new(AdapterRegistry::with_defaults());
 
+	// Create integrity service first
+	let integrity_service = Arc::new(IntegrityService::new(
+		"test_secret_key_1234567890123456".to_string().into(),
+	)) as Arc<dyn IntegrityTrait>;
+
+	let order_service = Arc::new(OrderService::new(
+		Arc::clone(&storage),
+		Arc::clone(&adapter_registry),
+		Arc::clone(&integrity_service),
+	)) as Arc<dyn OrderServiceTrait>;
+
 	// Create job handler with all required services
-	let (solver_service, aggregator_service, integrity_service) =
-		create_test_services(storage.clone(), adapter_registry.clone());
+	let (solver_service, aggregator_service, _) = create_test_services(
+		storage.clone(),
+		adapter_registry.clone(),
+		order_service.clone(),
+	);
 	let handler = Arc::new(BackgroundJobHandler::new(
 		storage.clone(),
 		adapter_registry,
 		solver_service,
 		aggregator_service,
 		integrity_service,
+		order_service,
+		oif_config::Settings::default(),
 	));
 
 	let config = JobProcessorConfig {
@@ -383,10 +454,25 @@ async fn test_job_scheduling() {
 
 #[tokio::test]
 async fn test_job_memory_management() {
-	let storage = Arc::new(MemoryStore::new());
+	let storage = Arc::new(MemoryStore::new()) as Arc<dyn Storage>;
 	let adapter_registry = Arc::new(AdapterRegistry::new());
-	let (solver_service, aggregator_service, integrity_service) =
-		create_test_services(storage.clone(), adapter_registry.clone());
+
+	// Create integrity service first
+	let integrity_service = Arc::new(IntegrityService::new(
+		"test_secret_key_1234567890123456".to_string().into(),
+	)) as Arc<dyn IntegrityTrait>;
+
+	let order_service = Arc::new(OrderService::new(
+		Arc::clone(&storage),
+		Arc::clone(&adapter_registry),
+		Arc::clone(&integrity_service),
+	)) as Arc<dyn OrderServiceTrait>;
+
+	let (solver_service, aggregator_service, _) = create_test_services(
+		storage.clone(),
+		adapter_registry.clone(),
+		order_service.clone(),
+	);
 
 	let handler = Arc::new(BackgroundJobHandler::new(
 		storage.clone(),
@@ -394,6 +480,8 @@ async fn test_job_memory_management() {
 		solver_service,
 		aggregator_service,
 		integrity_service,
+		order_service,
+		oif_config::Settings::default(),
 	));
 
 	// Create processor with very small max entries to test LRU eviction
@@ -477,4 +565,48 @@ async fn test_job_memory_management() {
 
 	// Cleanup
 	processor.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_orders_cleanup_job() {
+	let storage = Arc::new(MemoryStore::new()) as Arc<dyn Storage>;
+	let adapter_registry = Arc::new(AdapterRegistry::with_defaults());
+
+	// Create integrity service first
+	let integrity_service = Arc::new(IntegrityService::new(
+		"test_secret_key_1234567890123456".to_string().into(),
+	)) as Arc<dyn IntegrityTrait>;
+
+	let order_service = Arc::new(OrderService::new(
+		Arc::clone(&storage),
+		Arc::clone(&adapter_registry),
+		Arc::clone(&integrity_service),
+	)) as Arc<dyn OrderServiceTrait>;
+
+	// Create job handler
+	let (solver_service, aggregator_service, _) = create_test_services(
+		storage.clone(),
+		adapter_registry.clone(),
+		order_service.clone(),
+	);
+	let handler = BackgroundJobHandler::new(
+		storage.clone(),
+		adapter_registry,
+		solver_service,
+		aggregator_service,
+		integrity_service,
+		order_service,
+		oif_config::Settings::default(),
+	);
+
+	// Test orders cleanup job
+	let cleanup_job = BackgroundJob::OrdersCleanup;
+
+	// This should succeed even with no orders to clean up
+	let result = handler.handle(cleanup_job).await;
+	assert!(
+		result.is_ok(),
+		"Order cleanup job should succeed: {:?}",
+		result
+	);
 }
