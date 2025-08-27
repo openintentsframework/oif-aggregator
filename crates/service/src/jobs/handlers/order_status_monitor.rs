@@ -1,4 +1,4 @@
-//! Comprehensive order status monitoring with clean architecture and exponential backoff
+//! Comprehensive order status monitoring with exponential backoff
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -31,7 +31,7 @@ impl Default for MonitoringConfig {
 			backoff_schedule: vec![5, 10, 15, 30, 60, 120, 300],
 			max_backoff_seconds: 300,
 			max_attempts: None, // No limit by default
-			refresh_timeout_seconds: 30,
+			refresh_timeout_seconds: 5,
 		}
 	}
 }

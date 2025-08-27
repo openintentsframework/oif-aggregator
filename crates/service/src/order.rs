@@ -7,6 +7,9 @@ use std::time::Duration;
 
 use chrono::Utc;
 
+/// Tracing target for structured logging
+const TRACING_TARGET: &str = "oif_service::order";
+
 use crate::integrity::IntegrityTrait;
 use crate::jobs::scheduler::JobScheduler;
 use crate::jobs::types::BackgroundJob;
@@ -169,8 +172,8 @@ impl OrderServiceTrait for OrderService {
 			.map_err(|e| OrderServiceError::Storage(e.to_string()))?;
 
 		// 6. Start order status monitoring
-		let monitoring_delay = Duration::from_secs(2); // First check in 2 seconds
-		let job_id = format!("order-monitor-{}-attempt-0", order_id);
+		let monitoring_delay = Duration::from_secs(5); // First check in 5 seconds
+		let job_id = format!("order-monitor-{}", order_id);
 
 		match self
 			.job_scheduler
@@ -210,6 +213,12 @@ impl OrderServiceTrait for OrderService {
 
 	/// Refresh order status from the solver and update storage if status changed
 	async fn refresh_order(&self, order_id: &str) -> Result<Option<Order>, OrderServiceError> {
+		tracing::debug!(
+			target: TRACING_TARGET,
+			order_id = %order_id,
+			"Starting order refresh from solver"
+		);
+
 		// 1. Get current order from storage
 		let mut current_order = match self
 			.storage
@@ -218,13 +227,35 @@ impl OrderServiceTrait for OrderService {
 			.map_err(|e| OrderServiceError::Storage(e.to_string()))?
 		{
 			Some(order) => order,
-			None => return Ok(None),
+			None => {
+				tracing::debug!(
+					target: TRACING_TARGET,
+					order_id = %order_id,
+					"Order not found in storage"
+				);
+				return Ok(None);
+			},
 		};
 
 		// 2. If order is already in final state, return as-is
 		if Self::is_final_status(&current_order.status) {
+			tracing::debug!(
+				target: TRACING_TARGET,
+				order_id = %order_id,
+				status = ?current_order.status,
+				"Order already in final status, skipping refresh"
+			);
 			return Ok(Some(current_order));
 		}
+
+		tracing::debug!(
+			target: TRACING_TARGET,
+			order_id = %order_id,
+			current_status = ?current_order.status,
+			solver_id = %current_order.solver_id,
+			has_empty_amounts = %(current_order.input_amount.asset.is_empty() || current_order.output_amount.asset.is_empty()),
+			"Order needs refresh, fetching details from solver"
+		);
 
 		// 3. Create solver adapter service for this order's solver
 		let solver_adapter = match SolverAdapterService::new(
@@ -237,9 +268,11 @@ impl OrderServiceTrait for OrderService {
 			Ok(adapter) => adapter,
 			Err(e) => {
 				tracing::warn!(
-					"Failed to create solver adapter for solver {}: {}",
-					current_order.solver_id,
-					e
+					target: TRACING_TARGET,
+					order_id = %order_id,
+					solver_id = %current_order.solver_id,
+					error = %e,
+					"Failed to create solver adapter, returning current order"
 				);
 				return Ok(Some(current_order));
 			},
@@ -247,14 +280,23 @@ impl OrderServiceTrait for OrderService {
 
 		// 4. Get updated order details from the solver
 		let updated_order_response = match solver_adapter.get_order_details(order_id).await {
-			Ok(response) => response,
+			Ok(response) => {
+				tracing::debug!(
+					target: TRACING_TARGET,
+					order_id = %order_id,
+					solver_id = %current_order.solver_id,
+					"Successfully fetched order details from solver"
+				);
+				response
+			},
 			Err(e) => {
 				// Log the error but don't fail - return current order from storage
 				tracing::warn!(
-					"Failed to get order details from solver {} for order {}: {}",
-					current_order.solver_id,
-					order_id,
-					e
+					target: TRACING_TARGET,
+					order_id = %order_id,
+					solver_id = %current_order.solver_id,
+					error = %e,
+					"Failed to get order details from solver, returning current order"
 				);
 				return Ok(Some(current_order));
 			},
@@ -265,8 +307,9 @@ impl OrderServiceTrait for OrderService {
 			Some(quote) => quote,
 			None => {
 				tracing::warn!(
-					"Order {} has no quote details, cannot convert updated response. Returning current order.",
-					order_id
+					target: TRACING_TARGET,
+					order_id = %order_id,
+					"Order has no quote details, cannot convert updated response, returning current order"
 				);
 				return Ok(Some(current_order));
 			},
@@ -274,6 +317,12 @@ impl OrderServiceTrait for OrderService {
 
 		let updated_order: Order = Order::try_from((updated_order_response.order, quote_details))
 			.map_err(|e| {
+			tracing::error!(
+				target: TRACING_TARGET,
+				order_id = %order_id,
+				error = %e,
+				"Failed to convert GetOrderResponse to Order"
+			);
 			OrderServiceError::Validation(format!(
 				"Failed to convert GetOrderResponse to Order: {}",
 				e
@@ -287,12 +336,27 @@ impl OrderServiceTrait for OrderService {
 		let fill_transaction_added =
 			updated_order.fill_transaction.is_some() && current_order.fill_transaction.is_none();
 
+		// Check various change conditions
+		let is_first_fetch = current_order.input_amount.asset.is_empty()
+			|| current_order.output_amount.asset.is_empty();
+		let timestamp_changed = updated_order.updated_at != current_order.updated_at;
+
 		// Always update if this is the first fetch (empty asset names) or if anything changed
-		let should_update = current_order.input_amount.asset.is_empty()
-			|| current_order.output_amount.asset.is_empty()
-			|| status_changed
-			|| fill_transaction_added
-			|| updated_order.updated_at != current_order.updated_at;
+		let should_update =
+			is_first_fetch || status_changed || fill_transaction_added || timestamp_changed;
+
+		tracing::debug!(
+			target: TRACING_TARGET,
+			order_id = %order_id,
+			is_first_fetch = %is_first_fetch,
+			status_changed = %status_changed,
+			fill_transaction_added = %fill_transaction_added,
+			timestamp_changed = %timestamp_changed,
+			should_update = %should_update,
+			current_status = ?current_order.status,
+			updated_status = ?updated_order.status,
+			"Evaluated update conditions"
+		);
 
 		if should_update {
 			// Update the order in storage with complete details from solver
@@ -310,18 +374,39 @@ impl OrderServiceTrait for OrderService {
 
 			if status_changed {
 				tracing::info!(
-					"Updated order {} status from {:?} to {:?}",
-					order_id,
-					current_order.status,
-					updated_order.status
+					target: TRACING_TARGET,
+					order_id = %order_id,
+					old_status = ?current_order.status,
+					new_status = ?updated_order.status,
+					is_first_fetch = %is_first_fetch,
+					fill_transaction_added = %fill_transaction_added,
+					"Order status updated"
 				);
 			} else {
 				tracing::info!(
-					"Updated order {} with complete details from solver",
-					order_id
+					target: TRACING_TARGET,
+					order_id = %order_id,
+					status = ?current_order.status,
+					is_first_fetch = %is_first_fetch,
+					fill_transaction_added = %fill_transaction_added,
+					"Order updated with complete details from solver"
 				);
 			}
+		} else {
+			tracing::debug!(
+				target: TRACING_TARGET,
+				order_id = %order_id,
+				current_status = ?current_order.status,
+				"No changes detected, skipping storage update"
+			);
 		}
+
+		tracing::debug!(
+			target: TRACING_TARGET,
+			order_id = %order_id,
+			final_status = ?current_order.status,
+			"Order refresh completed successfully"
+		);
 
 		Ok(Some(current_order))
 	}
