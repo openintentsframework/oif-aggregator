@@ -1,6 +1,9 @@
 //! Core Quote domain model and business logic
 
 use chrono::Utc;
+use serde::{Deserialize, Serialize};
+#[cfg(feature = "openapi")]
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 pub mod errors;
@@ -23,7 +26,8 @@ pub type QuoteValidationResult<T> = Result<T, QuoteValidationError>;
 ///
 /// This represents a quote in the domain layer with business logic.
 /// It should be converted from QuoteRequest and to QuoteStorage/QuoteResponse.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct Quote {
 	/// Unique identifier for the quote
 	pub quote_id: String,
@@ -192,19 +196,32 @@ mod tests {
 		};
 
 		let input = AvailableInput {
-			asset: InteropAddress::from_hex("0x01A0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0")
-				.unwrap(),
+			asset: InteropAddress::from_chain_and_address(
+				1,
+				"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0",
+			)
+			.unwrap(),
 			amount: U256::new("1000000000000000000".to_string()),
-			user: InteropAddress::from_hex("0x01A0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0").unwrap(),
+			user: InteropAddress::from_chain_and_address(
+				1,
+				"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0",
+			)
+			.unwrap(),
 			lock: None,
 		};
 
 		let output = RequestedOutput {
-			asset: InteropAddress::from_hex("0x01C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
-				.unwrap(),
+			asset: InteropAddress::from_chain_and_address(
+				1,
+				"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+			)
+			.unwrap(),
 			amount: U256::new("2500000000000000000000".to_string()),
-			receiver: InteropAddress::from_hex("0x01A0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0")
-				.unwrap(),
+			receiver: InteropAddress::from_chain_and_address(
+				1,
+				"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0",
+			)
+			.unwrap(),
 			calldata: None,
 		};
 
@@ -215,8 +232,11 @@ mod tests {
 
 		let order = QuoteOrder {
 			signature_type: SignatureType::Eip712,
-			domain: InteropAddress::from_hex("0x01A0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0")
-				.unwrap(),
+			domain: InteropAddress::from_chain_and_address(
+				1,
+				"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0",
+			)
+			.unwrap(),
 			primary_type: "Order".to_string(),
 			message: serde_json::json!({}),
 		};

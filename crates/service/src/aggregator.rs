@@ -1094,9 +1094,6 @@ mod tests {
 				));
 			}
 
-			use oif_types::adapters::models::*;
-			use oif_types::serde_json::json;
-
 			let order_id = format!(
 				"{}-order-{}",
 				self.id,
@@ -1105,6 +1102,16 @@ mod tests {
 			Ok(oif_types::adapters::models::SubmitOrderResponse {
 				status: "success".to_string(),
 				order_id: Some(order_id.clone()),
+				order: oif_types::adapters::models::StandardOrder {
+					expires: oif_types::chrono::Utc::now().timestamp() as u64,
+					fill_deadline: oif_types::chrono::Utc::now().timestamp() as u64,
+					input_oracle: "0x0000000000000000000000000000000000000000".to_string(),
+					inputs: vec![],
+					nonce: "0".to_string(),
+					origin_chain_id: "1".to_string(),
+					outputs: vec![],
+					user: "0x0000000000000000000000000000000000000000".to_string(),
+				},
 				message: Some("Order submitted successfully".to_string()),
 			})
 		}
@@ -1138,11 +1145,19 @@ mod tests {
 					created_at: oif_types::chrono::Utc::now().timestamp() as u64,
 					updated_at: oif_types::chrono::Utc::now().timestamp() as u64,
 					input_amount: AssetAmount {
-						asset: "0x0000000000000000000000000000000000000000".to_string(),
+						asset: oif_types::InteropAddress::from_chain_and_address(
+							1,
+							"0x0000000000000000000000000000000000000000",
+						)
+						.unwrap(),
 						amount: oif_types::U256::new("1000000000000000000".to_string()),
 					},
 					output_amount: AssetAmount {
-						asset: "0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0".to_string(),
+						asset: oif_types::InteropAddress::from_chain_and_address(
+							1,
+							"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
+						)
+						.unwrap(),
 						amount: oif_types::U256::new("1000000".to_string()),
 					},
 					settlement: Settlement {
@@ -1216,17 +1231,17 @@ mod tests {
 			.register(Box::new(mock_test_fail))
 			.expect("Failed to register mock test fail adapter");
 
-		// Register slow adapter that will timeout with short timeouts
-		let mock_slow = TestMockAdapter::slow("mock-slow-adapter");
-		registry
-			.register(Box::new(mock_slow))
-			.expect("Failed to register mock slow adapter");
-
-		// Register fast adapter with minimal delay
+		// Register fast adapter for timeout tests (50ms delay)
 		let mock_fast = TestMockAdapter::with_delay("mock-fast-adapter", 50);
 		registry
 			.register(Box::new(mock_fast))
 			.expect("Failed to register mock fast adapter");
+
+		// Register slow adapter for timeout tests (2000ms delay)
+		let mock_slow = TestMockAdapter::slow("mock-slow-adapter");
+		registry
+			.register(Box::new(mock_slow))
+			.expect("Failed to register mock slow adapter");
 
 		registry
 	}
@@ -1241,13 +1256,22 @@ mod tests {
 					"mock-fast-adapter".to_string(),
 					"http://localhost:8001".to_string(),
 				);
-				solver.metadata.supported_assets = vec![oif_types::models::Asset::new(
-					"0x0000000000000000000000000000000000000000".to_string(),
-					"ETH".to_string(),
-					"Ethereum".to_string(),
-					18,
-					1,
-				)];
+				solver.metadata.supported_assets = vec![
+					oif_types::models::Asset::new(
+						"0x0000000000000000000000000000000000000000".to_string(),
+						"ETH".to_string(),
+						"Ethereum".to_string(),
+						18,
+						1,
+					),
+					oif_types::models::Asset::new(
+						"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0".to_string(),
+						"USDC".to_string(),
+						"USD Coin".to_string(),
+						6,
+						1,
+					),
+				];
 				solver
 			},
 			// Slow solver that will timeout
@@ -1257,13 +1281,22 @@ mod tests {
 					"mock-slow-adapter".to_string(),
 					"http://localhost:8002".to_string(),
 				);
-				solver.metadata.supported_assets = vec![oif_types::models::Asset::new(
-					"0x0000000000000000000000000000000000000000".to_string(),
-					"ETH".to_string(),
-					"Ethereum".to_string(),
-					18,
-					1,
-				)];
+				solver.metadata.supported_assets = vec![
+					oif_types::models::Asset::new(
+						"0x0000000000000000000000000000000000000000".to_string(),
+						"ETH".to_string(),
+						"Ethereum".to_string(),
+						18,
+						1,
+					),
+					oif_types::models::Asset::new(
+						"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0".to_string(),
+						"USDC".to_string(),
+						"USD Coin".to_string(),
+						6,
+						1,
+					),
+				];
 				solver
 			},
 			// Another fast solver for comparison
@@ -1273,13 +1306,22 @@ mod tests {
 					"mock-demo-v1".to_string(),
 					"http://localhost:8003".to_string(),
 				);
-				solver.metadata.supported_assets = vec![oif_types::models::Asset::new(
-					"0x0000000000000000000000000000000000000000".to_string(),
-					"ETH".to_string(),
-					"Ethereum".to_string(),
-					18,
-					1,
-				)];
+				solver.metadata.supported_assets = vec![
+					oif_types::models::Asset::new(
+						"0x0000000000000000000000000000000000000000".to_string(),
+						"ETH".to_string(),
+						"Ethereum".to_string(),
+						18,
+						1,
+					),
+					oif_types::models::Asset::new(
+						"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0".to_string(),
+						"USDC".to_string(),
+						"USD Coin".to_string(),
+						6,
+						1,
+					),
+				];
 				solver
 			},
 		];

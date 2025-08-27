@@ -203,6 +203,19 @@ pub struct AssetAmount {
 	pub amount: U256,
 }
 
+impl Default for AssetAmount {
+	fn default() -> Self {
+		Self {
+			asset: InteropAddress::from_chain_and_address(
+				1,
+				"0x0000000000000000000000000000000000000000",
+			)
+			.expect("Default zero address on chain 1 should always be valid"),
+			amount: 0u64.into(),
+		}
+	}
+}
+
 /// Order response for API endpoints.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]

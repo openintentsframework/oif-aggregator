@@ -4,7 +4,7 @@
     "private_key": "0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d"
   },
   "quote": {
-    "quoteId": "a6a25236-c709-4e68-9f04-46c544b83e55",
+    "quoteId": "9dc8d547-7de0-4605-89d0-21c1e88884bc",
     "solverId": "example-solver",
     "orders": [
         {
@@ -12,11 +12,11 @@
             "domain": "0x01000002147a69000000000022d473030f116ddee9f6b43ac78ba3",
             "primaryType": "PermitBatchWitnessTransferFrom",
             "message": {
-                "digest": "0x94d1ae500724bf17875014185791c18bb5b3391bba0f64842a8dfae4ded431dd",
+                "digest": "0x53afddff0266c3766ca50be644e967b378523d440333070510098e8bbc54930a",
                 "eip712": {
-                    "deadline": "1755861450",
-                    "digest": "0x94d1ae500724bf17875014185791c18bb5b3391bba0f64842a8dfae4ded431dd",
-                    "nonce": "1755861150211",
+                    "deadline": "1756295315",
+                    "digest": "0x53afddff0266c3766ca50be644e967b378523d440333070510098e8bbc54930a",
+                    "nonce": "1756295015542",
                     "permitted": [
                         {
                             "amount": "1000000000000000000",
@@ -35,7 +35,7 @@
                     },
                     "spender": "0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0",
                     "witness": {
-                        "expires": 1755861450,
+                        "expires": 1756295315,
                         "inputOracle": "0xdc64a140aa3e981100a9beca4e685f962f0cf6c9",
                         "outputs": [
                             {
@@ -72,9 +72,9 @@
             }
         ]
     },
-    "validUntil": 1755861450,
-    "eta": 96,
+    "validUntil": 1756295315,
+    "eta": 144,
     "provider": "oif-solver",
-    "integrityChecksum": "7a636b5b620e132350d8bf71dc926e098de8b9275fb0b8d8bb6ab3e8fec70912"
+    "integrityChecksum": "2e5c954dc0bfe18a3ce5b8f37b8e8e5066059b14e887aeb188d443aa11dabc77"
 }
 }

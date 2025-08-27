@@ -356,7 +356,7 @@ async fn test_order_workflow() {
 	assert!(create_json["orderId"].is_string());
 	assert!(create_json["status"].is_string());
 
-	// Then query the order status to test refresh_order_status functionality
+	// Then query the order status to test refresh_order functionality
 	let status_response = app
 		.oneshot(
 			Request::builder()

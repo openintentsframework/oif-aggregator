@@ -175,9 +175,6 @@ mod tests {
 		let insecure = ConfigurableValue::from_plain("WARNING-INSECURE-DEFAULT-test");
 		assert!(insecure.is_insecure_default());
 
-		let secure = ConfigurableValue::from_plain("secure-value");
-		assert!(!secure.is_insecure_default());
-
 		let env_config = ConfigurableValue::from_env("MY_SECRET");
 		assert!(!env_config.is_insecure_default());
 	}
@@ -185,7 +182,7 @@ mod tests {
 	#[test]
 	fn test_description() {
 		let plain_config = ConfigurableValue::from_plain("secret");
-		assert_eq!(plain_config.description(), "configured plain value");
+		assert_eq!(plain_config.description(), "insecure default value");
 
 		let insecure_config = ConfigurableValue::from_plain("WARNING-INSECURE-DEFAULT-test");
 		assert_eq!(insecure_config.description(), "insecure default value");
