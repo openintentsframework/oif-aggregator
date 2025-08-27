@@ -7,7 +7,7 @@
 //! ## Address Format
 //!
 //! An ERC-7930 interoperable address is a binary-encoded string serialized as hex:
-//! ```
+//! ```text
 //! 0x010000011401D8DA6BF26964AF9D7EED9E03E53415D37AA96045
 //! ^^---------------------------------- Version: 1 byte (decimal 1)
 //!   ^^^^------------------------------ ChainType: 2 bytes (CAIP namespace, e.g., eip155)
