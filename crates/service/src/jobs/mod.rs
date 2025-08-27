@@ -9,12 +9,14 @@ use async_trait::async_trait;
 pub mod generic_handler;
 pub mod handlers;
 pub mod processor;
+pub mod scheduler;
 pub mod types;
 
 pub use handlers::BackgroundJobHandler;
 pub use processor::{
 	JobInfo, JobInfoStats, JobProcessor, JobProcessorConfig, JobStatus, RetryPolicy, ScheduledJob,
 };
+pub use scheduler::{JobScheduler, UpgradableJobScheduler};
 pub use types::{BackgroundJob, JobError, JobResult};
 
 // Re-export generic handler components for the new approach

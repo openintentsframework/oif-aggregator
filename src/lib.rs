@@ -4,8 +4,8 @@
 //! providing quote aggregation, intent submission, and solver management.
 
 use oif_service::{
-	BackgroundJob, BackgroundJobHandler, IntegrityService, IntegrityTrait, JobProcessor,
-	JobProcessorConfig, OrderService, OrderServiceTrait, SolverFilterService, SolverFilterTrait,
+	jobs::UpgradableJobScheduler, BackgroundJob, BackgroundJobHandler, IntegrityService,
+	IntegrityTrait, JobProcessor, JobProcessorConfig, SolverFilterService, SolverFilterTrait,
 	SolverService, SolverServiceTrait,
 };
 use oif_types::{solvers::AssetSource, Asset};
@@ -46,7 +46,6 @@ pub use oif_types::{
 // Service layer
 pub use oif_service::{
 	AggregatorService,
-	OrderServiceError,
 	SolverServiceError,
 	SolverStats,
 	// Keep the full module for more advanced usage
@@ -54,7 +53,7 @@ pub use oif_service::{
 
 // Storage layer
 pub use oif_storage::{
-	traits::{OrderStorage, QuoteStorage, SolverStorage, StorageError, StorageResult},
+	traits::{OrderStorage, SolverStorage, StorageError, StorageResult},
 	MemoryStore, Storage,
 };
 
@@ -520,24 +519,56 @@ where
 			Arc::clone(&adapter_registry),
 			Arc::clone(&integrity_service),
 			Arc::clone(&solver_filter_service),
-			settings.aggregation.into(),
+			settings.aggregation.clone().into(),
 		)) as Arc<dyn oif_service::AggregatorTrait>;
 		let solver_service = Arc::new(SolverService::new(
 			Arc::clone(&storage_arc),
 			Arc::clone(&adapter_registry),
 		)) as Arc<dyn SolverServiceTrait>;
 
-		// Initialize background job processor with all services
+		// Create an upgradable job scheduler (works immediately, gets upgraded later)
+		let job_scheduler = Arc::new(UpgradableJobScheduler::new())
+			as Arc<dyn oif_service::jobs::scheduler::JobScheduler>;
+
+		// Create the order service with the upgradable scheduler
+		let order_service_impl = oif_service::order::OrderService::new(
+			Arc::clone(&storage_arc),
+			Arc::clone(&adapter_registry),
+			Arc::clone(&integrity_service),
+			Arc::clone(&job_scheduler),
+		);
+		let order_service =
+			Arc::new(order_service_impl) as Arc<dyn oif_service::order::OrderServiceTrait>;
+
+		// Create the job handler with all real services
 		let job_handler = Arc::new(BackgroundJobHandler::new(
 			Arc::clone(&storage_arc),
 			Arc::clone(&adapter_registry),
 			Arc::clone(&solver_service),
 			Arc::clone(&aggregator_service),
 			Arc::clone(&integrity_service),
+			Arc::clone(&order_service),
+			Arc::clone(&job_scheduler),
+			settings.clone(),
 		));
-		let job_processor = JobProcessor::new(job_handler, self.job_processor_config.clone())
-			.map_err(|e| format!("Failed to initialize job processor: {}", e))?;
+
+		// Create the JobProcessor with the real handler
+		let job_processor = JobProcessor::new(
+			job_handler as Arc<dyn oif_service::jobs::processor::JobHandler>,
+			self.job_processor_config.clone(),
+		)
+		.map_err(|e| format!("Failed to initialize job processor: {}", e))?;
 		let job_processor_arc = Arc::new(job_processor);
+
+		// Upgrade the scheduler with the JobProcessor
+		if let Some(upgradable_scheduler) = job_scheduler
+			.as_any()
+			.downcast_ref::<UpgradableJobScheduler>()
+		{
+			upgradable_scheduler
+				.initialize_processor(Arc::clone(&job_processor_arc))
+				.await;
+		}
 
 		// Schedule recurring maintenance jobs
 		self.schedule_recurring_jobs(&job_processor_arc).await;
@@ -547,11 +578,7 @@ where
 		// Create application state
 		let app_state = AppState {
 			aggregator_service,
-			order_service: Arc::new(OrderService::new(
-				Arc::clone(&storage_arc),
-				Arc::clone(&adapter_registry),
-				Arc::clone(&integrity_service),
-			)) as Arc<dyn OrderServiceTrait>,
+			order_service,
 			solver_service,
 			storage: storage_arc,
 			integrity_service,
@@ -695,6 +722,23 @@ where
 			warn!("Failed to schedule asset fetch job: {}", e);
 		} else {
 			info!("Scheduled asset fetching to run immediately and then every 20 minutes for all solvers");
+		}
+
+		// Schedule orders cleanup once a day (24 * 60 = 1440 minutes)
+		if let Err(e) = job_processor
+			.schedule_job(
+				1440, // 24 hours (1440 minutes)
+				BackgroundJob::OrdersCleanup,
+				"Daily cleanup of old orders in final status".to_string(),
+				Some("orders-cleanup-daily".to_string()), // ID used for both scheduling and deduplication
+				true,                                     // Run immediately on startup
+				None, // No retry policy for now, but could be added if needed
+			)
+			.await
+		{
+			warn!("Failed to schedule orders cleanup job: {}", e);
+		} else {
+			info!("Scheduled daily orders cleanup to run every 24 hours");
 		}
 	}
 }

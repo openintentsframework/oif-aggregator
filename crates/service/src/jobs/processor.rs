@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::sync::{mpsc, RwLock};
 use tokio::task::JoinHandle;
-use tokio::time::{interval, sleep, timeout, MissedTickBehavior};
+use tokio::time::{interval, sleep, MissedTickBehavior};
 use tracing::{debug, error, info, warn};
 
 use super::types::{BackgroundJob, JobError, JobResult};
@@ -112,6 +112,31 @@ pub struct ScheduledJob {
 	pub retry_policy: Option<RetryPolicy>,
 }
 
+/// Job schedule for scheduling loop
+#[derive(Debug, Clone)]
+struct JobSchedule {
+	/// The scheduled job configuration
+	job: ScheduledJob,
+	/// Type of job scheduling
+	job_type: JobType,
+	/// When this job should execute next
+	next_execution: SystemTime,
+	/// When this job last executed (for recurring jobs)
+	last_execution: Option<SystemTime>,
+}
+
+/// Type of job scheduling
+#[derive(Debug, Clone)]
+enum JobType {
+	/// Recurring job that runs every interval
+	Recurring {
+		interval: Duration,
+		jitter: Duration,
+	},
+	/// One-time delayed job
+	Delayed,
+}
+
 /// Configuration for the job processor
 #[derive(Debug, Clone)]
 pub struct JobProcessorConfig {
@@ -170,8 +195,9 @@ pub struct JobProcessor {
 
 	// Job scheduling
 	config: JobProcessorConfig,
-	scheduled_jobs: Arc<RwLock<HashMap<String, ScheduledJob>>>,
-	job_handles: Arc<RwLock<HashMap<String, JoinHandle<()>>>>,
+	job_schedules: Arc<RwLock<HashMap<String, JobSchedule>>>,
+	scheduler_handle: Option<JoinHandle<()>>,
+	scheduler_notify: Arc<tokio::sync::Notify>,
 	next_job_id: AtomicU64,
 
 	// Job deduplication
@@ -244,19 +270,168 @@ impl JobProcessor {
 			config.worker_count
 		);
 
+		let job_schedules = Arc::new(RwLock::new(HashMap::new()));
+		let scheduler_notify = Arc::new(tokio::sync::Notify::new());
+
+		// Start the unified scheduler
+		let scheduler_handle = {
+			let sender = job_sender.clone();
+			let schedules = Arc::clone(&job_schedules);
+			let active_ids = Arc::clone(&active_job_ids);
+			let notify = Arc::clone(&scheduler_notify);
+
+			Some(tokio::spawn(async move {
+				Self::scheduler_loop(sender, schedules, active_ids, notify).await;
+			}))
+		};
+
 		Ok(Self {
 			sender: job_sender,
 			workers,
 			shutdown_sender,
 			config: config.clone(),
-			scheduled_jobs: Arc::new(RwLock::new(HashMap::new())),
-			job_handles: Arc::new(RwLock::new(HashMap::new())),
+			job_schedules,
+			scheduler_handle,
+			scheduler_notify,
 			next_job_id: AtomicU64::new(1),
 			active_job_ids,
 			job_info,
 			next_job_info_id: AtomicU64::new(1),
 			cleanup_handle,
 		})
+	}
+
+	/// Scheduler loop that handles both recurring and delayed jobs
+	async fn scheduler_loop(
+		sender: mpsc::Sender<JobRequest>,
+		job_schedules: Arc<RwLock<HashMap<String, JobSchedule>>>,
+		active_job_ids: Arc<RwLock<HashSet<String>>>,
+		notify: Arc<tokio::sync::Notify>,
+	) {
+		debug!("Starting scheduler loop");
+
+		loop {
+			let next_wake_time = {
+				let schedules = job_schedules.read().await;
+				if schedules.is_empty() {
+					// No jobs scheduled, sleep for a reasonable interval
+					SystemTime::now() + Duration::from_secs(5)
+				} else {
+					// Find the earliest execution time
+					schedules
+						.values()
+						.map(|schedule| schedule.next_execution)
+						.min()
+						.unwrap_or_else(|| SystemTime::now() + Duration::from_secs(5))
+				}
+			};
+
+			// Sleep until the next job needs to run OR until notified of new jobs
+			let now = SystemTime::now();
+			if next_wake_time > now {
+				let sleep_duration = next_wake_time
+					.duration_since(now)
+					.unwrap_or(Duration::from_secs(1));
+
+				// Wait for either timeout or notification
+				tokio::select! {
+					_ = tokio::time::sleep(sleep_duration) => {}
+					_ = notify.notified() => {}
+				}
+			}
+
+			// Execute all jobs that are due
+			let jobs_to_execute = {
+				let mut schedules = job_schedules.write().await;
+				let now = SystemTime::now();
+				let mut jobs = Vec::new();
+				let mut jobs_to_remove = Vec::new();
+
+				for (id, schedule) in schedules.iter_mut() {
+					if schedule.next_execution <= now {
+						// This job is due for execution
+						jobs.push((id.clone(), schedule.job.clone(), schedule.job_type.clone()));
+
+						match &schedule.job_type {
+							JobType::Recurring { interval, jitter } => {
+								// Update next execution time for recurring jobs
+								schedule.last_execution = Some(now);
+								schedule.next_execution = now + *interval + *jitter;
+							},
+							JobType::Delayed => {
+								// Mark delayed jobs for removal
+								jobs_to_remove.push(id.clone());
+							},
+						}
+					}
+				}
+
+				// Remove completed delayed jobs
+				for id in jobs_to_remove {
+					schedules.remove(&id);
+				}
+
+				jobs
+			};
+
+			// Execute all due jobs
+			for (schedule_id, scheduled_job, _job_type) in jobs_to_execute {
+				debug!(
+					"Executing scheduled job '{}' ({})",
+					schedule_id, scheduled_job.description
+				);
+
+				// Check deduplication
+				{
+					let mut ids = active_job_ids.write().await;
+					if !ids.insert(schedule_id.clone()) {
+						debug!(
+							"Scheduled job '{}' ({}) skipped - already running (dedup)",
+							schedule_id, scheduled_job.description
+						);
+						continue;
+					}
+				}
+
+				// Submit the job
+				let job_request = JobRequest {
+					job: scheduled_job.job.clone(),
+					job_id: Some(schedule_id.clone()),
+					retry_policy: scheduled_job.retry_policy.clone(),
+					attempt: 0,
+					original_job_info_id: None,
+				};
+
+				match tokio::time::timeout(Duration::from_millis(250), sender.send(job_request))
+					.await
+				{
+					Ok(Ok(())) => {
+						debug!(
+							"Successfully submitted scheduled job '{}' ({})",
+							schedule_id, scheduled_job.description
+						);
+					},
+					Ok(Err(e)) => {
+						error!(
+							"Queue closed for scheduled job '{}' ({}): {}",
+							schedule_id, scheduled_job.description, e
+						);
+						// Remove from active set since we failed to submit
+						let mut ids = active_job_ids.write().await;
+						ids.remove(&schedule_id);
+					},
+					Err(_) => {
+						warn!(
+							"Queue busy; dropping scheduled job '{}' ({})",
+							schedule_id, scheduled_job.description
+						);
+						// Remove from active set since we failed to submit
+						let mut ids = active_job_ids.write().await;
+						ids.remove(&schedule_id);
+					},
+				}
+			}
+		}
 	}
 
 	/// Submit a job for background processing with retry policy and optional job ID
@@ -339,6 +514,68 @@ impl JobProcessor {
 				Err(JobError::QueueFull)
 			},
 		}
+	}
+
+	/// Submit a job to be executed after a delay using the unified scheduler
+	pub async fn submit_with_delay(
+		&self,
+		job: BackgroundJob,
+		delay: Duration,
+		job_id: Option<String>,
+		retry_policy: Option<RetryPolicy>,
+	) -> JobResult<String> {
+		debug!(
+			"Submitting delayed job: {} (delay: {:?}, ID: {:?}, retries: {:?})",
+			job.description(),
+			delay,
+			job_id,
+			retry_policy
+		);
+
+		// Generate a unique schedule ID for this delayed job
+		let schedule_id = job_id.unwrap_or_else(|| {
+			format!(
+				"delayed-job-{}",
+				self.next_job_id.fetch_add(1, Ordering::SeqCst)
+			)
+		});
+
+		// Check if schedule ID already exists
+		{
+			let schedules = self.job_schedules.read().await;
+			if schedules.contains_key(&schedule_id) {
+				return Err(JobError::Duplicate { id: schedule_id });
+			}
+		}
+
+		// Create the scheduled job
+		let scheduled_job = ScheduledJob {
+			id: schedule_id.clone(),
+			interval_minutes: 0, // Not used for delayed jobs
+			job: job.clone(),
+			description: format!("Delayed job: {}", job.description()),
+			retry_policy: retry_policy.clone(),
+		};
+
+		// Create the job schedule for delayed execution
+		let job_schedule = JobSchedule {
+			job: scheduled_job,
+			job_type: JobType::Delayed,
+			next_execution: SystemTime::now() + delay,
+			last_execution: None,
+		};
+
+		// Add to the unified scheduler
+		{
+			let mut schedules = self.job_schedules.write().await;
+			schedules.insert(schedule_id.clone(), job_schedule);
+		}
+
+		// Notify the scheduler that a new job has been added
+		self.scheduler_notify.notify_one();
+
+		debug!("Delayed job scheduled successfully: {}", job.description());
+		Ok(schedule_id)
 	}
 
 	/// Submit a job without waiting (fire and forget) with retry policy and optional job ID
@@ -562,7 +799,7 @@ impl JobProcessor {
 		retry_policy: Option<RetryPolicy>,
 	) -> Result<String, String> {
 		// Check if we've reached the maximum number of scheduled jobs
-		let jobs_count = self.scheduled_jobs.read().await.len();
+		let jobs_count = self.job_schedules.read().await.len();
 		if jobs_count >= self.config.max_scheduled_jobs {
 			return Err(format!(
 				"Cannot schedule more jobs. Maximum limit of {} reached",
@@ -576,8 +813,8 @@ impl JobProcessor {
 
 		// Check if schedule ID already exists
 		{
-			let jobs = self.scheduled_jobs.read().await;
-			if jobs.contains_key(&schedule_id) {
+			let schedules = self.job_schedules.read().await;
+			if schedules.contains_key(&schedule_id) {
 				return Err(format!(
 					"Scheduled job with ID '{}' already exists",
 					schedule_id
@@ -593,56 +830,39 @@ impl JobProcessor {
 			retry_policy: retry_policy.clone(),
 		};
 
-		// Run immediately if requested
-		if run_immediately {
-			debug!(
-				"Running job '{}' immediately before scheduling",
-				schedule_id
-			);
+		// Calculate interval and jitter
+		let interval_duration = Duration::from_secs(interval_minutes * 60);
+		let max_jitter_seconds = if interval_minutes <= 10 {
+			// Short intervals: small jitter (5 seconds max)
+			(interval_duration.as_secs() / 12).min(5)
+		} else {
+			// Long intervals: larger jitter for load distribution (20 seconds max)
+			(interval_duration.as_secs() / 12).min(20)
+		};
+		let jitter = Self::calculate_jitter(&schedule_id, max_jitter_seconds);
 
-			// Pre-register the schedule ID to prevent overlap with later ticks
-			{
-				let mut ids = self.active_job_ids.write().await;
-				ids.insert(schedule_id.clone());
-			}
+		// Calculate next execution time
+		let next_execution = if run_immediately {
+			SystemTime::now() // Run immediately
+		} else {
+			SystemTime::now() + interval_duration + jitter
+		};
 
-			let immediate_request = JobRequest {
-				job: job.clone(),
-				job_id: Some(schedule_id.clone()),
-				retry_policy: retry_policy.clone(),
-				attempt: 0,
-				original_job_info_id: None,
-			};
+		// Create the job schedule for recurring execution
+		let job_schedule = JobSchedule {
+			job: scheduled_job,
+			job_type: JobType::Recurring {
+				interval: interval_duration,
+				jitter,
+			},
+			next_execution,
+			last_execution: None,
+		};
 
-			if let Err(e) = self.sender.send(immediate_request).await {
-				warn!(
-					"Failed to submit immediate execution of job '{}': {}",
-					schedule_id, e
-				);
-				// Roll back the ID reservation since submission failed
-				let mut ids = self.active_job_ids.write().await;
-				ids.remove(&schedule_id);
-			} else {
-				debug!(
-					"Successfully submitted immediate execution of job '{}'",
-					schedule_id
-				);
-			}
-		}
-
-		// Start the job runner
-		let handle = self
-			.start_job_runner(scheduled_job.clone(), run_immediately)
-			.await;
-
-		// Store the scheduled job and its handle
+		// Add to the scheduler
 		{
-			let mut jobs = self.scheduled_jobs.write().await;
-			jobs.insert(schedule_id.clone(), scheduled_job);
-		}
-		{
-			let mut handles = self.job_handles.write().await;
-			handles.insert(schedule_id.clone(), handle);
+			let mut schedules = self.job_schedules.write().await;
+			schedules.insert(schedule_id.clone(), job_schedule);
 		}
 
 		info!(
@@ -653,38 +873,66 @@ impl JobProcessor {
 		Ok(schedule_id)
 	}
 
+	/// Cancel a delayed job by its ID
+	pub async fn cancel_delayed_job(&self, schedule_id: &str) -> Result<(), String> {
+		// Remove from scheduled jobs
+		let removed_schedule = {
+			let mut schedules = self.job_schedules.write().await;
+			schedules.remove(schedule_id)
+		};
+
+		if let Some(schedule) = removed_schedule {
+			// Verify it was actually a delayed job
+			match schedule.job_type {
+				JobType::Delayed => {
+					info!("Cancelled delayed job '{}'", schedule_id);
+					Ok(())
+				},
+				JobType::Recurring { .. } => {
+					// Put it back if it wasn't a delayed job
+					let mut schedules = self.job_schedules.write().await;
+					schedules.insert(schedule_id.to_string(), schedule);
+					Err(format!("Job '{}' is a recurring job, not a delayed job. Use unschedule_job() instead.", schedule_id))
+				},
+			}
+		} else {
+			Err(format!("Delayed job with ID '{}' not found", schedule_id))
+		}
+	}
+
 	/// Unschedule a job by its ID
 	pub async fn unschedule_job(&self, schedule_id: &str) -> Result<(), String> {
 		// Remove from scheduled jobs
-		let removed_job = {
-			let mut jobs = self.scheduled_jobs.write().await;
-			jobs.remove(schedule_id)
+		let removed_schedule = {
+			let mut schedules = self.job_schedules.write().await;
+			schedules.remove(schedule_id)
 		};
 
-		if removed_job.is_none() {
-			return Err(format!("Job with ID '{}' not found", schedule_id));
+		if removed_schedule.is_some() {
+			info!("Unscheduled job '{}'", schedule_id);
+			Ok(())
+		} else {
+			Err(format!("Job with ID '{}' not found", schedule_id))
 		}
-
-		// Cancel the job handle
-		if let Some(handle) = {
-			let mut handles = self.job_handles.write().await;
-			handles.remove(schedule_id)
-		} {
-			handle.abort();
-		}
-
-		info!("Unscheduled job '{}'", schedule_id);
-		Ok(())
 	}
 
 	/// Get all scheduled jobs
 	pub async fn get_scheduled_jobs(&self) -> Vec<ScheduledJob> {
-		self.scheduled_jobs.read().await.values().cloned().collect()
+		self.job_schedules
+			.read()
+			.await
+			.values()
+			.map(|schedule| schedule.job.clone())
+			.collect()
 	}
 
 	/// Get a specific scheduled job by ID
 	pub async fn get_scheduled_job(&self, schedule_id: &str) -> Option<ScheduledJob> {
-		self.scheduled_jobs.read().await.get(schedule_id).cloned()
+		self.job_schedules
+			.read()
+			.await
+			.get(schedule_id)
+			.map(|schedule| schedule.job.clone())
 	}
 
 	/// Background cleanup loop that runs periodically
@@ -836,13 +1084,10 @@ impl JobProcessor {
 	pub async fn shutdown(mut self) -> JobResult {
 		info!("Shutting down job processor...");
 
-		// Cancel all scheduled jobs
-		{
-			let mut handles = self.job_handles.write().await;
-			for (schedule_id, handle) in handles.drain() {
-				debug!("Cancelling scheduled job '{}'", schedule_id);
-				handle.abort();
-			}
+		// Cancel the scheduler
+		if let Some(scheduler_handle) = self.scheduler_handle.take() {
+			debug!("Cancelling scheduler");
+			scheduler_handle.abort();
 		}
 
 		// Cancel cleanup task if running
@@ -853,8 +1098,8 @@ impl JobProcessor {
 
 		// Clear scheduled jobs and active job IDs
 		{
-			let mut jobs = self.scheduled_jobs.write().await;
-			jobs.clear();
+			let mut schedules = self.job_schedules.write().await;
+			schedules.clear();
 		}
 		{
 			let mut active_ids = self.active_job_ids.write().await;
@@ -889,106 +1134,6 @@ impl JobProcessor {
 		// Use modulo to get a stable value within the jitter window
 		let jitter_seconds = hash % (max_jitter_seconds + 1);
 		Duration::from_secs(jitter_seconds)
-	}
-
-	/// Start a job runner for a specific scheduled job
-	async fn start_job_runner(
-		&self,
-		scheduled_job: ScheduledJob,
-		run_immediately: bool,
-	) -> JoinHandle<()> {
-		let interval_duration = Duration::from_secs(scheduled_job.interval_minutes * 60);
-		let sender = self.sender.clone();
-		let job = scheduled_job.job;
-		let schedule_id = scheduled_job.id;
-		let description = scheduled_job.description;
-		let retry_policy = scheduled_job.retry_policy;
-		let active_job_ids = Arc::clone(&self.active_job_ids);
-
-		// Calculate stable jitter for this schedule (max 5 minutes to avoid excessive delay)
-		let max_jitter_seconds = (interval_duration.as_secs() / 12).min(300); // Max 1/12th of interval or 5 minutes
-		let jitter = Self::calculate_jitter(&schedule_id, max_jitter_seconds);
-
-		tokio::spawn(async move {
-			let mut timer = interval(interval_duration);
-			timer.set_missed_tick_behavior(MissedTickBehavior::Skip);
-
-			// Skip the first tick if we already ran immediately, otherwise don't skip
-			if run_immediately {
-				// Skip the first tick since we already executed immediately
-				timer.tick().await;
-			}
-			// If not run_immediately, the first tick will be the first execution
-
-			loop {
-				timer.tick().await;
-
-				// Apply jitter to prevent thundering herd - all schedules firing at same time
-				if jitter.as_secs() > 0 {
-					debug!(
-						"Applying {}s jitter before executing scheduled job '{}' ({})",
-						jitter.as_secs(),
-						schedule_id,
-						description
-					);
-					sleep(jitter).await;
-				}
-
-				debug!(
-					"Executing scheduled job '{}' ({})",
-					schedule_id, description
-				);
-
-				// Pre-enqueue deduplication check to prevent overlapping executions
-				{
-					let mut ids = active_job_ids.write().await;
-					if !ids.insert(schedule_id.clone()) {
-						debug!(
-							"Scheduled job '{}' ({}) skipped - already running (dedup)",
-							schedule_id, description
-						);
-						continue;
-					}
-				}
-
-				// Use the schedule_id as both the schedule identifier AND deduplication ID
-				let job_request = JobRequest {
-					job: job.clone(),
-					job_id: Some(schedule_id.clone()),
-					retry_policy: retry_policy.clone(),
-					attempt: 0,
-					original_job_info_id: None,
-				};
-
-				// Use timeout-wrapped send to avoid silently dropping scheduled runs
-				match timeout(Duration::from_millis(250), sender.send(job_request)).await {
-					Ok(Ok(())) => {
-						debug!(
-							"Successfully submitted scheduled job '{}' ({})",
-							schedule_id, description
-						);
-					},
-					Ok(Err(e)) => {
-						error!(
-							"Queue closed for scheduled job '{}' ({}): {}",
-							schedule_id, description, e
-						);
-						// Remove from active set since we failed to submit
-						let mut ids = active_job_ids.write().await;
-						ids.remove(&schedule_id);
-					},
-					Err(_) => {
-						warn!(
-							"Queue busy; dropping scheduled run '{}' ({})",
-							schedule_id, description
-						);
-						// Remove from active set since we failed to submit
-						let mut ids = active_job_ids.write().await;
-						ids.remove(&schedule_id);
-					},
-				}
-			}
-		})
 	}
 
 	/// Worker loop that processes jobs

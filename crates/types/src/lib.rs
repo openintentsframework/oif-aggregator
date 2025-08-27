@@ -52,6 +52,5 @@ pub use auth::{
 };
 
 pub use storage::{
-	OrderStorageTrait, QuoteStorageTrait, SolverStorageTrait, StorageError, StorageResult,
-	StorageTrait,
+	OrderStorageTrait, SolverStorageTrait, StorageError, StorageResult, StorageTrait,
 };

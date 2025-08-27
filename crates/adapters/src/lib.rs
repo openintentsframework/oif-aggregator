@@ -14,7 +14,7 @@
 //! ```rust,no_run
 //! use oif_adapters::{ClientCache, SolverAdapter, AdapterResult};
 //! use oif_types::{Adapter, SolverRuntimeConfig, GetQuoteRequest, GetQuoteResponse, Asset, Network};
-//! use oif_types::adapters::{models::SubmitOrderRequest, GetOrderResponse};
+//! use oif_types::adapters::{models::{SubmitOrderRequest, SubmitOrderResponse}, GetOrderResponse};
 //! use async_trait::async_trait;
 //! use std::sync::Arc;
 //!
@@ -53,7 +53,7 @@
 //!         todo!()
 //!     }
 //!     
-//!     async fn submit_order(&self, _order: &SubmitOrderRequest, _config: &SolverRuntimeConfig) -> AdapterResult<GetOrderResponse> { todo!() }
+//!     async fn submit_order(&self, _order: &SubmitOrderRequest, _config: &SolverRuntimeConfig) -> AdapterResult<SubmitOrderResponse> { todo!() }
 //!     async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> { todo!() }
 //!     async fn get_order_details(&self, _order_id: &str, _config: &SolverRuntimeConfig) -> AdapterResult<GetOrderResponse> { todo!() }
 //!     async fn get_supported_networks(&self, _config: &SolverRuntimeConfig) -> AdapterResult<Vec<Network>> { todo!() }
@@ -90,7 +90,7 @@
 //!         // Create basic client for each request
 //!         use oif_types::AdapterError;
 //!         Ok(reqwest::Client::builder()
-//!             .timeout(std::time::Duration::from_millis(solver_config.timeout_ms))
+//!             .timeout(std::time::Duration::from_secs(30)) // Default 30 second timeout
 //!             .build()
 //!             .map_err(AdapterError::HttpError)?)
 //!     }

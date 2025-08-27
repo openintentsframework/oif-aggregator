@@ -17,6 +17,7 @@ use utoipa::ToSchema;
 
 use crate::adapters::OrderResponse as AdapterOrderResponse;
 use crate::adapters::{AssetAmount, Settlement};
+use crate::Quote;
 
 /// Result types for order operations
 pub type OrderResult<T> = Result<T, OrderError>;
@@ -49,16 +50,18 @@ pub struct Order {
 	pub settlement: Settlement,
 	// Fill transaction information
 	pub fill_transaction: Option<serde_json::Value>,
+	// Quote details
+	pub quote_details: Option<Quote>,
 }
 
-impl TryFrom<(AdapterOrderResponse, String)> for Order {
+impl TryFrom<(AdapterOrderResponse, Quote)> for Order {
 	type Error = OrderError;
 
-	fn try_from((src, solver_id): (AdapterOrderResponse, String)) -> Result<Self, Self::Error> {
+	fn try_from((src, quote_details): (AdapterOrderResponse, Quote)) -> Result<Self, Self::Error> {
 		Ok(Order {
 			order_id: src.id,
 			quote_id: src.quote_id,
-			solver_id,
+			solver_id: quote_details.solver_id.clone(),
 			status: src.status.into(),
 			created_at: chrono::Utc
 				.timestamp_opt(src.created_at as i64, 0)
@@ -72,6 +75,7 @@ impl TryFrom<(AdapterOrderResponse, String)> for Order {
 			output_amount: src.output_amount,
 			settlement: src.settlement,
 			fill_transaction: src.fill_transaction,
+			quote_details: Some(quote_details),
 		})
 	}
 }

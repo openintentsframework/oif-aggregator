@@ -81,12 +81,30 @@ mod tests {
 	use crate::solvers::{Solver, SolverStatus};
 
 	fn create_test_solver() -> Solver {
+		use crate::models::Asset;
+
 		Solver::new(
 			"test-solver".to_string(),
 			"oif-v1".to_string(),
 			"https://api.example.com".to_string(),
 		)
 		.with_name("Test Solver".to_string())
+		.with_assets(vec![
+			Asset::new(
+				"0x0000000000000000000000000000000000000000".to_string(),
+				"ETH".to_string(),
+				"Ethereum".to_string(),
+				18,
+				1,
+			),
+			Asset::new(
+				"0x0000000000000000000000000000000000000000".to_string(),
+				"MATIC".to_string(),
+				"Polygon".to_string(),
+				18,
+				137,
+			),
+		])
 	}
 
 	#[test]

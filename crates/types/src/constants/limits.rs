@@ -50,3 +50,6 @@ pub const DEFAULT_MAX_RETRIES_PER_SOLVER: u32 = 2;
 
 /// Default retry delay in milliseconds between solver attempts
 pub const DEFAULT_RETRY_DELAY_MS: u64 = 100;
+
+/// Default order retention days for cleanup job
+pub const DEFAULT_ORDER_RETENTION_DAYS: u32 = 10;

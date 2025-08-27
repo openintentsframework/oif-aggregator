@@ -40,6 +40,7 @@ impl MockConfigs {
 			security: SecuritySettings {
 				integrity_secret: oif_config::ConfigurableValue::from_plain("test-secret"),
 			},
+			maintenance: None,
 		}
 	}
 

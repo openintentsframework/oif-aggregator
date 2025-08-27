@@ -4,7 +4,10 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use super::{Order, OrderError, OrderStatus};
-use crate::adapters::{AssetAmount, Settlement};
+use crate::{
+	adapters::{AssetAmount, Settlement},
+	Quote,
+};
 
 /// Storage representation of an intent
 ///
@@ -22,6 +25,7 @@ pub struct OrderStorage {
 	pub output_amount: AssetAmount,
 	pub settlement: Settlement,
 	pub fill_transaction: Option<serde_json::Value>,
+	pub quote_details: Option<Quote>,
 }
 
 /// Storage-compatible order status
@@ -84,6 +88,7 @@ impl From<Order> for OrderStorage {
 			output_amount: order.output_amount,
 			settlement: order.settlement,
 			fill_transaction: order.fill_transaction,
+			quote_details: order.quote_details,
 		}
 	}
 }
@@ -103,6 +108,7 @@ impl TryFrom<OrderStorage> for Order {
 			output_amount: storage.output_amount,
 			settlement: storage.settlement,
 			fill_transaction: storage.fill_transaction,
+			quote_details: storage.quote_details,
 		})
 	}
 }

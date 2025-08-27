@@ -3,7 +3,7 @@
 use crate::{configurable_value::ConfigurableValue, ConfigurableValueError};
 use oif_types::constants::limits::{
 	DEFAULT_GLOBAL_TIMEOUT_MS, DEFAULT_MAX_CONCURRENT_SOLVERS, DEFAULT_MAX_RETRIES_PER_SOLVER,
-	DEFAULT_RETRY_DELAY_MS,
+	DEFAULT_ORDER_RETENTION_DAYS, DEFAULT_RETRY_DELAY_MS,
 };
 use oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS;
 use oif_types::SecretString;
@@ -20,6 +20,7 @@ pub struct Settings {
 	pub environment: EnvironmentSettings,
 	pub logging: LoggingSettings,
 	pub security: SecuritySettings,
+	pub maintenance: Option<MaintenanceSettings>,
 }
 
 /// Server configuration
@@ -203,6 +204,19 @@ pub struct SecuritySettings {
 	pub integrity_secret: ConfigurableValue,
 }
 
+/// Maintenance and cleanup job configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MaintenanceSettings {
+	/// Number of days to retain orders in final status before cleanup
+	///
+	/// Orders with status 'Finalized' or 'Failed' older than this many days
+	/// will be automatically deleted by the daily cleanup job.
+	///
+	/// Default: 10 days
+	/// Environment variable: ORDER_RETENTION_DAYS
+	pub order_retention_days: u32,
+}
+
 impl Default for Settings {
 	fn default() -> Self {
 		Self {
@@ -234,6 +248,7 @@ impl Default for Settings {
 			security: SecuritySettings {
 				integrity_secret: ConfigurableValue::from_env("INTEGRITY_SECRET"),
 			},
+			maintenance: None, // Uses defaults when None
 		}
 	}
 }
@@ -264,5 +279,14 @@ impl Settings {
 	/// Get integrity secret for secure handling (caller should wrap in SecretString)
 	pub fn get_integrity_secret_secure(&self) -> Result<SecretString, ConfigurableValueError> {
 		self.security.integrity_secret.resolve_for_secret()
+	}
+
+	/// Get order retention days with fallback to default
+	pub fn get_order_retention_days(&self) -> u32 {
+		// Check config file maintenance section, then use default
+		self.maintenance
+			.as_ref()
+			.map(|m| m.order_retention_days)
+			.unwrap_or(DEFAULT_ORDER_RETENTION_DAYS)
 	}
 }
