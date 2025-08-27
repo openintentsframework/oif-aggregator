@@ -48,6 +48,9 @@ pub enum BackgroundJob {
 
 	/// Clean up old orders in final status
 	OrdersCleanup,
+
+	/// Monitor and update status for a specific order with exponential backoff
+	OrderStatusMonitor { order_id: String, attempt: u32 },
 }
 
 impl BackgroundJob {
@@ -63,6 +66,12 @@ impl BackgroundJob {
 			BackgroundJob::AllSolversHealthCheck => "Health check for all solvers".to_string(),
 			BackgroundJob::AllSolversFetchAssets => "Fetch assets for all solvers".to_string(),
 			BackgroundJob::OrdersCleanup => "Clean up old orders in final status".to_string(),
+			BackgroundJob::OrderStatusMonitor { order_id, attempt } => {
+				format!(
+					"Monitor status for order '{}' (attempt {})",
+					order_id, attempt
+				)
+			},
 		}
 	}
 
@@ -73,7 +82,8 @@ impl BackgroundJob {
 			| BackgroundJob::FetchSolverAssets { solver_id } => Some(solver_id),
 			BackgroundJob::AllSolversHealthCheck
 			| BackgroundJob::AllSolversFetchAssets
-			| BackgroundJob::OrdersCleanup => None,
+			| BackgroundJob::OrdersCleanup
+			| BackgroundJob::OrderStatusMonitor { .. } => None,
 		}
 	}
 }

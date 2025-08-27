@@ -4,8 +4,8 @@
 //! providing quote aggregation, intent submission, and solver management.
 
 use oif_service::{
-	BackgroundJob, BackgroundJobHandler, IntegrityService, IntegrityTrait, JobProcessor,
-	JobProcessorConfig, OrderService, OrderServiceTrait, SolverFilterService, SolverFilterTrait,
+	jobs::UpgradableJobScheduler, BackgroundJob, BackgroundJobHandler, IntegrityService,
+	IntegrityTrait, JobProcessor, JobProcessorConfig, SolverFilterService, SolverFilterTrait,
 	SolverService, SolverServiceTrait,
 };
 use oif_types::{solvers::AssetSource, Asset};
@@ -46,7 +46,6 @@ pub use oif_types::{
 // Service layer
 pub use oif_service::{
 	AggregatorService,
-	OrderServiceError,
 	SolverServiceError,
 	SolverStats,
 	// Keep the full module for more advanced usage
@@ -526,13 +525,22 @@ where
 			Arc::clone(&storage_arc),
 			Arc::clone(&adapter_registry),
 		)) as Arc<dyn SolverServiceTrait>;
-		let order_service = Arc::new(oif_service::order::OrderService::new(
+
+		// Create an upgradable job scheduler (works immediately, gets upgraded later)
+		let job_scheduler = Arc::new(UpgradableJobScheduler::new())
+			as Arc<dyn oif_service::jobs::scheduler::JobScheduler>;
+
+		// Create the order service with the upgradable scheduler
+		let order_service_impl = oif_service::order::OrderService::new(
 			Arc::clone(&storage_arc),
 			Arc::clone(&adapter_registry),
 			Arc::clone(&integrity_service),
-		)) as Arc<dyn oif_service::order::OrderServiceTrait>;
+			Arc::clone(&job_scheduler),
+		);
+		let order_service =
+			Arc::new(order_service_impl) as Arc<dyn oif_service::order::OrderServiceTrait>;
 
-		// Initialize background job processor with all services
+		// Create the job handler with all real services
 		let job_handler = Arc::new(BackgroundJobHandler::new(
 			Arc::clone(&storage_arc),
 			Arc::clone(&adapter_registry),
@@ -540,11 +548,27 @@ where
 			Arc::clone(&aggregator_service),
 			Arc::clone(&integrity_service),
 			Arc::clone(&order_service),
+			Arc::clone(&job_scheduler),
 			settings.clone(),
 		));
-		let job_processor = JobProcessor::new(job_handler, self.job_processor_config.clone())
-			.map_err(|e| format!("Failed to initialize job processor: {}", e))?;
+
+		// Create the JobProcessor with the real handler
+		let job_processor = JobProcessor::new(
+			job_handler as Arc<dyn oif_service::jobs::processor::JobHandler>,
+			self.job_processor_config.clone(),
+		)
+		.map_err(|e| format!("Failed to initialize job processor: {}", e))?;
 		let job_processor_arc = Arc::new(job_processor);
+
+		// Upgrade the scheduler with the JobProcessor
+		if let Some(upgradable_scheduler) = job_scheduler
+			.as_any()
+			.downcast_ref::<UpgradableJobScheduler>()
+		{
+			upgradable_scheduler
+				.initialize_processor(Arc::clone(&job_processor_arc))
+				.await;
+		}
 
 		// Schedule recurring maintenance jobs
 		self.schedule_recurring_jobs(&job_processor_arc).await;
@@ -554,11 +578,7 @@ where
 		// Create application state
 		let app_state = AppState {
 			aggregator_service,
-			order_service: Arc::new(OrderService::new(
-				Arc::clone(&storage_arc),
-				Arc::clone(&adapter_registry),
-				Arc::clone(&integrity_service),
-			)) as Arc<dyn OrderServiceTrait>,
+			order_service,
 			solver_service,
 			storage: storage_arc,
 			integrity_service,

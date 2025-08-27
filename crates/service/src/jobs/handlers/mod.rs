@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
+use crate::jobs::JobScheduler;
 use crate::{order::OrderServiceTrait, AggregatorTrait, IntegrityTrait, SolverServiceTrait};
 use oif_adapters::AdapterRegistry;
 use oif_config::Settings;
@@ -16,6 +17,7 @@ use super::processor::JobHandler;
 use super::types::{BackgroundJob, JobResult};
 use orders_cleanup::OrdersCleanupParams;
 
+pub mod order_status_monitor;
 pub mod orders_cleanup;
 pub mod solver_fetch_assets;
 pub mod solver_health_check;
@@ -23,6 +25,7 @@ pub mod solvers_fetch_assets;
 pub mod solvers_health_check;
 
 // Re-export handler structs for convenience
+pub use order_status_monitor::OrderStatusMonitorHandler;
 pub use orders_cleanup::OrdersCleanupHandler;
 pub use solver_fetch_assets::SolverFetchAssetsHandler;
 pub use solver_health_check::SolverHealthCheckHandler;
@@ -37,21 +40,27 @@ pub struct BackgroundJobHandler {
 	solvers_health_check_handler: SolversHealthCheckHandler,
 	solvers_fetch_assets_handler: SolversFetchAssetsHandler,
 	orders_cleanup_handler: OrdersCleanupHandler,
+	order_status_monitor_handler: OrderStatusMonitorHandler,
+	// Core services available to all handlers
 	solver_service: Arc<dyn SolverServiceTrait>,
 	aggregator_service: Arc<dyn AggregatorTrait>,
 	integrity_service: Arc<dyn IntegrityTrait>,
+	order_service: Arc<dyn OrderServiceTrait>,
+	storage: Arc<dyn Storage>,
 	settings: Settings,
 }
 
 impl BackgroundJobHandler {
 	/// Create a new background job handler
+	#[allow(clippy::too_many_arguments)]
 	pub fn new(
-		_storage: Arc<dyn Storage>,
+		storage: Arc<dyn Storage>,
 		_adapter_registry: Arc<AdapterRegistry>,
 		solver_service: Arc<dyn SolverServiceTrait>,
 		aggregator_service: Arc<dyn AggregatorTrait>,
 		integrity_service: Arc<dyn IntegrityTrait>,
 		order_service: Arc<dyn OrderServiceTrait>,
+		job_scheduler: Arc<dyn JobScheduler>,
 		settings: Settings,
 	) -> Self {
 		Self {
@@ -64,9 +73,17 @@ impl BackgroundJobHandler {
 				&solver_service,
 			)),
 			orders_cleanup_handler: OrdersCleanupHandler::new(Arc::clone(&order_service)),
+			order_status_monitor_handler: OrderStatusMonitorHandler::new(
+				Arc::clone(&order_service),
+				Arc::clone(&storage),
+				Arc::clone(&job_scheduler),
+				None, // Use default monitoring configuration
+			),
 			solver_service,
 			aggregator_service,
 			integrity_service,
+			order_service,
+			storage,
 			settings,
 		}
 	}
@@ -96,6 +113,12 @@ impl JobHandler for BackgroundJobHandler {
 				let retention_days = self.settings.get_order_retention_days();
 				let params = OrdersCleanupParams::new(retention_days);
 				self.orders_cleanup_handler.handle(params).await
+			},
+			BackgroundJob::OrderStatusMonitor { order_id, attempt } => {
+				// Delegate to the order status monitor handler
+				self.order_status_monitor_handler
+					.handle_order_monitoring(&order_id, attempt)
+					.await
 			},
 		}
 	}

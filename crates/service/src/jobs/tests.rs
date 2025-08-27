@@ -14,6 +14,7 @@ use oif_types::Solver;
 
 use super::handlers::BackgroundJobHandler;
 use super::processor::{JobHandler, JobProcessor, JobProcessorConfig, JobStatus, RetryPolicy};
+use super::scheduler::{JobScheduler, MockJobScheduler};
 use super::types::{BackgroundJob, JobError};
 
 // Helper function to create test services
@@ -58,10 +59,27 @@ async fn test_job_processor_basic_functionality() {
 		"test_secret_key_1234567890123456".to_string().into(),
 	)) as Arc<dyn IntegrityTrait>;
 
+	// Create mock job scheduler for testing
+	let mut mock_scheduler = MockJobScheduler::new();
+	mock_scheduler
+		.expect_schedule_with_delay()
+		.times(..)
+		.returning(|_, _, _| Box::pin(async { Ok("mock-delayed-job-id".to_string()) }));
+	mock_scheduler
+		.expect_schedule_recurring()
+		.times(..)
+		.returning(|_, _, _| Box::pin(async { Ok("mock-recurring-job-id".to_string()) }));
+	mock_scheduler
+		.expect_cancel_job()
+		.times(..)
+		.returning(|_| Box::pin(async { Ok(()) }));
+	let job_scheduler = Arc::new(mock_scheduler) as Arc<dyn JobScheduler>;
+
 	let order_service = Arc::new(OrderService::new(
 		Arc::clone(&storage),
 		Arc::clone(&adapter_registry),
 		Arc::clone(&integrity_service),
+		Arc::clone(&job_scheduler),
 	)) as Arc<dyn OrderServiceTrait>;
 
 	// Create job handler with all required services
@@ -77,6 +95,7 @@ async fn test_job_processor_basic_functionality() {
 		aggregator_service,
 		integrity_service,
 		order_service,
+		job_scheduler,
 		oif_config::Settings::default(),
 	));
 
@@ -116,10 +135,27 @@ async fn test_job_processor_queue_capacity() {
 		"test_secret_key_1234567890123456".to_string().into(),
 	)) as Arc<dyn IntegrityTrait>;
 
+	// Create mock job scheduler for testing
+	let mut mock_scheduler = MockJobScheduler::new();
+	mock_scheduler
+		.expect_schedule_with_delay()
+		.times(..)
+		.returning(|_, _, _| Box::pin(async { Ok("mock-delayed-job-id".to_string()) }));
+	mock_scheduler
+		.expect_schedule_recurring()
+		.times(..)
+		.returning(|_, _, _| Box::pin(async { Ok("mock-recurring-job-id".to_string()) }));
+	mock_scheduler
+		.expect_cancel_job()
+		.times(..)
+		.returning(|_| Box::pin(async { Ok(()) }));
+	let job_scheduler = Arc::new(mock_scheduler) as Arc<dyn JobScheduler>;
+
 	let order_service = Arc::new(OrderService::new(
 		Arc::clone(&storage),
 		Arc::clone(&adapter_registry),
 		Arc::clone(&integrity_service),
+		Arc::clone(&job_scheduler),
 	)) as Arc<dyn OrderServiceTrait>;
 
 	let (solver_service, aggregator_service, _) = create_test_services(
@@ -134,6 +170,7 @@ async fn test_job_processor_queue_capacity() {
 		aggregator_service,
 		integrity_service,
 		order_service,
+		job_scheduler,
 		oif_config::Settings::default(),
 	));
 
@@ -184,10 +221,27 @@ async fn test_solver_maintenance_handler() {
 		"test_secret_key_1234567890123456".to_string().into(),
 	)) as Arc<dyn IntegrityTrait>;
 
+	// Create mock job scheduler for testing
+	let mut mock_scheduler = MockJobScheduler::new();
+	mock_scheduler
+		.expect_schedule_with_delay()
+		.times(..)
+		.returning(|_, _, _| Box::pin(async { Ok("mock-delayed-job-id".to_string()) }));
+	mock_scheduler
+		.expect_schedule_recurring()
+		.times(..)
+		.returning(|_, _, _| Box::pin(async { Ok("mock-recurring-job-id".to_string()) }));
+	mock_scheduler
+		.expect_cancel_job()
+		.times(..)
+		.returning(|_| Box::pin(async { Ok(()) }));
+	let job_scheduler = Arc::new(mock_scheduler) as Arc<dyn JobScheduler>;
+
 	let order_service = Arc::new(OrderService::new(
 		Arc::clone(&storage),
 		Arc::clone(&adapter_registry),
 		Arc::clone(&integrity_service),
+		Arc::clone(&job_scheduler),
 	)) as Arc<dyn OrderServiceTrait>;
 	// Create a test solver
 	let solver = Solver::new(
@@ -212,6 +266,7 @@ async fn test_solver_maintenance_handler() {
 		aggregator_service,
 		integrity_service,
 		order_service,
+		job_scheduler,
 		oif_config::Settings::default(),
 	);
 
@@ -273,10 +328,27 @@ async fn test_job_scheduling() {
 		"test_secret_key_1234567890123456".to_string().into(),
 	)) as Arc<dyn IntegrityTrait>;
 
+	// Create mock job scheduler for testing
+	let mut mock_scheduler = MockJobScheduler::new();
+	mock_scheduler
+		.expect_schedule_with_delay()
+		.times(..)
+		.returning(|_, _, _| Box::pin(async { Ok("mock-delayed-job-id".to_string()) }));
+	mock_scheduler
+		.expect_schedule_recurring()
+		.times(..)
+		.returning(|_, _, _| Box::pin(async { Ok("mock-recurring-job-id".to_string()) }));
+	mock_scheduler
+		.expect_cancel_job()
+		.times(..)
+		.returning(|_| Box::pin(async { Ok(()) }));
+	let job_scheduler = Arc::new(mock_scheduler) as Arc<dyn JobScheduler>;
+
 	let order_service = Arc::new(OrderService::new(
 		Arc::clone(&storage),
 		Arc::clone(&adapter_registry),
 		Arc::clone(&integrity_service),
+		Arc::clone(&job_scheduler),
 	)) as Arc<dyn OrderServiceTrait>;
 
 	// Create job handler with all required services
@@ -292,6 +364,7 @@ async fn test_job_scheduling() {
 		aggregator_service,
 		integrity_service,
 		order_service,
+		job_scheduler,
 		oif_config::Settings::default(),
 	));
 
@@ -462,10 +535,27 @@ async fn test_job_memory_management() {
 		"test_secret_key_1234567890123456".to_string().into(),
 	)) as Arc<dyn IntegrityTrait>;
 
+	// Create mock job scheduler for testing
+	let mut mock_scheduler = MockJobScheduler::new();
+	mock_scheduler
+		.expect_schedule_with_delay()
+		.times(..)
+		.returning(|_, _, _| Box::pin(async { Ok("mock-delayed-job-id".to_string()) }));
+	mock_scheduler
+		.expect_schedule_recurring()
+		.times(..)
+		.returning(|_, _, _| Box::pin(async { Ok("mock-recurring-job-id".to_string()) }));
+	mock_scheduler
+		.expect_cancel_job()
+		.times(..)
+		.returning(|_| Box::pin(async { Ok(()) }));
+	let job_scheduler = Arc::new(mock_scheduler) as Arc<dyn JobScheduler>;
+
 	let order_service = Arc::new(OrderService::new(
 		Arc::clone(&storage),
 		Arc::clone(&adapter_registry),
 		Arc::clone(&integrity_service),
+		Arc::clone(&job_scheduler),
 	)) as Arc<dyn OrderServiceTrait>;
 
 	let (solver_service, aggregator_service, _) = create_test_services(
@@ -481,6 +571,7 @@ async fn test_job_memory_management() {
 		aggregator_service,
 		integrity_service,
 		order_service,
+		job_scheduler,
 		oif_config::Settings::default(),
 	));
 
@@ -577,10 +668,27 @@ async fn test_orders_cleanup_job() {
 		"test_secret_key_1234567890123456".to_string().into(),
 	)) as Arc<dyn IntegrityTrait>;
 
+	// Create mock job scheduler for testing
+	let mut mock_scheduler = MockJobScheduler::new();
+	mock_scheduler
+		.expect_schedule_with_delay()
+		.times(..)
+		.returning(|_, _, _| Box::pin(async { Ok("mock-delayed-job-id".to_string()) }));
+	mock_scheduler
+		.expect_schedule_recurring()
+		.times(..)
+		.returning(|_, _, _| Box::pin(async { Ok("mock-recurring-job-id".to_string()) }));
+	mock_scheduler
+		.expect_cancel_job()
+		.times(..)
+		.returning(|_| Box::pin(async { Ok(()) }));
+	let job_scheduler = Arc::new(mock_scheduler) as Arc<dyn JobScheduler>;
+
 	let order_service = Arc::new(OrderService::new(
 		Arc::clone(&storage),
 		Arc::clone(&adapter_registry),
 		Arc::clone(&integrity_service),
+		Arc::clone(&job_scheduler),
 	)) as Arc<dyn OrderServiceTrait>;
 
 	// Create job handler
@@ -596,6 +704,7 @@ async fn test_orders_cleanup_job() {
 		aggregator_service,
 		integrity_service,
 		order_service,
+		job_scheduler,
 		oif_config::Settings::default(),
 	);
 
