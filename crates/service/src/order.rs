@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
+use oif_types::adapters::AssetAmount;
 
 /// Tracing target for structured logging
 const TRACING_TARGET: &str = "oif_service::order";
@@ -139,14 +140,8 @@ impl OrderServiceTrait for OrderService {
 
 		// Use empty amounts for initial order creation - real amounts will be populated
 		// when the order monitoring fetches the complete order details from the solver
-		let input_amount = oif_types::adapters::AssetAmount {
-			asset: "".to_string(),
-			amount: 0u64.into(),
-		};
-		let output_amount = oif_types::adapters::AssetAmount {
-			asset: "".to_string(),
-			amount: 0u64.into(),
-		};
+		let input_amount = AssetAmount::default();
+		let output_amount = AssetAmount::default();
 
 		let order = Order {
 			order_id: order_id.clone(),

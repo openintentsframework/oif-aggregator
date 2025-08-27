@@ -203,6 +203,15 @@ pub struct AssetAmount {
 	pub amount: U256,
 }
 
+impl Default for AssetAmount {
+	fn default() -> Self {
+		Self {
+			asset: "".to_string(),
+			amount: 0u64.into(),
+		}
+	}
+}
+
 /// Order response for API endpoints.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
