@@ -292,6 +292,11 @@ impl InteropAddress {
 			.unwrap_or(false)
 	}
 
+	/// Check if this address is the zero address (empty/unset)
+	pub fn is_empty(&self) -> bool {
+		self.address.iter().all(|&b| b == 0)
+	}
+
 	/// Validate Ethereum address (20 bytes)
 	fn validate_ethereum_address(address: &[u8]) -> QuoteValidationResult<()> {
 		if address.len() != 20 {
@@ -510,5 +515,20 @@ mod tests {
 		assert!(addr.validate().is_ok());
 		assert!(addr.is_on_chain(31337));
 		assert!(!addr.is_on_chain(1));
+	}
+
+	#[test]
+	fn test_is_empty() {
+		// Test zero address (empty)
+		let zero_addr =
+			InteropAddress::from_chain_and_address(1, "0x0000000000000000000000000000000000000000")
+				.unwrap();
+		assert!(zero_addr.is_empty());
+
+		// Test non-zero address (not empty)
+		let addr =
+			InteropAddress::from_chain_and_address(1, "0xD8DA6BF26964aF9D7eEd9e03E53415D37aA96045")
+				.unwrap();
+		assert!(!addr.is_empty());
 	}
 }

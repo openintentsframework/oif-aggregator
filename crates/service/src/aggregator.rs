@@ -1102,6 +1102,16 @@ mod tests {
 			Ok(oif_types::adapters::models::SubmitOrderResponse {
 				status: "success".to_string(),
 				order_id: Some(order_id.clone()),
+				order: oif_types::adapters::models::StandardOrder {
+					expires: oif_types::chrono::Utc::now().timestamp() as u64,
+					fill_deadline: oif_types::chrono::Utc::now().timestamp() as u64,
+					input_oracle: "0x0000000000000000000000000000000000000000".to_string(),
+					inputs: vec![],
+					nonce: "0".to_string(),
+					origin_chain_id: "1".to_string(),
+					outputs: vec![],
+					user: "0x0000000000000000000000000000000000000000".to_string(),
+				},
 				message: Some("Order submitted successfully".to_string()),
 			})
 		}
@@ -1135,11 +1145,19 @@ mod tests {
 					created_at: oif_types::chrono::Utc::now().timestamp() as u64,
 					updated_at: oif_types::chrono::Utc::now().timestamp() as u64,
 					input_amount: AssetAmount {
-						asset: "0x0000000000000000000000000000000000000000".to_string(),
+						asset: oif_types::InteropAddress::from_chain_and_address(
+							1,
+							"0x0000000000000000000000000000000000000000",
+						)
+						.unwrap(),
 						amount: oif_types::U256::new("1000000000000000000".to_string()),
 					},
 					output_amount: AssetAmount {
-						asset: "0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0".to_string(),
+						asset: oif_types::InteropAddress::from_chain_and_address(
+							1,
+							"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
+						)
+						.unwrap(),
 						amount: oif_types::U256::new("1000000".to_string()),
 					},
 					settlement: Settlement {
