@@ -16,7 +16,8 @@ use oif_types::adapters::{
 	models::{
 		AdapterQuote, AssetAmount, AvailableInput, GetOrderResponse, GetQuoteRequest,
 		GetQuoteResponse, OrderResponse, OrderStatus, QuoteDetails, QuoteOrder, RequestedOutput,
-		Settlement, SettlementType, SignatureType, SubmitOrderRequest,
+		Settlement, SettlementType, SignatureType, SolMandateOutput, StandardOrder,
+		SubmitOrderRequest,
 	},
 	traits::SolverAdapter,
 	AdapterResult, AdapterValidationError,
@@ -171,6 +172,28 @@ impl SolverAdapter for MockDemoAdapter {
 			status: "success".to_string(),
 			order_id: Some(order_id.clone()),
 			message: Some("Order submitted successfully".to_string()),
+			order: StandardOrder {
+				expires: Utc::now().timestamp() as u64 + 300,
+				fill_deadline: Utc::now().timestamp() as u64 + 300,
+				input_oracle: "0x0000000000000000000000000000000000000000".to_string(),
+				inputs: vec![vec![
+					"0x0000000000000000000000000000000000000000".to_string(),
+					"0x0000000000000000000000000000000000000000".to_string(),
+				]],
+				nonce: "0x0000000000000000000000000000000000000000".to_string(),
+				origin_chain_id: "1".to_string(),
+				outputs: vec![SolMandateOutput {
+					amount: "1000000000000000000".to_string(),
+					call: "0x".to_string(),
+					chain_id: "1".to_string(),
+					context: "0x".to_string(),
+					oracle: "0x0000000000000000000000000000000000000000".to_string(),
+					recipient: "0x0000000000000000000000000000000000000000".to_string(),
+					settler: "0x0000000000000000000000000000000000000000".to_string(),
+					token: "0x0000000000000000000000000000000000000000".to_string(),
+				}],
+				user: "0x0000000000000000000000000000000000000000".to_string(),
+			},
 		})
 	}
 
@@ -187,11 +210,19 @@ impl SolverAdapter for MockDemoAdapter {
 				created_at: Utc::now().timestamp() as u64 - 60,
 				updated_at: Utc::now().timestamp() as u64,
 				input_amount: AssetAmount {
-					asset: "0x0000000000000000000000000000000000000000".to_string(),
+					asset: InteropAddress::from_chain_and_address(
+						1,
+						"0x0000000000000000000000000000000000000000",
+					)
+					.unwrap(),
 					amount: U256::new("1000000000000000000".to_string()),
 				},
 				output_amount: AssetAmount {
-					asset: "0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0".to_string(),
+					asset: InteropAddress::from_chain_and_address(
+						1,
+						"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
+					)
+					.unwrap(),
 					amount: U256::new("1000000".to_string()),
 				},
 				settlement: Settlement {
@@ -336,6 +367,28 @@ impl SolverAdapter for MockTestAdapter {
 			status: "success".to_string(),
 			order_id: Some(order_id.clone()),
 			message: Some("Order submitted successfully".to_string()),
+			order: StandardOrder {
+				expires: Utc::now().timestamp() as u64 + 300,
+				fill_deadline: Utc::now().timestamp() as u64 + 300,
+				input_oracle: "0x0000000000000000000000000000000000000000".to_string(),
+				inputs: vec![vec![
+					"0x0000000000000000000000000000000000000000".to_string(),
+					"0x0000000000000000000000000000000000000000".to_string(),
+				]],
+				nonce: "0x0000000000000000000000000000000000000000".to_string(),
+				origin_chain_id: "1".to_string(),
+				outputs: vec![SolMandateOutput {
+					amount: "1000000000000000000".to_string(),
+					call: "0x".to_string(),
+					chain_id: "1".to_string(),
+					context: "0x".to_string(),
+					oracle: "0x0000000000000000000000000000000000000000".to_string(),
+					recipient: "0x0000000000000000000000000000000000000000".to_string(),
+					settler: "0x0000000000000000000000000000000000000000".to_string(),
+					token: "0x0000000000000000000000000000000000000000".to_string(),
+				}],
+				user: "0x0000000000000000000000000000000000000000".to_string(),
+			},
 		})
 	}
 
@@ -360,11 +413,19 @@ impl SolverAdapter for MockTestAdapter {
 				created_at: Utc::now().timestamp() as u64,
 				updated_at: Utc::now().timestamp() as u64,
 				input_amount: AssetAmount {
-					asset: "0x0000000000000000000000000000000000000000".to_string(),
+					asset: InteropAddress::from_chain_and_address(
+						1,
+						"0x0000000000000000000000000000000000000000",
+					)
+					.unwrap(),
 					amount: U256::new("0".to_string()),
 				},
 				output_amount: AssetAmount {
-					asset: "0x0000000000000000000000000000000000000000".to_string(),
+					asset: InteropAddress::from_chain_and_address(
+						1,
+						"0x0000000000000000000000000000000000000000",
+					)
+					.unwrap(),
 					amount: U256::new("0".to_string()),
 				},
 				settlement: Settlement {
@@ -623,6 +684,28 @@ impl SolverAdapter for TimingControlledAdapter {
 			status: "success".to_string(),
 			order_id: Some(order_id.clone()),
 			message: Some("Order submitted successfully".to_string()),
+			order: StandardOrder {
+				expires: Utc::now().timestamp() as u64 + 300,
+				fill_deadline: Utc::now().timestamp() as u64 + 300,
+				input_oracle: "0x0000000000000000000000000000000000000000".to_string(),
+				inputs: vec![vec![
+					"0x0000000000000000000000000000000000000000".to_string(),
+					"0x0000000000000000000000000000000000000000".to_string(),
+				]],
+				nonce: "0x0000000000000000000000000000000000000000".to_string(),
+				origin_chain_id: "1".to_string(),
+				outputs: vec![SolMandateOutput {
+					amount: "1000000000000000000".to_string(),
+					call: "0x".to_string(),
+					chain_id: "1".to_string(),
+					context: "0x".to_string(),
+					oracle: "0x0000000000000000000000000000000000000000".to_string(),
+					recipient: "0x0000000000000000000000000000000000000000".to_string(),
+					settler: "0x0000000000000000000000000000000000000000".to_string(),
+					token: "0x0000000000000000000000000000000000000000".to_string(),
+				}],
+				user: "0x0000000000000000000000000000000000000000".to_string(),
+			},
 		})
 	}
 
@@ -651,11 +734,19 @@ impl SolverAdapter for TimingControlledAdapter {
 				created_at: Utc::now().timestamp() as u64,
 				updated_at: Utc::now().timestamp() as u64,
 				input_amount: AssetAmount {
-					asset: "0x0000000000000000000000000000000000000000".to_string(),
+					asset: InteropAddress::from_chain_and_address(
+						1,
+						"0x0000000000000000000000000000000000000000",
+					)
+					.unwrap(),
 					amount: U256::new("1000000000000000000".to_string()),
 				},
 				output_amount: AssetAmount {
-					asset: "0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0".to_string(),
+					asset: InteropAddress::from_chain_and_address(
+						1,
+						"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
+					)
+					.unwrap(),
 					amount: U256::new("1000000".to_string()),
 				},
 				settlement: Settlement {

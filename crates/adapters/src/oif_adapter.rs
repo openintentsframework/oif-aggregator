@@ -243,10 +243,13 @@ impl SolverAdapter for OifAdapter {
 				reason: format!("Failed to parse OIF order response: {}", e),
 			})?;
 
-		if order_response.status != "success" || order_response.order_id.is_none() {
+		// Check if response is invalid: bad status AND no order_id
+		if !matches!(order_response.status.as_str(), "success" | "received")
+			&& order_response.order_id.is_none()
+		{
 			return Err(AdapterError::InvalidResponse {
 				reason: format!(
-					"OIF order endpoint returned status {}",
+					"OIF order endpoint returned status '{}' with no order_id",
 					order_response.status
 				),
 			});
