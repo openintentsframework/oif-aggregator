@@ -434,6 +434,6 @@ mod tests {
 		assert_eq!(config.backoff_schedule, vec![5, 10, 15, 30, 60, 120, 300]);
 		assert_eq!(config.max_backoff_seconds, 300);
 		assert_eq!(config.max_attempts, None);
-		assert_eq!(config.refresh_timeout_seconds, 30);
+		assert_eq!(config.refresh_timeout_seconds, 5);
 	}
 }
