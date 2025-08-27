@@ -109,11 +109,13 @@ impl MockEntities {
 			created_at: Utc::now(),
 			updated_at: Utc::now(),
 			input_amount: AssetAmount {
-				asset: TestConstants::WETH_ADDRESS.to_string(),
+				asset: InteropAddress::from_chain_and_address(1, TestConstants::WETH_ADDRESS)
+					.unwrap(),
 				amount: U256::new("1000000000000000000".to_string()),
 			},
 			output_amount: AssetAmount {
-				asset: TestConstants::USDC_ADDRESS.to_string(),
+				asset: InteropAddress::from_chain_and_address(1, TestConstants::USDC_ADDRESS)
+					.unwrap(),
 				amount: U256::new("1000000".to_string()),
 			},
 			settlement: Settlement {
