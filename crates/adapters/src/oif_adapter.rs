@@ -1,44 +1,135 @@
 //! OIF v1 adapter implementation for HTTP-based solvers
-//! TODO: Implement OIF adapter
+//!
+//! This adapter uses an optimized client cache for connection pooling and keep-alive.
 
-use async_trait::async_trait;
-use oif_types::adapters::models::SubmitOrderRequest;
-use oif_types::adapters::GetOrderResponse;
-use oif_types::{Adapter, Asset, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig};
-use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 use reqwest::{
 	header::{HeaderMap, HeaderValue},
 	Client,
 };
-use std::time::Duration;
+use std::{str::FromStr, sync::Arc};
+
+use async_trait::async_trait;
+use oif_types::adapters::models::{SubmitOrderRequest, SubmitOrderResponse};
+use oif_types::adapters::GetOrderResponse;
+use oif_types::{Adapter, Asset, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig};
+use oif_types::{AdapterError, AdapterResult, SolverAdapter};
+use serde::{Deserialize, Serialize};
+use serde_json;
+use std::collections::HashMap;
 use tracing::{debug, warn};
 
+use crate::client_cache::{ClientCache, ClientConfig};
+
+/// OIF tokens response models
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OifTokensResponse {
+	networks: HashMap<String, OifNetwork>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OifNetwork {
+	chain_id: u64,
+	input_settler: String,
+	output_settler: String,
+	tokens: Vec<OifToken>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct OifToken {
+	address: String,
+	symbol: String,
+	decimals: u8,
+}
+
+/// Client strategy for the OIF adapter
+#[derive(Debug)]
+enum ClientStrategy {
+	/// Use optimized client cache for connection pooling and reuse
+	Cached(ClientCache),
+	/// Create clients on-demand with no caching
+	OnDemand,
+}
+
 /// OIF v1 adapter for HTTP-based solvers
-/// This adapter is stateless and receives solver configuration at runtime
 #[derive(Debug)]
 pub struct OifAdapter {
 	config: Adapter,
-	client: Client,
+	client_strategy: ClientStrategy,
 }
 
 impl OifAdapter {
-	/// Create a new OIF adapter (stateless, no hardcoded endpoint/timeout)
+	/// Create a new OIF adapter with optimized client caching (recommended)
+	///
+	/// This constructor provides optimal performance with connection pooling,
+	/// keep-alive optimization, and automatic TTL management.
 	pub fn new(config: Adapter) -> AdapterResult<Self> {
-		let mut headers = HeaderMap::new();
+		Self::with_cache(config, ClientCache::for_adapter())
+	}
 
-		// Add default headers
+	/// Create OIF adapter with custom client cache
+	///
+	/// Allows using a custom cache configuration for specific performance requirements
+	/// or testing scenarios.
+	pub fn with_cache(config: Adapter, cache: ClientCache) -> AdapterResult<Self> {
+		Ok(Self {
+			config,
+			client_strategy: ClientStrategy::Cached(cache),
+		})
+	}
+
+	/// Create OIF adapter without client caching
+	///
+	/// Creates clients on-demand for each request. Simpler but less efficient
+	/// than the cached approach.
+	pub fn without_cache(config: Adapter) -> AdapterResult<Self> {
+		Ok(Self {
+			config,
+			client_strategy: ClientStrategy::OnDemand,
+		})
+	}
+
+	/// Create a new HTTP client with OIF headers and specified timeout
+	fn create_client(solver_config: &SolverRuntimeConfig) -> AdapterResult<Arc<reqwest::Client>> {
+		let mut headers = HeaderMap::new();
 		headers.insert("Content-Type", HeaderValue::from_static("application/json"));
 		headers.insert("User-Agent", HeaderValue::from_static("OIF-Aggregator/1.0"));
+		headers.insert("X-Adapter-Type", HeaderValue::from_static("OIF-v1"));
+
+		// Add custom headers from the solver config
+		if let Some(solver_headers) = &solver_config.headers {
+			for (key, value) in solver_headers {
+				if let (Ok(header_name), Ok(header_value)) = (
+					reqwest::header::HeaderName::from_str(key),
+					HeaderValue::from_str(value),
+				) {
+					headers.insert(header_name, header_value);
+				}
+			}
+		}
 
 		let client = Client::builder()
 			.default_headers(headers)
 			.build()
 			.map_err(AdapterError::HttpError)?;
 
-		Ok(Self { config, client })
+		Ok(Arc::new(client))
 	}
 
-	/// Create default OIF adapter instance
+	/// Get an HTTP client for the given solver configuration
+	fn get_client(
+		&self,
+		solver_config: &SolverRuntimeConfig,
+	) -> AdapterResult<Arc<reqwest::Client>> {
+		match &self.client_strategy {
+			ClientStrategy::Cached(cache) => {
+				let client_config = ClientConfig::from(solver_config);
+				cache.get_client(&client_config)
+			},
+			ClientStrategy::OnDemand => Self::create_client(solver_config),
+		}
+	}
+
+	/// Create default OIF adapter instance with optimization
 	pub fn with_default_config() -> AdapterResult<Self> {
 		let config = Adapter::new(
 			"oif-v1".to_string(),
@@ -78,53 +169,139 @@ impl SolverAdapter for OifAdapter {
 			request.requested_outputs.len()
 		);
 
-		unimplemented!()
+		let quote_url = format!("{}/quotes", config.endpoint);
+		let client = self.get_client(config)?;
+
+		let response = client
+			.post(quote_url)
+			.json(&request)
+			.send()
+			.await
+			.map_err(AdapterError::HttpError)?;
+
+		if !response.status().is_success() {
+			return Err(AdapterError::InvalidResponse {
+				reason: format!("OIF quote endpoint returned status {}", response.status()),
+			});
+		}
+
+		// Get response body as text first so we can print it
+		let body = response.text().await.unwrap_or_default();
+		debug!("OIF quote endpoint response body: {}", body);
+
+		// Parse the response body manually since we already consumed it
+		let quote_response: GetQuoteResponse =
+			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Failed to parse OIF quote response: {}", e),
+			})?;
+
+		Ok(quote_response)
 	}
 
 	async fn submit_order(
 		&self,
 		order: &SubmitOrderRequest,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetOrderResponse> {
+	) -> AdapterResult<SubmitOrderResponse> {
 		debug!(
 			"Submitting order {} to OIF adapter {} via solver {}",
 			order.order, self.config.adapter_id, config.solver_id
 		);
 
-		unimplemented!()
+		let orders_url = format!("{}/orders", config.endpoint);
+		let client = self.get_client(config)?;
+
+		debug!(
+			"Submitting order to OIF adapter {} via solver {}",
+			self.config.adapter_id, config.solver_id
+		);
+
+		let response = client
+			.post(orders_url)
+			.json(&order)
+			.send()
+			.await
+			.map_err(AdapterError::HttpError)?;
+
+		if !response.status().is_success() {
+			return Err(AdapterError::InvalidResponse {
+				reason: format!(
+					"OIF order endpoint returned status {} with body {}",
+					response.status(),
+					response.text().await.unwrap_or_default()
+				),
+			});
+		}
+
+		// Get response body as text first so we can print it
+		let body = response.text().await.unwrap_or_default();
+		debug!("OIF order endpoint response body: {}", body);
+
+		// Parse the response body manually since we already consumed it
+		let order_response: SubmitOrderResponse =
+			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Failed to parse OIF order response: {}", e),
+			})?;
+
+		// Check if response is invalid: bad status AND no order_id
+		if !matches!(order_response.status.as_str(), "success" | "received")
+			&& order_response.order_id.is_none()
+		{
+			return Err(AdapterError::InvalidResponse {
+				reason: format!(
+					"OIF order endpoint returned status '{}' with no order_id",
+					order_response.status
+				),
+			});
+		}
+
+		Ok(order_response)
 	}
 
 	async fn health_check(&self, config: &SolverRuntimeConfig) -> AdapterResult<bool> {
-		let health_url = format!("{}/health", config.endpoint);
+		let tokens_url = format!("{}/tokens", config.endpoint);
+		let client = self.get_client(config)?;
 
 		debug!(
-			"Health checking OIF adapter at {} (solver: {})",
-			health_url, config.solver_id
+			"Health checking OIF adapter at {} (solver: {}) via /tokens endpoint",
+			tokens_url, config.solver_id
 		);
 
-		match self
-			.client
-			.get(&health_url)
-			.timeout(Duration::from_millis(config.timeout_ms))
-			.send()
-			.await
-		{
+		match client.get(&tokens_url).send().await {
 			Ok(response) => {
 				let is_healthy = response.status().is_success();
 				if is_healthy {
-					debug!("OIF adapter {} is healthy", self.config.adapter_id);
+					// Optionally validate the response format for more thorough health check
+					let body = response.text().await.unwrap_or_default();
+					debug!("OIF health check endpoint response body: {}", body);
+
+					match serde_json::from_str::<OifTokensResponse>(&body) {
+						Ok(_) => {
+							debug!("OIF adapter {} is healthy - /tokens endpoint responded with valid JSON", self.config.adapter_id);
+							Ok(true)
+						},
+						Err(e) => {
+							warn!(
+								"OIF adapter {} /tokens endpoint returned success but invalid JSON: {}",
+								self.config.adapter_id, e
+							);
+							// Still consider it healthy if HTTP status was success,
+							// as the service is responding (might just be format issue)
+							Ok(true)
+						},
+					}
 				} else {
 					warn!(
-						"OIF adapter {} health check failed with status {}",
+						"OIF adapter {} health check failed - /tokens endpoint returned status {}",
 						self.config.adapter_id,
 						response.status()
 					);
+					Ok(false)
 				}
-				Ok(is_healthy)
 			},
 			Err(e) => {
 				warn!(
-					"OIF adapter {} health check failed: {}",
+					"OIF adapter {} health check failed - /tokens endpoint error: {}",
 					self.config.adapter_id, e
 				);
 				Ok(false)
@@ -142,18 +319,337 @@ impl SolverAdapter for OifAdapter {
 			order_id, config.endpoint, config.solver_id
 		);
 
-		unimplemented!()
+		let order_url = format!("{}/orders/{}", config.endpoint, order_id);
+		let client = self.get_client(config)?;
+
+		let response = client
+			.get(order_url)
+			.send()
+			.await
+			.map_err(AdapterError::HttpError)?;
+
+		if !response.status().is_success() {
+			return Err(AdapterError::InvalidResponse {
+				reason: format!("OIF order endpoint returned status {}", response.status()),
+			});
+		}
+
+		// Get response body as text first so we can print it
+		let body = response.text().await.unwrap_or_default();
+		debug!("OIF get order endpoint response body: {}", body);
+
+		// Parse the response body manually since we already consumed it
+		let order_response: GetOrderResponse =
+			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Failed to parse OIF get order response: {}", e),
+			})?;
+
+		Ok(order_response)
 	}
 
-	async fn get_supported_networks(&self) -> AdapterResult<Vec<Network>> {
-		Err(AdapterError::NotImplemented(
-			"OIF adapter getting supported networks not yet implemented".to_string(),
-		))
+	async fn get_supported_networks(
+		&self,
+		config: &SolverRuntimeConfig,
+	) -> AdapterResult<Vec<Network>> {
+		let client = self.get_client(config)?;
+		let tokens_url = format!("{}/tokens", config.endpoint);
+
+		debug!(
+			"Fetching supported networks from OIF adapter at {} (solver: {})",
+			tokens_url, config.solver_id
+		);
+
+		// Make the tokens request (same as get_supported_assets)
+		let response = client
+			.get(&tokens_url)
+			.send()
+			.await
+			.map_err(AdapterError::HttpError)?;
+
+		if !response.status().is_success() {
+			return Err(AdapterError::InvalidResponse {
+				reason: format!("OIF tokens endpoint returned status {}", response.status()),
+			});
+		}
+
+		// Get response body as text first so we can print it
+		let body = response.text().await.unwrap_or_default();
+		debug!("OIF networks endpoint response body: {}", body);
+
+		// Parse the OIF tokens response
+		let oif_response: OifTokensResponse =
+			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Failed to parse OIF tokens response: {}", e),
+			})?;
+
+		// Extract networks from the response
+		let mut networks = Vec::new();
+		for (chain_id_str, network_data) in oif_response.networks {
+			let chain_id = chain_id_str.parse::<u64>().unwrap_or(network_data.chain_id);
+
+			let network = Network::new(chain_id, None, None);
+			networks.push(network);
+		}
+
+		debug!("OIF adapter found {} supported networks", networks.len());
+
+		Ok(networks)
 	}
 
-	async fn get_supported_assets(&self, _network: &Network) -> AdapterResult<Vec<Asset>> {
-		Err(AdapterError::NotImplemented(
-			"OIF adapter getting supported networks not yet implemented".to_string(),
-		))
+	async fn get_supported_assets(
+		&self,
+		config: &SolverRuntimeConfig,
+	) -> AdapterResult<Vec<Asset>> {
+		let client = self.get_client(config)?;
+		let tokens_url = format!("{}/tokens", config.endpoint);
+
+		debug!(
+			"Fetching supported assets from OIF adapter at {} (solver: {})",
+			tokens_url, config.solver_id
+		);
+
+		// Make the tokens request
+		let response = client
+			.get(&tokens_url)
+			.send()
+			.await
+			.map_err(AdapterError::HttpError)?;
+
+		if !response.status().is_success() {
+			return Err(AdapterError::InvalidResponse {
+				reason: format!("OIF tokens endpoint returned status {}", response.status()),
+			});
+		}
+
+		// Get response body as text first so we can print it
+		let body = response.text().await.unwrap_or_default();
+		debug!("OIF tokens endpoint response body: {}", body);
+
+		// Parse the OIF tokens response
+		let oif_response: OifTokensResponse =
+			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Failed to parse OIF tokens response: {}", e),
+			})?;
+
+		// Convert OIF tokens to Assets
+		let mut assets = Vec::new();
+		let networks_count = oif_response.networks.len();
+
+		for (chain_id_str, network) in oif_response.networks {
+			let chain_id = chain_id_str.parse::<u64>().unwrap_or(network.chain_id);
+
+			for token in network.tokens {
+				let asset = Asset::new(
+					token.address,
+					token.symbol.clone(),
+					token.symbol, // Use symbol as name for now
+					token.decimals,
+					chain_id,
+				);
+				assets.push(asset);
+			}
+		}
+
+		debug!(
+			"OIF adapter found {} supported assets across {} networks",
+			assets.len(),
+			networks_count
+		);
+
+		Ok(assets)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use std::time::Duration;
+
+	#[test]
+	fn test_oif_adapter_construction_patterns() {
+		let config = Adapter::new(
+			"test-oif".to_string(),
+			"Test OIF".to_string(),
+			"Test OIF Adapter".to_string(),
+			"1.0.0".to_string(),
+		);
+
+		// Test optimized constructor (default)
+		let adapter_optimized = OifAdapter::new(config.clone()).unwrap();
+		assert!(matches!(
+			adapter_optimized.client_strategy,
+			ClientStrategy::Cached(_)
+		));
+
+		// Test custom cache constructor
+		let custom_cache = ClientCache::with_ttl(Duration::from_secs(60));
+		let adapter_custom = OifAdapter::with_cache(config.clone(), custom_cache).unwrap();
+		assert!(matches!(
+			adapter_custom.client_strategy,
+			ClientStrategy::Cached(_)
+		));
+
+		// Test on-demand constructor
+		let adapter_on_demand = OifAdapter::without_cache(config.clone()).unwrap();
+		assert!(matches!(
+			adapter_on_demand.client_strategy,
+			ClientStrategy::OnDemand
+		));
+	}
+
+	#[test]
+	fn test_oif_adapter_default_config() {
+		let adapter = OifAdapter::with_default_config().unwrap();
+		assert_eq!(adapter.adapter_id(), "oif-v1");
+		assert_eq!(adapter.adapter_name(), "OIF v1 Adapter");
+		assert!(matches!(adapter.client_strategy, ClientStrategy::Cached(_)));
+	}
+
+	#[test]
+	fn test_oif_tokens_response_parsing() {
+		let json_response = r#"{
+			"networks": {
+				"31338": {
+					"chain_id": 31338,
+					"input_settler": "0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0",
+					"output_settler": "0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9",
+					"tokens": [
+						{
+							"address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+							"symbol": "TOKA",
+							"decimals": 18
+						},
+						{
+							"address": "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
+							"symbol": "TOKB",
+							"decimals": 18
+						}
+					]
+				},
+				"31337": {
+					"chain_id": 31337,
+					"input_settler": "0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0",
+					"output_settler": "0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9",
+					"tokens": [
+						{
+							"address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+							"symbol": "TOKA",
+							"decimals": 18
+						}
+					]
+				}
+			}
+		}"#;
+
+		// Test parsing
+		let response: OifTokensResponse = serde_json::from_str(json_response).unwrap();
+
+		assert_eq!(response.networks.len(), 2);
+		assert!(response.networks.contains_key("31338"));
+		assert!(response.networks.contains_key("31337"));
+
+		let network_31338 = &response.networks["31338"];
+		assert_eq!(network_31338.chain_id, 31338);
+		assert_eq!(network_31338.tokens.len(), 2);
+		assert_eq!(network_31338.tokens[0].symbol, "TOKA");
+		assert_eq!(network_31338.tokens[0].decimals, 18);
+
+		let network_31337 = &response.networks["31337"];
+		assert_eq!(network_31337.chain_id, 31337);
+		assert_eq!(network_31337.tokens.len(), 1);
+	}
+
+	#[test]
+	fn test_oif_tokens_to_assets_conversion() {
+		let oif_response = OifTokensResponse {
+			networks: {
+				let mut networks = HashMap::new();
+				networks.insert(
+					"1".to_string(),
+					OifNetwork {
+						chain_id: 1,
+						input_settler: "0x123".to_string(),
+						output_settler: "0x456".to_string(),
+						tokens: vec![
+							OifToken {
+								address: "0xA0b86a33E6441E7C81F7C93451777f5F4dE78e86".to_string(),
+								symbol: "USDC".to_string(),
+								decimals: 6,
+							},
+							OifToken {
+								address: "0x0000000000000000000000000000000000000000".to_string(),
+								symbol: "ETH".to_string(),
+								decimals: 18,
+							},
+						],
+					},
+				);
+				networks.insert(
+					"137".to_string(),
+					OifNetwork {
+						chain_id: 137,
+						input_settler: "0x789".to_string(),
+						output_settler: "0xabc".to_string(),
+						tokens: vec![OifToken {
+							address: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174".to_string(),
+							symbol: "USDC".to_string(),
+							decimals: 6,
+						}],
+					},
+				);
+				networks
+			},
+		};
+
+		// Convert to assets
+		let mut assets = Vec::new();
+		for (chain_id_str, network) in oif_response.networks {
+			let chain_id = chain_id_str.parse::<u64>().unwrap_or(network.chain_id);
+
+			for token in network.tokens {
+				let asset = Asset::new(
+					token.address,
+					token.symbol.clone(),
+					token.symbol,
+					token.decimals,
+					chain_id,
+				);
+				assets.push(asset);
+			}
+		}
+
+		// Verify conversion
+		assert_eq!(assets.len(), 3);
+
+		// Find USDC on Ethereum
+		let usdc_eth = assets
+			.iter()
+			.find(|a| a.symbol == "USDC" && a.chain_id == 1)
+			.unwrap();
+		assert_eq!(
+			usdc_eth.address,
+			"0xA0b86a33E6441E7C81F7C93451777f5F4dE78e86"
+		);
+		assert_eq!(usdc_eth.decimals, 6);
+		assert_eq!(usdc_eth.name, "USDC");
+
+		// Find ETH on Ethereum
+		let eth = assets
+			.iter()
+			.find(|a| a.symbol == "ETH" && a.chain_id == 1)
+			.unwrap();
+		assert_eq!(eth.address, "0x0000000000000000000000000000000000000000");
+		assert_eq!(eth.decimals, 18);
+
+		// Find USDC on Polygon
+		let usdc_poly = assets
+			.iter()
+			.find(|a| a.symbol == "USDC" && a.chain_id == 137)
+			.unwrap();
+		assert_eq!(
+			usdc_poly.address,
+			"0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+		);
+		assert_eq!(usdc_poly.decimals, 6);
 	}
 }

@@ -89,21 +89,10 @@ Configuration can be provided via JSON file in the `config/` directory:
       "solver_id": "example-solver",
       "adapter_id": "oif-v1",
       "endpoint": "https://api.example.com/v1",
-      "timeout_ms": 1500,
       "enabled": true,
-      "max_retries": 1,
       "headers": null,
       "name": "Example Solver",
       "description": "Example Solver Description",
-      "supported_assets": [
-        {
-          "address": "0x0000000000000000000000000000000000000000",
-          "symbol": "ETH",
-          "name": "Ethereum",
-          "decimals": 18,
-          "chain_id": 1
-        }
-      ]
     }
   },
   "timeouts": {
@@ -147,7 +136,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "my-solver".to_string(),
         "oif-v1".to_string(),
         "https://api.solver.com".to_string(),
-        3000,
     );
 
     // Build and start with custom solver

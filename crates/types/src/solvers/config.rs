@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::{Solver, SolverValidationError, SolverValidationResult};
-use crate::constants::{DEFAULT_SOLVER_RETRIES, DEFAULT_SOLVER_TIMEOUT_MS};
 use crate::models::Asset;
 
 /// Solver configuration from external sources (config files, API)
@@ -20,14 +19,8 @@ pub struct SolverConfig {
 	/// HTTP endpoint for the solver API
 	pub endpoint: String,
 
-	/// Timeout for requests in milliseconds
-	pub timeout_ms: u64,
-
 	/// Whether this solver is enabled
 	pub enabled: bool,
-
-	/// Maximum retry attempts for failed requests
-	pub max_retries: u32,
 
 	/// Custom HTTP headers for requests
 	pub headers: Option<HashMap<String, String>>,
@@ -95,9 +88,7 @@ impl SolverConfig {
 			solver_id,
 			adapter_id,
 			endpoint,
-			timeout_ms: DEFAULT_SOLVER_TIMEOUT_MS,
 			enabled: true,
-			max_retries: DEFAULT_SOLVER_RETRIES,
 			headers: None,
 			name: None,
 			description: None,
@@ -105,12 +96,6 @@ impl SolverConfig {
 			supported_assets: None,
 			config: None,
 		}
-	}
-
-	/// Builder methods for easy configuration
-	pub fn with_timeout(mut self, timeout_ms: u64) -> Self {
-		self.timeout_ms = timeout_ms;
-		self
 	}
 
 	pub fn with_name(mut self, name: String) -> Self {
@@ -219,12 +204,7 @@ impl TryFrom<SolverConfig> for Solver {
 	type Error = SolverValidationError;
 
 	fn try_from(config: SolverConfig) -> Result<Self, Self::Error> {
-		let mut solver = Solver::new(
-			config.solver_id,
-			config.adapter_id,
-			config.endpoint,
-			config.timeout_ms,
-		);
+		let mut solver = Solver::new(config.solver_id, config.adapter_id, config.endpoint);
 
 		// Apply metadata
 		if let Some(name) = config.name {
@@ -242,8 +222,6 @@ impl TryFrom<SolverConfig> for Solver {
 		if let Some(assets) = config.supported_assets {
 			solver = solver.with_assets(assets);
 		}
-
-		solver = solver.with_max_retries(config.max_retries);
 
 		if let Some(headers) = config.headers {
 			solver = solver.with_headers(headers);
@@ -298,21 +276,6 @@ mod tests {
 			"not-a-url".to_string(),
 		);
 
-		assert!(Solver::try_from(config).is_err());
-	}
-
-	#[test]
-	fn test_invalid_timeout() {
-		let mut config = SolverConfig::new(
-			"test-solver".to_string(),
-			"oif-v1".to_string(),
-			"https://api.example.com".to_string(),
-		);
-
-		config.timeout_ms = 50; // Too low
-		assert!(Solver::try_from(config.clone()).is_err());
-
-		config.timeout_ms = 50000; // Too high
 		assert!(Solver::try_from(config).is_err());
 	}
 

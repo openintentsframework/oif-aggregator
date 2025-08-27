@@ -6,7 +6,10 @@ use std::collections::HashMap;
 
 use crate::Asset;
 
-use super::{HealthCheckResult, Solver, SolverError, SolverMetadata, SolverMetrics, SolverStatus};
+use super::{
+	AssetSource, HealthCheckResult, Solver, SolverError, SolverMetadata, SolverMetrics,
+	SolverStatus,
+};
 
 /// Storage representation of a solver
 ///
@@ -17,10 +20,10 @@ pub struct SolverStorage {
 	pub solver_id: String,
 	pub adapter_id: String,
 	pub endpoint: String,
-	pub timeout_ms: u64,
 	pub status: SolverStatus,
 	pub metadata: SolverMetadataStorage,
 	pub metrics: SolverMetricsStorage,
+	pub headers: Option<HashMap<String, String>>,
 
 	// Storage-specific metadata
 	pub version: u32,
@@ -36,7 +39,7 @@ pub struct SolverMetadataStorage {
 	pub description: Option<String>,
 	pub version: Option<String>,
 	pub supported_assets: Vec<Asset>,
-	pub max_retries: u32,
+	pub assets_source: AssetSource,
 	pub headers: Option<HashMap<String, String>>,
 	pub config: HashMap<String, serde_json::Value>,
 }
@@ -81,12 +84,12 @@ impl From<Solver> for SolverStorage {
 			solver_id: solver.solver_id,
 			adapter_id: solver.adapter_id,
 			endpoint: solver.endpoint,
-			timeout_ms: solver.timeout_ms,
 			status: solver.status,
 			metadata: SolverMetadataStorage::from(solver.metadata),
 			created_at: solver.created_at,
 			last_seen: solver.last_seen,
 			metrics: SolverMetricsStorage::from(solver.metrics),
+			headers: solver.headers,
 			version: 1,
 			last_updated: Utc::now(),
 		}
@@ -101,12 +104,12 @@ impl TryFrom<SolverStorage> for Solver {
 			solver_id: storage.solver_id,
 			adapter_id: storage.adapter_id,
 			endpoint: storage.endpoint,
-			timeout_ms: storage.timeout_ms,
 			status: storage.status,
 			metadata: storage.metadata.into(),
 			created_at: storage.created_at,
 			last_seen: storage.last_seen,
 			metrics: storage.metrics.try_into()?,
+			headers: storage.headers,
 		})
 	}
 }
@@ -163,7 +166,7 @@ impl From<SolverMetadata> for SolverMetadataStorage {
 			description: metadata.description,
 			version: metadata.version,
 			supported_assets: metadata.supported_assets,
-			max_retries: metadata.max_retries,
+			assets_source: metadata.assets_source,
 			headers: metadata.headers,
 			config: metadata.config,
 		}
@@ -177,7 +180,7 @@ impl From<SolverMetadataStorage> for SolverMetadata {
 			description: storage.description,
 			version: storage.version,
 			supported_assets: storage.supported_assets,
-			max_retries: storage.max_retries,
+			assets_source: storage.assets_source,
 			headers: storage.headers,
 			config: storage.config,
 		}
@@ -283,7 +286,6 @@ mod tests {
 			"test-solver".to_string(),
 			"oif-v1".to_string(),
 			"https://api.example.com".to_string(),
-			2000,
 		)
 		.with_name("Test Solver".to_string())
 	}

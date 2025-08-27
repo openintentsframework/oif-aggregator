@@ -2,7 +2,10 @@
 
 use super::{AdapterResult, SolverRuntimeConfig};
 use crate::{
-	adapters::{models::SubmitOrderRequest, GetOrderResponse},
+	adapters::{
+		models::{SubmitOrderRequest, SubmitOrderResponse},
+		GetOrderResponse,
+	},
 	models::{Asset, Network},
 };
 use crate::{Adapter, GetQuoteRequest, GetQuoteResponse};
@@ -37,7 +40,7 @@ pub trait SolverAdapter: Send + Sync + Debug {
 		&self,
 		order: &SubmitOrderRequest,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetOrderResponse>;
+	) -> AdapterResult<SubmitOrderResponse>;
 
 	/// Health check for the solver using runtime configuration
 	async fn health_check(&self, config: &SolverRuntimeConfig) -> AdapterResult<bool>;
@@ -56,13 +59,17 @@ pub trait SolverAdapter: Send + Sync + Debug {
 	///
 	/// Returns the networks (chains) that this adapter can process transactions on.
 	/// Each network includes chain ID, name, and testnet status.
-	async fn get_supported_networks(&self) -> AdapterResult<Vec<Network>>;
+	async fn get_supported_networks(
+		&self,
+		config: &SolverRuntimeConfig,
+	) -> AdapterResult<Vec<Network>>;
 
 	/// Get the list of assets supported on a specific network
 	///
 	/// Returns the tokens/assets that this adapter can handle on the given network.
 	/// Each asset includes contract address, symbol, name, decimals, and chain ID.
-	async fn get_supported_assets(&self, network: &Network) -> AdapterResult<Vec<Asset>>;
+	async fn get_supported_assets(&self, config: &SolverRuntimeConfig)
+		-> AdapterResult<Vec<Asset>>;
 
 	/// Get human-readable name for this adapter
 	fn name(&self) -> &str {

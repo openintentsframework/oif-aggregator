@@ -15,8 +15,11 @@ pub struct OrderRequest {
 	pub quote_response: QuoteResponse,
 
 	/// User's wallet address
-	pub user_address: String,
+	pub sponsor: String,
 
 	/// User's signature for authorization
-	pub signature: Option<String>,
+	pub signature: String,
+
+	/// Order data
+	pub order: String,
 }
