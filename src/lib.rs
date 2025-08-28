@@ -424,8 +424,8 @@ where
 	) -> Result<(), Box<dyn std::error::Error>> {
 		use oif_config::settings::LogFormat;
 
-		// Create env filter using config level or environment variable
-		let log_level = &settings.logging.level;
+		// Create env filter using config level with RUST_LOG override
+		let log_level = settings.get_log_level();
 		let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
 			.unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level));
 
@@ -466,7 +466,7 @@ where
 
 		info!(
 			"Logging configuration applied: level={}, format={:?}, structured={}",
-			settings.logging.level, settings.logging.format, settings.logging.structured
+			settings.get_log_level(), settings.logging.format, settings.logging.structured
 		);
 
 		Ok(())

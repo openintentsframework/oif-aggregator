@@ -1,0 +1,45 @@
+services:
+  oif-aggregator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "4000:4000"
+    environment:
+      # Production environment variables
+      - RUST_LOG=info
+      # Security - set via external env or secrets
+      - INTEGRITY_SECRET=${INTEGRITY_SECRET}
+    volumes:
+      # Mount production configuration
+      - ./config:/app/config:ro
+    networks:
+      - oif-network
+    restart: unless-stopped
+    # Health check for production monitoring using wget (Chainguard compatible)
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    # Resource limits for production
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '1.0'
+        reservations:
+          memory: 512M
+          cpus: '0.5'
+    # Security settings for Chainguard images
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+    user: "65532:65532"  # nonroot user in Chainguard images
+
+networks:
+  oif-network:
+    driver: bridge

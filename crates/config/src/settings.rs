@@ -10,6 +10,7 @@ use oif_types::SecretString;
 use oif_types::SolverConfig as DomainSolverConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use tracing::warn;
 
 /// Main application settings
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -26,7 +27,11 @@ pub struct Settings {
 /// Server configuration
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ServerSettings {
+	/// Server host/interface to bind to
+	/// Can be overridden by HOST environment variable
 	pub host: String,
+	/// Server port to bind to
+	/// Can be overridden by PORT environment variable
 	pub port: u16,
 }
 
@@ -176,6 +181,7 @@ pub struct RateLimitSettings {
 /// Logging configuration
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LoggingSettings {
+	/// Log level (can be overridden by RUST_LOG environment variable)
 	pub level: String,
 	pub format: LogFormat,
 	pub structured: bool,
@@ -222,7 +228,7 @@ impl Default for Settings {
 		Self {
 			server: ServerSettings {
 				host: "0.0.0.0".to_string(),
-				port: 3000,
+				port: 4000,
 			},
 			solvers: HashMap::new(),
 			aggregation: AggregationSettings {
@@ -255,8 +261,39 @@ impl Default for Settings {
 
 impl Settings {
 	/// Get server bind address
+	/// Priority: 1) Environment variables (HOST, PORT) 2) Config file 3) Defaults
 	pub fn bind_address(&self) -> String {
-		format!("{}:{}", self.server.host, self.server.port)
+		let host = self.get_host();
+		let port = self.get_port();
+		format!("{}:{}", host, port)
+	}
+
+	/// Get resolved server host with environment variable override
+	/// Priority: 1) HOST env var 2) Config file value
+	pub fn get_host(&self) -> String {
+		std::env::var("HOST").unwrap_or_else(|_| self.server.host.clone())
+	}
+
+	/// Get resolved server port with environment variable override
+	/// Priority: 1) PORT env var 2) Config file value
+	pub fn get_port(&self) -> u16 {
+		if let Ok(port_str) = std::env::var("PORT") {
+			port_str.parse::<u16>().unwrap_or_else(|_| {
+				warn!(
+					"Warning: Invalid PORT environment variable '{}', using config file value {}",
+					port_str, self.server.port
+				);
+				self.server.port
+			})
+		} else {
+			self.server.port
+		}
+	}
+
+	/// Get resolved log level with environment variable override
+	/// Priority: 1) RUST_LOG env var 2) Config file value
+	pub fn get_log_level(&self) -> String {
+		std::env::var("RUST_LOG").unwrap_or_else(|_| self.logging.level.clone())
 	}
 
 	/// Get enabled solvers only

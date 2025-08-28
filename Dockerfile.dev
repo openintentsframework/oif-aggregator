@@ -1,0 +1,59 @@
+# Development Dockerfile for OIF Aggregator using standard Rust image
+# Optimized for development workflow with hot reload (bacon) and cargo-chef
+# Uses standard Rust image for better development tool compatibility
+
+# Use official Rust image for development
+FROM rust:latest AS base
+
+# Install system dependencies for development
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install cargo tools for development
+RUN cargo install cargo-chef bacon
+
+WORKDIR /app
+
+# Planner stage for development dependencies
+FROM base AS planner
+
+# Copy workspace files to analyze dependencies
+COPY Cargo.toml Cargo.lock ./
+COPY rust-toolchain.toml ./
+COPY crates/ ./crates/
+# Create dummy src for planning
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+
+# Generate dependency recipe
+RUN cargo chef prepare --recipe-path recipe.json
+
+# Development build stage
+FROM base AS development
+
+# Copy dependency recipe from planner stage
+COPY --from=planner /app/recipe.json recipe.json
+
+# Build dependencies with cache mounts for maximum speed
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/app/target \
+    cargo chef cook --recipe-path recipe.json
+
+# Remove any dummy files from dependency build
+RUN rm -rf src/
+
+# Create a simple startup script for development
+RUN printf '#!/bin/bash\nif [ -f Cargo.toml ]; then\n  echo "🚀 Starting development server with hot reload (bacon)..."\n  # Set up temporary directories for cargo to avoid permission issues\n  export CARGO_TARGET_DIR=/tmp/target\n  export CARGO_HOME=/tmp/cargo\n  mkdir -p /tmp/target /tmp/cargo\n  chmod 755 /tmp/target /tmp/cargo\n  exec bacon run\nelse\n  echo "ERROR: Development image requires source code to be mounted."\n  echo "Use: make dev (or docker-compose up)"\n  exit 1\nfi\n' > /usr/local/bin/dev-start.sh && \
+    chmod +x /usr/local/bin/dev-start.sh
+
+# The actual source code will be mounted as a volume in docker-compose
+# This allows for hot reload development - bacon will watch for changes and restart automatically
+
+# Expose the application port
+EXPOSE 4000
+
+# Default entrypoint for development - uses bacon for hot reload
+ENTRYPOINT ["/usr/local/bin/dev-start.sh"]
+
