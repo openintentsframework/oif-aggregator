@@ -466,7 +466,9 @@ where
 
 		info!(
 			"Logging configuration applied: level={}, format={:?}, structured={}",
-			settings.get_log_level(), settings.logging.format, settings.logging.structured
+			settings.get_log_level(),
+			settings.logging.format,
+			settings.logging.structured
 		);
 
 		Ok(())
