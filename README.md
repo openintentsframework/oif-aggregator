@@ -177,7 +177,7 @@ Response:
     "inactive": 0,
     "healthy": 1,
     "unhealthy": 0,
-    "health_details": {
+    "healthDetails": {
       "example-solver": false
     }
   },

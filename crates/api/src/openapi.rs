@@ -1,7 +1,7 @@
 use utoipa::OpenApi;
 
-use crate::handlers::health::{HealthResponse, StorageHealthInfo};
 use oif_service::SolverStats;
+use oif_types::models::health::{HealthResponse, StorageHealthInfo};
 use oif_types::orders::request::OrderRequest;
 use oif_types::orders::response::OrderResponse;
 use oif_types::quotes::request::QuoteRequest;

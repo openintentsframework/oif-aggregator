@@ -501,6 +501,26 @@
           "version": {
             "type": "string"
           }
+        },
+        "example": {
+          "solvers": {
+            "active": 2,
+            "healthDetails": {
+              "down-solver": false,
+              "example-solver": true,
+              "uniswap-solver": true
+            },
+            "healthy": 2,
+            "inactive": 1,
+            "total": 3,
+            "unhealthy": 1
+          },
+          "status": "healthy",
+          "storage": {
+            "backend": "memory",
+            "healthy": true
+          },
+          "version": "0.1.0"
         }
       },
       "InteropAddress": {
@@ -594,7 +614,37 @@
             "description": "User's wallet address"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "example": {
+          "order": "0xfedcba0987654321...",
+          "quoteResponse": {
+            "details": {
+              "requestedOutputs": [
+                {
+                  "amount": "1000000000000000000",
+                  "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
+                  "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
+                }
+              ]
+            },
+            "integrityChecksum": "hmac-sha256:a1b2c3d4e5f6...",
+            "orders": [
+              {
+                "domain": "0x01000002147a69000000000022d473030f116ddee9f6b43ac78ba3",
+                "message": {
+                  "digest": "0xdfbfeb9aed6340d513ef52f716cef5b50b677118d364c8448bff1c9ea9fd0b14"
+                },
+                "primaryType": "PermitBatchWitnessTransferFrom",
+                "signatureType": "eip712"
+              }
+            ],
+            "provider": "Example Solver v1.0",
+            "quoteId": "6a22e92f-3e5d-4f05-ab5f-007b01e58b21",
+            "solverId": "example-solver"
+          },
+          "signature": "0x1234567890abcdef...",
+          "sponsor": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
+        }
       },
       "OrderResponse": {
         "type": "object",
@@ -786,7 +836,30 @@
             "description": "User making the request in ERC-7930 interoperable format"
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "example": {
+          "availableInputs": [
+            {
+              "amount": "1000000000000000000",
+              "asset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+              "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8"
+            }
+          ],
+          "minValidUntil": 600,
+          "preference": "speed",
+          "requestedOutputs": [
+            {
+              "amount": "1000000000000000000",
+              "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
+              "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
+            }
+          ],
+          "solverOptions": {
+            "solverTimeout": 2000,
+            "timeout": 4000
+          },
+          "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8"
+        }
       },
       "QuoteResponse": {
         "type": "object",
@@ -846,7 +919,36 @@
             "minimum": 0
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "example": {
+          "details": {
+            "requestedOutputs": [
+              {
+                "amount": "1000000000000000000",
+                "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
+                "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
+              }
+            ]
+          },
+          "eta": 30,
+          "integrityChecksum": "hmac-sha256:a1b2c3d4e5f6...",
+          "orders": [
+            {
+              "domain": "0x01000002147a69000000000022d473030f116ddee9f6b43ac78ba3",
+              "message": {
+                "deadline": "1756457492",
+                "digest": "0xdfbfeb9aed6340d513ef52f716cef5b50b677118d364c8448bff1c9ea9fd0b14",
+                "nonce": "1756457192541"
+              },
+              "primaryType": "PermitBatchWitnessTransferFrom",
+              "signatureType": "eip712"
+            }
+          ],
+          "provider": "Example Solver v1.0",
+          "quoteId": "6a22e92f-3e5d-4f05-ab5f-007b01e58b21",
+          "solverId": "example-solver",
+          "validUntil": 1756457492
+        }
       },
       "QuotesResponse": {
         "type": "object",
@@ -878,7 +980,52 @@
             "minimum": 0
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "example": {
+          "metadata": {
+            "earlyTermination": false,
+            "globalTimeoutMs": 4000,
+            "minQuotesRequired": 30,
+            "solverSelectionMode": "all",
+            "solverTimeoutMs": 2000,
+            "solversQueried": 2,
+            "solversRespondedError": 0,
+            "solversRespondedSuccess": 1,
+            "solversTimedOut": 1,
+            "totalDurationMs": 1500,
+            "totalSolversAvailable": 2
+          },
+          "quotes": [
+            {
+              "details": {
+                "requestedOutputs": [
+                  {
+                    "amount": "1000000000000000000",
+                    "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
+                    "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
+                  }
+                ]
+              },
+              "eta": 30,
+              "integrityChecksum": "hmac-sha256:a1b2c3d4e5f6...",
+              "orders": [
+                {
+                  "domain": "0x01000002147a69000000000022d473030f116ddee9f6b43ac78ba3",
+                  "message": {
+                    "digest": "0xdfbfeb9aed6340d513ef52f716cef5b50b677118d364c8448bff1c9ea9fd0b14"
+                  },
+                  "primaryType": "PermitBatchWitnessTransferFrom",
+                  "signatureType": "eip712"
+                }
+              ],
+              "provider": "Example Solver v1.0",
+              "quoteId": "6a22e92f-3e5d-4f05-ab5f-007b01e58b21",
+              "solverId": "example-solver",
+              "validUntil": 1756457492
+            }
+          ],
+          "totalQuotes": 1
+        }
       },
       "RequestedOutput": {
         "type": "object",
@@ -1026,7 +1173,16 @@
             "minimum": 0
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "example": {
+          "includeSolvers": [
+            "example-solver"
+          ],
+          "minQuotes": 1,
+          "solverSelection": "all",
+          "solverTimeout": 2000,
+          "timeout": 4000
+        }
       },
       "SolverResponse": {
         "type": "object",
@@ -1082,7 +1238,33 @@
             }
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "example": {
+          "adapterId": "oif-adapter-v1",
+          "createdAt": 1756400000,
+          "description": "An example solver for cross-chain swaps",
+          "endpoint": "https://api.example-solver.com",
+          "lastSeen": 1756457492,
+          "name": "Example DeFi Solver",
+          "solverId": "example-solver",
+          "status": "active",
+          "supportedAssets": [
+            {
+              "address": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+              "chainId": 1,
+              "decimals": 6,
+              "name": "USD Coin",
+              "symbol": "USDC"
+            },
+            {
+              "address": "0x01000002147a69C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+              "chainId": 1,
+              "decimals": 18,
+              "name": "Wrapped Ether",
+              "symbol": "WETH"
+            }
+          ]
+        }
       },
       "SolverSelection": {
         "type": "string",
@@ -1101,14 +1283,14 @@
           "inactive",
           "healthy",
           "unhealthy",
-          "health_details"
+          "healthDetails"
         ],
         "properties": {
           "active": {
             "type": "integer",
             "minimum": 0
           },
-          "health_details": {
+          "healthDetails": {
             "type": "object",
             "additionalProperties": {
               "type": "boolean"
@@ -1133,6 +1315,18 @@
             "type": "integer",
             "minimum": 0
           }
+        },
+        "example": {
+          "active": 2,
+          "healthDetails": {
+            "down-solver": false,
+            "example-solver": true,
+            "uniswap-solver": true
+          },
+          "healthy": 2,
+          "inactive": 1,
+          "total": 3,
+          "unhealthy": 1
         }
       },
       "SolverStatus": {
@@ -1165,7 +1359,50 @@
             "minimum": 0
           }
         },
-        "additionalProperties": false
+        "additionalProperties": false,
+        "example": {
+          "solvers": [
+            {
+              "adapterId": "oif-adapter-v1",
+              "createdAt": 1756400000,
+              "description": "An example solver for cross-chain swaps",
+              "endpoint": "https://api.example-solver.com",
+              "lastSeen": 1756457492,
+              "name": "Example DeFi Solver",
+              "solverId": "example-solver",
+              "status": "active",
+              "supportedAssets": [
+                {
+                  "address": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                  "chainId": 1,
+                  "decimals": 6,
+                  "name": "USD Coin",
+                  "symbol": "USDC"
+                }
+              ]
+            },
+            {
+              "adapterId": "uniswap-adapter-v1",
+              "createdAt": 1756400000,
+              "description": "Uniswap V3 liquidity pools solver",
+              "endpoint": "https://api.uniswap.solver.com",
+              "lastSeen": 1756457490,
+              "name": "Uniswap V3 Solver",
+              "solverId": "uniswap-solver",
+              "status": "active",
+              "supportedAssets": [
+                {
+                  "address": "0x01000002147a69C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+                  "chainId": 1,
+                  "decimals": 18,
+                  "name": "Wrapped Ether",
+                  "symbol": "WETH"
+                }
+              ]
+            }
+          ],
+          "totalSolvers": 2
+        }
       },
       "StorageHealthInfo": {
         "type": "object",
@@ -1181,6 +1418,10 @@
           "healthy": {
             "type": "boolean"
           }
+        },
+        "example": {
+          "backend": "memory",
+          "healthy": true
         }
       },
       "U256": {

@@ -3,6 +3,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "openapi")]
+use serde_json::json;
+#[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
 use crate::{
@@ -48,6 +50,13 @@ pub struct OrderResponse {
 /// Response body for /v1/orders endpoint (order submission)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[cfg_attr(feature = "openapi", schema(example = json!({
+    "orderId": "ord_6a22e92f-3e5d-4f05-ab5f-007b01e58b21",
+    "status": "pending",
+    "message": "Intent received and is being validated",
+    "timestamp": 1756457492,
+    "quoteId": "6a22e92f-3e5d-4f05-ab5f-007b01e58b21"
+})))]
 #[serde(rename_all = "camelCase")]
 pub struct OrdersResponse {
 	/// Unique order identifier

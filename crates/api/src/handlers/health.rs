@@ -4,30 +4,10 @@
 //! The health endpoint returns detailed service status including storage and solver health.
 
 use axum::{extract::State, http::StatusCode, response::Json};
-use serde::Serialize;
-#[cfg(feature = "openapi")]
-use utoipa::ToSchema;
 
 use crate::state::AppState;
 use oif_service::SolverStats;
-
-/// Comprehensive health response
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct HealthResponse {
-	pub status: String,
-	pub version: String,
-	pub solvers: SolverStats,
-	pub storage: StorageHealthInfo,
-}
-
-/// Storage health information
-#[derive(Debug, Serialize)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct StorageHealthInfo {
-	pub healthy: bool,
-	pub backend: String,
-}
+use oif_types::models::health::{HealthResponse, StorageHealthInfo};
 
 /// GET /health - Comprehensive health check with detailed status
 #[cfg_attr(feature = "openapi", utoipa::path(
