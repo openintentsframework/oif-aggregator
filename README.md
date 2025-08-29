@@ -7,26 +7,23 @@ A high-performance aggregator for **Open Intent Framework (OIF)** solvers, provi
 
 ## 🚀 Quick Start
 
-### Run the Server
+**Get up and running in 5 minutes** with our step-by-step guide:
 
+👉 **[Quick Start Guide](docs/quick-start.md)** - Complete setup with working examples
+
+### TL;DR
 ```bash
-# Clone and run with defaults
 git clone https://github.com/openintentsframework/oif-aggregator.git
 cd oif-aggregator
-
-# Set required environment variable (generate a secure random string)
 export INTEGRITY_SECRET="your-secure-random-string-minimum-32-chars"
-
-See [`docs/configuration.md`](docs/configuration.md) for complete configuration options.
-
-# Run with OpenAPI documentation
+# Create config/config.json (see Quick Start Guide)
 cargo run --features openapi
-
-# Or run with defaults
-cargo run
 ```
 
-The server will start on `http://127.0.0.1:3000` by default.
+**📚 Next Steps:**
+- **[Quick Start Guide](docs/quick-start.md)** - Detailed setup with configuration
+- **[Configuration Guide](docs/configuration.md)** - Complete configuration reference
+- **[API Documentation](https://openintentsframework.github.io/oif-aggregator/)** - Interactive API testing
 
 ### API Documentation
 
@@ -67,124 +64,34 @@ Once running, the following endpoints are available:
 - **Error Handling** - Comprehensive error types and recovery
 - **Structured Logging** - JSON and pretty-print log formats
 
-## 🛠️ Configuration
+## ⚙️ Configuration
 
-### Environment Variables
+The OIF Aggregator supports flexible configuration through environment variables and JSON files.
 
-Set the required integrity secret:
+**📚 Complete Setup Instructions:**
+- **[Quick Start Guide](docs/quick-start.md)** - Get running with basic configuration
+- **[Configuration Guide](docs/configuration.md)** - Complete configuration reference
+- **[Security Guide](docs/security.md)** - Production security setup
 
+**🔐 Required:** Set the integrity secret environment variable:
 ```bash
 export INTEGRITY_SECRET="your-secure-random-string-minimum-32-chars"
 ```
 
-See [`docs/configuration.md`](docs/configuration.md) for complete configuration options.
+## 🔌 Integration & Extension
 
-### Configuration Files
+**Building applications that use the OIF Aggregator:**
 
-Configuration can be provided via JSON file in the `config/` directory:
+- **[Quick Start Guide](docs/quick-start.md)** - Complete programmatic usage examples
+- **[Custom Adapter Guide](docs/custom-adapters.md)** - Integrate new solver protocols  
+- **[Configuration Guide](docs/configuration.md)** - Flexible setup options
+- **[API Documentation](https://openintentsframework.github.io/oif-aggregator/)** - Complete HTTP API reference
 
-```json
-{
-  "server": {
-    "host": "127.0.0.1",
-    "port": 3000
-  },
-  "solvers": {
-    "example-solver": {
-      "solver_id": "example-solver",
-      "adapter_id": "oif-v1",
-      "endpoint": "https://api.example.com/v1",
-      "enabled": true,
-      "headers": null,
-      "name": "Example Solver",
-      "description": "Example Solver Description",
-    }
-  },
-  "timeouts": {
-    "per_solver_ms": 2000,
-    "global_ms": 4000
-  },
-  "security": {
-    "integrity_secret": {
-      "type": "env",
-      "value": "INTEGRITY_SECRET"
-    }
-  }
-}
-```
-
-See [`docs/configuration.md`](docs/configuration.md) for complete configuration options.
-
-## 💻 Programmatic Usage
-
-### Basic Server
-
-```rust
-use oif_aggregator::AggregatorBuilder;
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Start complete server with defaults
-    AggregatorBuilder::new().start_server().await
-}
-```
-
-### Custom Configuration
-
-```rust
-use oif_aggregator::{AggregatorBuilder, Solver};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create custom solver
-    let mut solver = Solver::new(
-        "my-solver".to_string(),
-        "oif-v1".to_string(),
-        "https://api.solver.com".to_string(),
-    );
-
-    // Build and start with custom solver
-    let (router, state) = AggregatorBuilder::new()
-        .with_solver(solver)
-        .start().await?;
-        
-    // Use router and state as needed
-    Ok(())
-}
-```
-
-### Custom Adapter
-
-```rust
-use oif_aggregator::{AggregatorBuilder, SolverAdapter};
-use async_trait::async_trait;
-
-// Implement custom adapter
-struct MyCustomAdapter;
-
-#[async_trait]
-impl SolverAdapter for MyCustomAdapter {
-    fn id(&self) -> &str { "my-custom-v1" }
-    fn name(&self) -> &str { "My Custom Adapter" }
-    
-    async fn get_quotes(
-        &self,
-        request: &GetQuoteRequest,
-        config: &SolverRuntimeConfig,
-    ) -> AdapterResult<GetQuoteResponse> {
-        // Your adapter implementation
-        todo!()
-    }
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Register and use custom adapter
-    AggregatorBuilder::new()
-        .with_adapter(Box::new(MyCustomAdapter))?
-        .start_server().await
-}
-```
+**Examples included:**
+- Basic server integration
+- Custom solver configuration  
+- Custom adapter implementation
+- Advanced builder patterns
 
 ## 🏗️ Architecture
 
@@ -212,20 +119,6 @@ oif-aggregator/
 - **`AdapterRegistry`** - Manages protocol adapters (OIF, LiFi, custom)
 - **`Storage`** - Trait for persistence (memory, Redis)
 - **`IntegrityService`** - HMAC-SHA256 quote verification
-
-## 🔐 Security
-
-### Authentication & Rate Limiting
-
-Multiple authentication strategies are supported:
-
-```rust
-use oif_aggregator::{AggregatorBuilder, ApiKeyAuthenticator, MemoryRateLimiter};
-
-let builder = AggregatorBuilder::new()
-    .with_auth(ApiKeyAuthenticator::new())
-    .with_rate_limiter(MemoryRateLimiter::with_limits(100, 10));
-```
 
 ## 🧪 Development
 
@@ -315,11 +208,16 @@ This project is licensed under the [MIT License](LICENSE).
 
 ## 🆘 Support
 
-- **API Documentation**: [Interactive Swagger UI](https://openintentsframework.github.io/oif-aggregator/)
-- **Documentation**: See [`docs/`](docs/) directory
-- **Examples**: Check [`examples/`](examples/) directory  
-- **Issues**: Open a GitHub issue
-- **Configuration**: See [`docs/configuration.md`](docs/configuration.md)
+- **🚀 Quick Start**: [Quick Start Guide](docs/quick-start.md) - Get running in 5 minutes
+- **📚 Documentation Hub**: [Complete Documentation](docs/) - Comprehensive guides and references
+- **🔧 API Documentation**: [Interactive Swagger UI](https://openintentsframework.github.io/oif-aggregator/)
+- **💰 Quotes & Aggregation**: [Quotes Guide](docs/quotes-and-aggregation.md) - How quote aggregation works
+- **⚙️ Configuration**: [Configuration Guide](docs/configuration.md) - Complete setup reference
+- **🔌 Custom Adapters**: [Custom Adapter Guide](docs/custom-adapters.md) - How to implement solver integrations
+- **🔒 Security**: [Security Guide](docs/security.md) - Best practices and guidelines
+- **🛠️ Maintenance**: [Maintenance Guide](docs/maintenance.md) - Operations and monitoring
+- **📝 Examples**: Check [`examples/`](examples/) directory  
+- **🐛 Issues**: Open a GitHub issue
 
 ---
 
