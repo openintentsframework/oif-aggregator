@@ -29,24 +29,38 @@ mkdir -p config
 cat > config/config.json << 'EOF'
 {
   "server": {
-    "host": "127.0.0.1",
-    "port": 3000
+    "host": "0.0.0.0",
+    "port": 4000
   },
   "solvers": {
-    "demo-solver": {
-      "solver_id": "demo-solver",
+    "example-solver": {
+      "solver_id": "example-solver",
       "adapter_id": "oif-v1",
-      "endpoint": "https://demo-solver.example.com/v1",
+      "endpoint": "http://127.0.0.1:3000/api",
       "enabled": true,
-      "name": "Demo Solver",
-      "description": "Example OIF-compatible solver"
+      "headers": null,
+      "name": "OIF Solver",
+      "description": "OIF Solver Description"
     }
   },
   "aggregation": {
-    "per_solver_timeout_ms": 2000,
     "global_timeout_ms": 4000,
-    "max_quotes_per_solver": 10,
-    "quote_preference": "best_price"
+    "per_solver_timeout_ms": 2000,
+    "max_concurrent_solvers": 50,
+    "max_retries_per_solver": 2,
+    "retry_delay_ms": 100
+  },
+  "environment": {
+    "rate_limiting": {
+      "enabled": false,
+      "requests_per_minute": 1000,
+      "burst_size": 100
+    }
+  },
+  "logging": {
+    "level": "debug",
+    "format": "compact",
+    "structured": false
   },
   "security": {
     "integrity_secret": {
@@ -60,9 +74,9 @@ EOF
 
 ## 🎯 Step 3: Run the Server
 
-### Basic Server (Production Ready)
+### Basic Server
 ```bash
-cargo run --release
+cargo run
 ```
 
 ### Development with API Documentation
@@ -70,58 +84,18 @@ cargo run --release
 cargo run --features openapi
 ```
 
-The server will start on `http://127.0.0.1:3000` by default.
+The server will start on `http://0.0.0.0:4000` by default.
 
 ## 🧪 Step 4: Test the API
 
 ### Health Check
 ```bash
-curl http://localhost:3000/health
+curl http://localhost:4000/health
 ```
 
 ### Get Available Solvers
 ```bash
-curl http://localhost:3000/v1/solvers
-```
-
-### Request Quotes (Example)
-```bash
-curl -X POST http://localhost:3000/v1/quotes \
-  -H "Content-Type: application/json" \
-  -d '{
-    "available_inputs": [
-      {
-        "asset": {
-          "contract_address": "0xa0b86a33e6e6372aa1aff50b1a1a9a5f7b3b3b3b",
-          "symbol": "USDC",
-          "name": "USD Coin",
-          "decimals": 6,
-          "chain_id": 1
-        },
-        "max_amount": "1000000000",
-        "interop_address": {
-          "address": "0x1234567890123456789012345678901234567890",
-          "domain": "1"
-        }
-      }
-    ],
-    "requested_outputs": [
-      {
-        "asset": {
-          "contract_address": "0xb0c86a33e6e6372aa1aff50b1a1a9a5f7b3b3b3c",
-          "symbol": "WETH",
-          "name": "Wrapped Ether",
-          "decimals": 18,
-          "chain_id": 1
-        },
-        "min_amount": "100000000000000000",
-        "interop_address": {
-          "address": "0x0987654321098765432109876543210987654321",
-          "domain": "1"
-        }
-      }
-    ]
-  }'
+curl http://localhost:4000/v1/solvers
 ```
 
 ## 📚 Next Steps
@@ -189,16 +163,7 @@ See the **[Custom Adapter Guide](custom-adapters.md)** for complete implementati
 **Server won't start**
 - Check that the `INTEGRITY_SECRET` environment variable is set
 - Verify the configuration file syntax with a JSON validator
-- Ensure port 3000 is available (or change in config)
-
-**No quotes returned**
-- Verify solver endpoints are reachable
-- Check solver configuration in `config/config.json`
-- Review logs for timeout or connection errors
-
-**Permission denied errors**
-- Ensure you have write permissions in the project directory
-- Check if another process is using the configured port
+- Ensure port 4000 is available (or change in config)
 
 ### Getting Help
 

@@ -7,7 +7,7 @@ A high-performance aggregator for **Open Intent Framework (OIF)** solvers, provi
 
 ## 🚀 Quick Start
 
-**Get up and running in 5 minutes** with our step-by-step guide:
+**Get up and running quickly:**
 
 👉 **[Quick Start Guide](docs/quick-start.md)** - Complete setup with working examples
 
@@ -17,17 +17,10 @@ git clone https://github.com/openintentsframework/oif-aggregator.git
 cd oif-aggregator
 export INTEGRITY_SECRET="your-secure-random-string-minimum-32-chars"
 # Create config/config.json (see Quick Start Guide)
-cargo run --features openapi
+cargo run
 ```
 
-**📚 Next Steps:**
-- **[Quick Start Guide](docs/quick-start.md)** - Detailed setup with configuration
-- **[Configuration Guide](docs/configuration.md)** - Complete configuration reference
-- **[API Documentation](https://openintentsframework.github.io/oif-aggregator/)** - Interactive API testing
-
-### API Documentation
-
-📚 **Interactive API Documentation**: [https://openintentsframework.github.io/oif-aggregator/](https://openintentsframework.github.io/oif-aggregator/)
+📚 **[Interactive API Documentation](https://openintentsframework.github.io/oif-aggregator/)** available when running with `--features openapi`
 
 ### API Endpoints
 
@@ -66,32 +59,18 @@ Once running, the following endpoints are available:
 
 ## ⚙️ Configuration
 
-The OIF Aggregator supports flexible configuration through environment variables and JSON files.
-
-**📚 Complete Setup Instructions:**
-- **[Quick Start Guide](docs/quick-start.md)** - Get running with basic configuration
-- **[Configuration Guide](docs/configuration.md)** - Complete configuration reference
-- **[Security Guide](docs/security.md)** - Production security setup
-
 **🔐 Required:** Set the integrity secret environment variable:
 ```bash
 export INTEGRITY_SECRET="your-secure-random-string-minimum-32-chars"
 ```
 
+**📚 Complete Guide:** [Configuration Documentation](docs/configuration.md) - Environment variables, JSON config, and production setup
+
 ## 🔌 Integration & Extension
 
-**Building applications that use the OIF Aggregator:**
-
-- **[Quick Start Guide](docs/quick-start.md)** - Complete programmatic usage examples
-- **[Custom Adapter Guide](docs/custom-adapters.md)** - Integrate new solver protocols  
-- **[Configuration Guide](docs/configuration.md)** - Flexible setup options
+- **[Custom Adapter Guide](docs/custom-adapters.md)** - Integrate new solver protocols
 - **[API Documentation](https://openintentsframework.github.io/oif-aggregator/)** - Complete HTTP API reference
-
-**Examples included:**
-- Basic server integration
-- Custom solver configuration  
-- Custom adapter implementation
-- Advanced builder patterns
+- **[Examples Directory](examples/)** - Working code examples for common use cases
 
 ## 🏗️ Architecture
 
@@ -206,18 +185,12 @@ Response:
 
 This project is licensed under the [MIT License](LICENSE).
 
-## 🆘 Support
+## 📚 Documentation & Support
 
-- **🚀 Quick Start**: [Quick Start Guide](docs/quick-start.md) - Get running in 5 minutes
-- **📚 Documentation Hub**: [Complete Documentation](docs/) - Comprehensive guides and references
-- **🔧 API Documentation**: [Interactive Swagger UI](https://openintentsframework.github.io/oif-aggregator/)
-- **💰 Quotes & Aggregation**: [Quotes Guide](docs/quotes-and-aggregation.md) - How quote aggregation works
-- **⚙️ Configuration**: [Configuration Guide](docs/configuration.md) - Complete setup reference
-- **🔌 Custom Adapters**: [Custom Adapter Guide](docs/custom-adapters.md) - How to implement solver integrations
-- **🔒 Security**: [Security Guide](docs/security.md) - Best practices and guidelines
-- **🛠️ Maintenance**: [Maintenance Guide](docs/maintenance.md) - Operations and monitoring
-- **📝 Examples**: Check [`examples/`](examples/) directory  
-- **🐛 Issues**: Open a GitHub issue
+- **[📖 Complete Documentation](docs/)** - All guides and references
+- **[🚀 Quick Start](docs/quick-start.md)** - Get running quickly  
+- **[🔧 API Docs](https://openintentsframework.github.io/oif-aggregator/)** - Interactive Swagger UI
+- **[🐛 Issues](https://github.com/openintentsframework/oif-aggregator/issues)** - Bug reports and feature requests
 
 ---
 
