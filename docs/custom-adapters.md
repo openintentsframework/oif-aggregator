@@ -12,11 +12,9 @@ Adapters serve as the bridge between the OIF Aggregator and external solver prot
 graph TD
     A[OIF Aggregator] --> B[Adapter Registry]
     B --> C[OIF Adapter]
-    B --> D[LiFi Adapter]
-    B --> E[Custom Adapter]
-    C --> F[OIF-Compatible Solver]
-    D --> G[LiFi API]
-    E --> H[Your Solver API]
+    B --> D[Custom Adapter]
+    C --> E[OIF-Compatible Solver]
+    D --> F[Your Solver API]
 ```
 
 ## 🛠️ Implementing a Custom Adapter

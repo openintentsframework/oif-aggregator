@@ -253,22 +253,7 @@ The system enforces these validation rules for solver options:
 
 ### 1. Request Validation
 
-```mermaid
-graph TD
-    A[Quote Request] --> B[Validate Request Format]
-    B --> C[Check Required Fields]
-    C --> D[Validate Chain IDs]
-    D --> E[Validate Token Addresses]
-    E --> F[Check Deadline]
-    F --> G[Determine Target Solvers]
-```
-
-**Validation Steps:**
-- ✅ Request format and required fields
-- ✅ Chain ID format (hex strings)
-- ✅ Token address format (valid hex addresses)
-- ✅ Deadline is in the future
-- ✅ Amounts are valid numbers
+Basic validation ensures request format, required fields, and valid chain IDs/addresses before processing.
 
 ### 2. Solver Selection
 

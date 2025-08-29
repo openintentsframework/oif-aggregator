@@ -95,7 +95,7 @@ oif-aggregator/
 - **`AggregatorService`** - Core quote aggregation logic
 - **`OrderService`** - Intent submission and tracking
 - **`SolverService`** - Solver management and discovery
-- **`AdapterRegistry`** - Manages protocol adapters (OIF, LiFi, custom)
+- **`AdapterRegistry`** - Manages protocol adapters (OIF, custom)
 - **`Storage`** - Trait for persistence (memory, Redis)
 - **`IntegrityService`** - HMAC-SHA256 quote verification
 
