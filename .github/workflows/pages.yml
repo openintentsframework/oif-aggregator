@@ -3,7 +3,7 @@ name: OpenAPI Documentation
 on:
   push:
     branches:
-      - swagger-docs
+      - main
     paths:
       - 'crates/api/**'
       - 'crates/types/**'
