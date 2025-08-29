@@ -1,0 +1,82 @@
+name: OpenAPI Documentation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'crates/api/**'
+      - 'crates/types/**'
+      - 'crates/service/**'
+      - 'docs/api/**'
+      - 'src/**'
+      - 'scripts/generate-openapi.sh'
+  workflow_dispatch: # Allows manual triggering
+
+permissions:
+  contents: write # Required to push to gh-pages branch
+  pages: write    # Required to deploy to GitHub Pages
+  id-token: write # Required for OIDC authentication
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@1.86.0
+
+      - name: Cache Cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install cargo-chef
+        run: cargo install cargo-chef
+
+      - name: Prepare cargo-chef recipe
+        run: cargo chef prepare --recipe-path recipe.json --bin generate_openapi
+
+      - name: Cache cargo-chef cooked dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ runner.os }}-chef-openapi-${{ hashFiles('recipe.json') }}
+          restore-keys: |
+            ${{ runner.os }}-chef-openapi-
+            ${{ runner.os }}-chef-
+
+      - name: Build dependencies with cargo-chef
+        run: cargo chef cook --release --recipe-path recipe.json --features openapi
+
+      - name: Make scripts executable
+        run: chmod +x scripts/generate-openapi.sh
+
+      - name: Generate OpenAPI Spec
+        run: |
+          ./scripts/generate-openapi.sh
+          # Validate that the spec was generated
+          if [ ! -f "docs/api/openapi.json" ]; then
+            echo "❌ OpenAPI spec generation failed - no output file found"
+            exit 1
+          fi
+          echo "✅ OpenAPI spec generated successfully ($(wc -l < docs/api/openapi.json) lines)"
+
+      - name: Validate API docs for deployment
+        run: |
+          echo "📁 API documentation ready for direct deployment:"
+          ls -la docs/api/
+          echo "📊 OpenAPI spec size: $(du -h docs/api/openapi.json)"
+          echo "🔍 Swagger UI size: $(du -h docs/api/index.html)"
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: 'docs/api' # Deploy API docs directly - no copying needed
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,1210 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "OIF Aggregator API",
+    "description": "Open Intents Framework (OIF) Aggregator provides a unified API for cross-chain transaction aggregation. This service connects to multiple solvers to find the best execution paths for user intents across different blockchain networks.",
+    "contact": {
+      "name": "OIF Team",
+      "url": "https://github.com/openintentsframework/"
+    },
+    "license": {
+      "name": "MIT",
+      "url": "https://github.com/openintentsframework/oif-aggregator/blob/main/LICENSE"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "GET /health - Comprehensive health check with detailed status",
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "Service healthy",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orders": {
+      "post": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "Submit a new order\nPOST /v1/orders - Submit an order",
+        "operationId": "post_orders",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OrderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Order created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Quote not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orders/{id}": {
+      "get": {
+        "tags": [
+          "orders"
+        ],
+        "summary": "Get order status by ID\nGET /v1/orders/:id - Get order details by ID",
+        "operationId": "get_order",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Order ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Order details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrderResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Order not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/quotes": {
+      "post": {
+        "tags": [
+          "quotes"
+        ],
+        "summary": "Get quotes for a swap request using standard OIF format\nPOST /v1/quotes - Get quotes",
+        "operationId": "post_quotes",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/QuoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Quotes aggregated successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuotesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/solvers": {
+      "get": {
+        "tags": [
+          "solvers"
+        ],
+        "summary": "GET /v1/solvers - List all solvers",
+        "operationId": "get_solvers",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "description": "Page number (1-based)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "example": 1
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "description": "Items per page (1-100)",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "example": 25
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "List of solvers",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SolversResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/solvers/{id}": {
+      "get": {
+        "tags": [
+          "solvers"
+        ],
+        "summary": "GET /v1/solvers/{id} - Get solver by id",
+        "operationId": "get_solver_by_id",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "Solver ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Solver details",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SolverResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AggregationMetadata": {
+        "type": "object",
+        "description": "Metadata collected during quote aggregation",
+        "required": [
+          "totalDurationMs",
+          "solverTimeoutMs",
+          "globalTimeoutMs",
+          "earlyTermination",
+          "totalSolversAvailable",
+          "solversQueried",
+          "solversRespondedSuccess",
+          "solversRespondedError",
+          "solversTimedOut",
+          "minQuotesRequired",
+          "solverSelectionMode"
+        ],
+        "properties": {
+          "earlyTermination": {
+            "type": "boolean",
+            "description": "Whether early termination occurred (min_quotes satisfied)"
+          },
+          "globalTimeoutMs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Global timeout used in milliseconds",
+            "minimum": 0
+          },
+          "minQuotesRequired": {
+            "type": "integer",
+            "description": "Minimum quotes required from solver options",
+            "minimum": 0
+          },
+          "solverSelectionMode": {
+            "$ref": "#/components/schemas/SolverSelection",
+            "description": "Solver selection strategy used"
+          },
+          "solverTimeoutMs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Per-solver timeout used in milliseconds",
+            "minimum": 0
+          },
+          "solversQueried": {
+            "type": "integer",
+            "description": "Number of solvers actually queried",
+            "minimum": 0
+          },
+          "solversRespondedError": {
+            "type": "integer",
+            "description": "Number of solvers that returned errors",
+            "minimum": 0
+          },
+          "solversRespondedSuccess": {
+            "type": "integer",
+            "description": "Number of solvers that responded successfully",
+            "minimum": 0
+          },
+          "solversTimedOut": {
+            "type": "integer",
+            "description": "Number of solvers that timed out",
+            "minimum": 0
+          },
+          "totalDurationMs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total time spent on aggregation in milliseconds",
+            "minimum": 0
+          },
+          "totalSolversAvailable": {
+            "type": "integer",
+            "description": "Total solvers registered in system",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "Asset": {
+        "type": "object",
+        "description": "Supported blockchain asset/token",
+        "required": [
+          "address",
+          "symbol",
+          "name",
+          "decimals",
+          "chain_id"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Contract address (use \"0x0\" for native tokens)"
+          },
+          "chain_id": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Chain ID where this asset exists",
+            "minimum": 0
+          },
+          "decimals": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of decimal places",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable name (e.g., \"Ethereum\", \"USD Coin\")"
+          },
+          "symbol": {
+            "type": "string",
+            "description": "Token symbol (e.g., \"ETH\", \"USDC\", \"WBTC\")"
+          }
+        }
+      },
+      "AssetAmount": {
+        "type": "object",
+        "description": "Asset amount representation using ERC-7930 interoperable address format.",
+        "required": [
+          "asset",
+          "amount"
+        ],
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/U256",
+            "description": "Amount as a big integer"
+          },
+          "asset": {
+            "$ref": "#/components/schemas/InteropAddress",
+            "description": "Asset address in ERC-7930 interoperable format"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AvailableInput": {
+        "type": "object",
+        "description": "Available input with lock information and user",
+        "required": [
+          "user",
+          "asset",
+          "amount"
+        ],
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/U256",
+            "description": "Amount as a big integer"
+          },
+          "asset": {
+            "$ref": "#/components/schemas/InteropAddress",
+            "description": "Asset address in ERC-7930 interoperable format"
+          },
+          "lock": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Lock",
+                "description": "Lock information if asset is already locked"
+              }
+            ]
+          },
+          "user": {
+            "$ref": "#/components/schemas/InteropAddress",
+            "description": "User address in ERC-7930 interoperable format"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "description": "Error response format shared by handlers",
+        "required": [
+          "error",
+          "message",
+          "timestamp"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "description": "Comprehensive health response",
+        "required": [
+          "status",
+          "version",
+          "solvers",
+          "storage"
+        ],
+        "properties": {
+          "solvers": {
+            "$ref": "#/components/schemas/SolverStats"
+          },
+          "status": {
+            "type": "string"
+          },
+          "storage": {
+            "$ref": "#/components/schemas/StorageHealthInfo"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "InteropAddress": {
+        "type": "object",
+        "description": "ERC-7930 Interoperable Address",
+        "required": [
+          "version",
+          "chain_type",
+          "chain_reference",
+          "address"
+        ],
+        "properties": {
+          "address": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "chain_reference": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "chain_type": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "Lock": {
+        "type": "object",
+        "description": "Lock information for inputs that are already locked",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/LockKind",
+            "description": "Type of lock mechanism"
+          },
+          "params": {
+            "description": "Lock-specific parameters"
+          }
+        }
+      },
+      "LockKind": {
+        "type": "string",
+        "description": "Supported lock mechanisms",
+        "enum": [
+          "the-compact"
+        ]
+      },
+      "OrderRequest": {
+        "type": "object",
+        "description": "API request body for submitting orders",
+        "required": [
+          "quoteResponse",
+          "sponsor",
+          "signature",
+          "order"
+        ],
+        "properties": {
+          "order": {
+            "type": "string",
+            "description": "Order data"
+          },
+          "quoteResponse": {
+            "$ref": "#/components/schemas/QuoteResponse",
+            "description": "Quote data"
+          },
+          "signature": {
+            "type": "string",
+            "description": "User's signature for authorization"
+          },
+          "sponsor": {
+            "type": "string",
+            "description": "User's wallet address"
+          }
+        },
+        "additionalProperties": false
+      },
+      "OrderResponse": {
+        "type": "object",
+        "description": "Response body for /v1/orders endpoint (order submission)",
+        "required": [
+          "orderId",
+          "status",
+          "createdAt",
+          "updatedAt",
+          "inputAmount",
+          "outputAmount",
+          "settlement"
+        ],
+        "properties": {
+          "createdAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the response was created"
+          },
+          "fillTransaction": {
+            "description": "Fill transaction information"
+          },
+          "inputAmount": {
+            "$ref": "#/components/schemas/AssetAmount",
+            "description": "Input amount"
+          },
+          "orderId": {
+            "type": "string",
+            "description": "The order ID"
+          },
+          "outputAmount": {
+            "$ref": "#/components/schemas/AssetAmount",
+            "description": "Output amount"
+          },
+          "quoteId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Quote ID"
+          },
+          "settlement": {
+            "$ref": "#/components/schemas/Settlement",
+            "description": "Settlement information"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OrderStatus",
+            "description": "Current status of the order"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the response was last updated"
+          }
+        },
+        "additionalProperties": false
+      },
+      "OrderStatus": {
+        "type": "string",
+        "description": "Order execution status",
+        "enum": [
+          "created",
+          "pending",
+          "executed",
+          "settled",
+          "finalized",
+          "failed"
+        ]
+      },
+      "QuoteDetails": {
+        "type": "object",
+        "description": "Quote details matching the request structure",
+        "required": [
+          "requestedOutputs",
+          "availableInputs"
+        ],
+        "properties": {
+          "availableInputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AvailableInput"
+            },
+            "description": "Available inputs for this quote"
+          },
+          "requestedOutputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequestedOutput"
+            },
+            "description": "Requested outputs for this quote"
+          }
+        },
+        "additionalProperties": false
+      },
+      "QuoteOrder": {
+        "type": "object",
+        "description": "EIP-712 compliant order structure",
+        "required": [
+          "signatureType",
+          "domain",
+          "primaryType",
+          "message"
+        ],
+        "properties": {
+          "domain": {
+            "$ref": "#/components/schemas/InteropAddress",
+            "description": "ERC-7930 interoperable address of the domain"
+          },
+          "message": {
+            "description": "Message object to be signed and submitted"
+          },
+          "primaryType": {
+            "type": "string",
+            "description": "Primary type for EIP-712 signing"
+          },
+          "signatureType": {
+            "$ref": "#/components/schemas/SignatureType",
+            "description": "Signature type (eip-712 or erc-3009)"
+          }
+        },
+        "additionalProperties": false
+      },
+      "QuotePreference": {
+        "type": "string",
+        "description": "Quote optimization preferences following UII standard",
+        "enum": [
+          "price",
+          "speed",
+          "inputPriority",
+          "trustMinimization"
+        ]
+      },
+      "QuoteRequest": {
+        "type": "object",
+        "description": "API request body for /v1/quotes endpoint",
+        "required": [
+          "user",
+          "availableInputs",
+          "requestedOutputs"
+        ],
+        "properties": {
+          "availableInputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AvailableInput"
+            },
+            "description": "Available inputs (order significant if preference is 'input-priority')"
+          },
+          "minValidUntil": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Minimum quote validity duration in seconds",
+            "minimum": 0
+          },
+          "preference": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuotePreference",
+                "description": "User preference for optimization"
+              }
+            ]
+          },
+          "requestedOutputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RequestedOutput"
+            },
+            "description": "Requested outputs"
+          },
+          "solverOptions": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SolverOptions",
+                "description": "Solver options"
+              }
+            ]
+          },
+          "user": {
+            "$ref": "#/components/schemas/InteropAddress",
+            "description": "User making the request in ERC-7930 interoperable format"
+          }
+        },
+        "additionalProperties": false
+      },
+      "QuoteResponse": {
+        "type": "object",
+        "description": "Response format for individual quotes in the API",
+        "required": [
+          "quoteId",
+          "solverId",
+          "orders",
+          "details",
+          "provider",
+          "integrityChecksum"
+        ],
+        "properties": {
+          "details": {
+            "$ref": "#/components/schemas/QuoteDetails",
+            "description": "Quote details matching request structure"
+          },
+          "eta": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Estimated time to completion in seconds",
+            "minimum": 0
+          },
+          "integrityChecksum": {
+            "type": "string",
+            "description": "HMAC-SHA256 integrity checksum for quote verification\nThis ensures the quote originated from the aggregator service"
+          },
+          "orders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuoteOrder"
+            },
+            "description": "Array of EIP-712 compliant orders"
+          },
+          "provider": {
+            "type": "string",
+            "description": "Provider identifier"
+          },
+          "quoteId": {
+            "type": "string",
+            "description": "Unique identifier for the quote"
+          },
+          "solverId": {
+            "type": "string",
+            "description": "ID of the solver that provided this quote"
+          },
+          "validUntil": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Quote validity timestamp",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "QuotesResponse": {
+        "type": "object",
+        "description": "Collection of quotes response for API endpoints",
+        "required": [
+          "quotes",
+          "totalQuotes"
+        ],
+        "properties": {
+          "metadata": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AggregationMetadata",
+                "description": "Optional metadata about the aggregation process"
+              }
+            ]
+          },
+          "quotes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuoteResponse"
+            }
+          },
+          "totalQuotes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "RequestedOutput": {
+        "type": "object",
+        "description": "Requested output with receiver and optional calldata",
+        "required": [
+          "receiver",
+          "asset",
+          "amount"
+        ],
+        "properties": {
+          "amount": {
+            "$ref": "#/components/schemas/U256",
+            "description": "Amount as a big integer"
+          },
+          "asset": {
+            "$ref": "#/components/schemas/InteropAddress",
+            "description": "Asset address in ERC-7930 interoperable format"
+          },
+          "calldata": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional calldata for the output"
+          },
+          "receiver": {
+            "$ref": "#/components/schemas/InteropAddress",
+            "description": "Receiver address in ERC-7930 interoperable format"
+          }
+        },
+        "additionalProperties": false
+      },
+      "Settlement": {
+        "type": "object",
+        "description": "Order\nSettlement information for an order",
+        "required": [
+          "type",
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "description": "Settlement-specific data"
+          },
+          "type": {
+            "$ref": "#/components/schemas/SettlementType",
+            "description": "Settlement mechanism type"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SettlementType": {
+        "type": "string",
+        "description": "Settlement mechanism types",
+        "enum": [
+          "escrow",
+          "resourceLock"
+        ]
+      },
+      "SignatureType": {
+        "type": "string",
+        "description": "Supported signature types",
+        "enum": [
+          "eip712",
+          "erc3009"
+        ]
+      },
+      "SolverOptions": {
+        "type": "object",
+        "description": "API request body for /v1/quotes endpoint",
+        "properties": {
+          "excludeSolvers": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Solver IDs to exclude from query"
+          },
+          "includeSolvers": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Solver IDs to include (overrides circuit breaker Open state with warning)"
+          },
+          "minQuotes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Minimum number of valid quotes required before responding",
+            "minimum": 0
+          },
+          "priorityThreshold": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Min solver confidence threshold",
+            "minimum": 0
+          },
+          "sampleSize": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Max solvers to query in 'sampled' mode",
+            "minimum": 0
+          },
+          "solverSelection": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SolverSelection",
+                "description": "Solver selection strategy"
+              }
+            ]
+          },
+          "solverTimeout": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Per-solver timeout (ms) for individual quote responses",
+            "minimum": 0
+          },
+          "timeout": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Overall request timeout (ms) for POST /quotes",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "SolverResponse": {
+        "type": "object",
+        "description": "Response format for individual solvers in API",
+        "required": [
+          "solverId",
+          "adapterId",
+          "endpoint",
+          "status",
+          "supportedAssets",
+          "createdAt"
+        ],
+        "properties": {
+          "adapterId": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "lastSeen": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "solverId": {
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SolverStatus"
+          },
+          "supportedAssets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Asset"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "SolverSelection": {
+        "type": "string",
+        "enum": [
+          "all",
+          "sampled",
+          "priority"
+        ]
+      },
+      "SolverStats": {
+        "type": "object",
+        "description": "Solver statistics for health checks and monitoring",
+        "required": [
+          "total",
+          "active",
+          "inactive",
+          "healthy",
+          "unhealthy",
+          "health_details"
+        ],
+        "properties": {
+          "active": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "health_details": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "boolean"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "healthy": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "inactive": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unhealthy": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "SolverStatus": {
+        "type": "string",
+        "description": "Solver operational status",
+        "enum": [
+          "active",
+          "inactive",
+          "error",
+          "maintenance",
+          "initializing"
+        ]
+      },
+      "SolversResponse": {
+        "type": "object",
+        "description": "Collection of solvers response for API endpoints",
+        "required": [
+          "solvers",
+          "totalSolvers"
+        ],
+        "properties": {
+          "solvers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SolverResponse"
+            }
+          },
+          "totalSolvers": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "StorageHealthInfo": {
+        "type": "object",
+        "description": "Storage health information",
+        "required": [
+          "healthy",
+          "backend"
+        ],
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "healthy": {
+            "type": "boolean"
+          }
+        }
+      },
+      "U256": {
+        "type": "string",
+        "description": "U256 value represented as a string to preserve precision\n\nUsed for handling large integer values that might overflow native integer types"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "quotes",
+      "description": "Request and manage price quotes from multiple solvers for cross-chain transactions"
+    },
+    {
+      "name": "orders",
+      "description": "Submit, track, and manage cross-chain orders through the aggregator"
+    },
+    {
+      "name": "health",
+      "description": "System health checks and diagnostics for monitoring service status"
+    },
+    {
+      "name": "solvers",
+      "description": "Discover and interact with available solvers and their capabilities"
+    }
+  ]
+}
