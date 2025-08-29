@@ -1,0 +1,44 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 4000
+  },
+  "solvers": {
+    "example-solver": {
+      "solver_id": "example-solver",
+      "adapter_id": "oif-v1",
+      "endpoint": "http://127.0.0.1:3000/api",
+      "timeout_ms": 1500,
+      "enabled": true,
+      "max_retries": 1,
+      "headers": null,
+      "name": "OIF Solver",
+      "description": "OIF Solver Description"
+    }
+  },
+  "aggregation": {
+    "global_timeout_ms": 4000,
+    "per_solver_timeout_ms": 2000,
+    "max_concurrent_solvers": 50,
+    "max_retries_per_solver": 2,
+    "retry_delay_ms": 100
+  },
+  "environment": {
+    "rate_limiting": {
+      "enabled": false,
+      "requests_per_minute": 100,
+      "burst_size": 10
+    }
+  },
+  "logging": {
+    "level": "debug",
+    "format": "compact",
+    "structured": false
+  },
+  "security": {
+    "integrity_secret": {
+      "type": "env",
+      "value": "INTEGRITY_SECRET"
+    }
+  }
+}

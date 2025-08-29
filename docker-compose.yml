@@ -1,0 +1,38 @@
+services:
+  oif-aggregator:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "4000:4000"
+    volumes:
+      # Mount source code for hot reload
+      - ./src:/app/src
+      - ./crates:/app/crates
+      - ./config:/app/config
+      # Mount Cargo files for dependency management
+      - ./Cargo.toml:/app/Cargo.toml
+      - ./Cargo.lock:/app/Cargo.lock
+      - ./rust-toolchain.toml:/app/rust-toolchain.toml
+    environment:
+      # Development environment variables
+      - RUST_LOG=debug
+      - RUST_BACKTRACE=1
+      - INTEGRITY_SECRET=dev-secret-key-change-in-production
+      # Use /tmp for cargo operations to avoid permission issues
+      - CARGO_TARGET_DIR=/tmp/target
+      - CARGO_HOME=/tmp/cargo
+    networks:
+      - oif-network
+    restart: unless-stopped
+    # Add health check for development
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+networks:
+  oif-network:
+    driver: bridge

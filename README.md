@@ -25,7 +25,7 @@ cargo run --features openapi
 cargo run
 ```
 
-The server will start on `http://127.0.0.1:3000` by default.
+The server will start on `http://127.0.0.1:4000` by default.
 
 ### API Endpoints
 
@@ -263,7 +263,7 @@ cargo run --example builder_demo
 ### Health Checks
 
 ```bash
-curl http://localhost:3000/health
+curl http://localhost:4000/health
 ```
 
 Response:
