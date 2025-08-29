@@ -9,7 +9,7 @@
 //! Run the utility with optional output path parameter:
 //!
 //! ```bash
-//! # Generate to default location (docs/openapi.json)
+//! # Generate to default location (docs/api/openapi.json)
 //! cargo run --bin generate_openapi --features openapi
 //!
 //! # Generate to custom location
