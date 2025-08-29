@@ -48,6 +48,9 @@ cargo run
 cargo run --features openapi
 ```
 
+### Docker Alternative
+🐳 **Prefer containers?** See the **[Docker Guide](docker.md)** for containerized deployment with hot reload for development.
+
 The server will start on `http://0.0.0.0:4000` by default.
 
 ## 🧪 Step 4: Test the API

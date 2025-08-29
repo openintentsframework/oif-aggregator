@@ -13,6 +13,7 @@ Welcome to the comprehensive documentation for the **Open Intent Framework (OIF)
 - **[Quotes & Aggregation Guide](quotes-and-aggregation.md)** - How quote aggregation works
 
 ### 🔧 **Operations & Deployment**
+- **[Docker Guide](docker.md)** - Container deployment and development workflows
 - **[Security Guide](security.md)** - Security best practices and considerations
 - **[Maintenance Guide](maintenance.md)** - System maintenance and monitoring
 
@@ -32,6 +33,7 @@ docs/
 ├── configuration.md               # Complete configuration reference
 ├── quotes-and-aggregation.md     # Quote system and aggregation logic
 ├── custom-adapters.md             # Custom adapter implementation guide
+├── docker.md                     # Docker deployment and development
 ├── security.md                   # Security guidelines and best practices
 ├── maintenance.md                 # System maintenance and monitoring
 └── api/                           # API documentation
@@ -80,6 +82,11 @@ docs/
 - Registration and configuration
 - Error handling and testing
 - Best practices for custom integrations
+
+### **[Docker Guide](docker.md)**
+- Container deployment and development workflows
+- Environment variable configuration
+- Production and development Docker setups
 
 ### **[Maintenance Guide](maintenance.md)**
 - Health monitoring and metrics

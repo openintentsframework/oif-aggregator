@@ -22,6 +22,8 @@ cargo run
 
 📚 **[Interactive API Documentation](https://openintentsframework.github.io/oif-aggregator/)** available when running with `--features openapi`
 
+🐳 **Docker Users**: See the **[Docker Guide](docs/docker.md)** for containerized deployment
+
 ### API Endpoints
 
 Once running, the following endpoints are available:

@@ -12,6 +12,8 @@ The OIF Aggregator supports multiple configuration methods with the following pr
 
 ## 🌍 Environment Variables
 
+> **🐳 Docker Users**: See the [Docker Guide](docker.md) for complete environment variable setup in containerized deployments.
+
 ### Required Variables
 
 #### `INTEGRITY_SECRET`
