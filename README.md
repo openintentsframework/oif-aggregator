@@ -1,6 +1,7 @@
 # OIF Aggregator
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/openintentsframework/oif-aggregator)
+[![API Docs](https://img.shields.io/badge/API-Documentation-blue?style=flat&logo=swagger)](https://openintentsframework.github.io/oif-aggregator/)
 
 A high-performance aggregator for **Open Intent Framework (OIF)** solvers, providing quote aggregation, intent submission, and solver management.
 
@@ -26,6 +27,10 @@ cargo run
 ```
 
 The server will start on `http://127.0.0.1:3000` by default.
+
+### API Documentation
+
+📚 **Interactive API Documentation**: [https://openintentsframework.github.io/oif-aggregator/](https://openintentsframework.github.io/oif-aggregator/)
 
 ### API Endpoints
 
@@ -310,6 +315,7 @@ This project is licensed under the [MIT License](LICENSE).
 
 ## 🆘 Support
 
+- **API Documentation**: [Interactive Swagger UI](https://openintentsframework.github.io/oif-aggregator/)
 - **Documentation**: See [`docs/`](docs/) directory
 - **Examples**: Check [`examples/`](examples/) directory  
 - **Issues**: Open a GitHub issue
