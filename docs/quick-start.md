@@ -133,7 +133,6 @@ See the **[Custom Adapter Guide](custom-adapters.md)** for complete implementati
 
 - **📚 Documentation**: [Complete Documentation](README.md)
 - **🐛 Issues**: [GitHub Issues](https://github.com/openintentsframework/oif-aggregator/issues)
-- **💬 Discussions**: [GitHub Discussions](https://github.com/openintentsframework/oif-aggregator/discussions)
 
 ---
 

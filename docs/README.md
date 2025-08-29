@@ -108,7 +108,6 @@ Documentation improvements are always welcome! Here's how to contribute:
 ## 🔍 **Need Help?**
 
 - **Issues**: [GitHub Issues](https://github.com/openintentsframework/oif-aggregator/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/openintentsframework/oif-aggregator/discussions)
 - **API Testing**: [Interactive Swagger UI](https://openintentsframework.github.io/oif-aggregator/)
 
 ---
