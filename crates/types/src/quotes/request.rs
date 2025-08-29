@@ -6,6 +6,7 @@ use crate::constants::limits::{
 use crate::{models::InteropAddress, AvailableInput, QuotePreference, RequestedOutput};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "openapi")]
+#[allow(unused_imports)]
 use serde_json::json;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;

@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "openapi")]
+#[allow(unused_imports)]
 use serde_json::json;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;

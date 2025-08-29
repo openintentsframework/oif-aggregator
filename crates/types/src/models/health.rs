@@ -1,5 +1,6 @@
 use serde::Serialize;
 #[cfg(feature = "openapi")]
+#[allow(unused_imports)]
 use serde_json::json;
 use std::collections::HashMap;
 #[cfg(feature = "openapi")]
