@@ -23,34 +23,6 @@ Welcome to the comprehensive documentation for the **Open Intent Framework (OIF)
 - **[Interactive API Docs](https://openintentsframework.github.io/oif-aggregator/)** - Live Swagger UI
 - **[GitHub Repository](https://github.com/openintentsframework/oif-aggregator)** - Source code and issues
 
-## 🎯 **Quick Navigation**
-
-### For New Users
-If you're just getting started with the OIF Aggregator:
-1. **[Quick Start Guide](quick-start.md)** - Complete setup with working examples
-2. **[Configuration Guide](configuration.md)** to understand available options
-3. **[API Documentation](api/)** to start making requests
-
-### For Developers
-If you're building applications that integrate with the OIF Aggregator:
-1. Read the **[Quotes & Aggregation Guide](quotes-and-aggregation.md)** to understand how quotes work
-2. Explore the **[API Documentation](api/)** for endpoint details and examples
-3. Review **[Configuration Guide](configuration.md)** for environment setup
-4. Check **[Security Guide](security.md)** for authentication and best practices
-
-### For DevOps/Infrastructure
-If you're deploying and maintaining the OIF Aggregator:
-1. Read the **[Configuration Guide](configuration.md)** for deployment settings
-2. Follow **[Security Guide](security.md)** for secure deployment
-3. Use **[Maintenance Guide](maintenance.md)** for monitoring and upkeep
-
-### For Contributors
-If you're contributing to the OIF Aggregator codebase:
-1. Start with the **[Quick Start Guide](quick-start.md)** for local development setup
-2. Review **[Custom Adapter Guide](custom-adapters.md)** for extension patterns
-3. Check **[API Documentation](api/)** to understand the current API structure
-4. Follow coding standards and contribution guidelines in the main repository
-
 ## 🔄 **Documentation Structure**
 
 ```
