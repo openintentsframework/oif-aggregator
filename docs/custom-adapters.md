@@ -17,6 +17,28 @@ graph TD
     D --> F[Your Solver API]
 ```
 
+### Custom Adapter Integration Points
+
+```mermaid
+graph LR
+    A[Your Solver API] --> B[Custom Adapter]
+    B --> C[SolverAdapter Trait]
+    C --> D[get_quotes]
+    C --> E[submit_order]
+    C --> F[health_check]
+    C --> G[get_order_details]
+    C --> H[get_supported_networks]
+    C --> I[get_supported_assets]
+    
+    B --> J[Adapter Registry]
+    J --> K[OIF Aggregator]
+    
+    style A fill:#fff3e0
+    style B fill:#e8f5e8
+    style C fill:#f3e5f5
+    style K fill:#e1f5fe
+```
+
 ## 🛠️ Implementing a Custom Adapter
 
 ### Reference Implementations

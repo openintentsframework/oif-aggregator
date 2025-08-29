@@ -251,6 +251,49 @@ The system enforces these validation rules for solver options:
 
 ## 🔄 Aggregation Process
 
+The quote aggregation follows a structured pipeline to deliver the best quotes from multiple solvers:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API
+    participant Aggregator
+    participant Adapter1 as OIF Adapter
+    participant Adapter2 as Custom Adapter
+    participant Solver1 as OIF Solver
+    participant Solver2 as Custom Solver
+    
+    Client->>API: POST /v1/quotes
+    API->>Aggregator: Process Quote Request
+    
+    Note over Aggregator: 1. Request Validation
+    Aggregator->>Aggregator: Validate request format & fields
+    
+    Note over Aggregator: 2. Solver Selection
+    Aggregator->>Aggregator: Determine target solvers
+    
+    Note over Aggregator: 3. Parallel Quote Requests
+    par OIF Solver
+        Aggregator->>Adapter1: get_quotes()
+        Adapter1->>Solver1: HTTP Request
+        Solver1-->>Adapter1: Quote Response
+        Adapter1-->>Aggregator: Standardized Quote
+    and Custom Solver
+        Aggregator->>Adapter2: get_quotes()
+        Adapter2->>Solver2: HTTP Request
+        Solver2-->>Adapter2: Quote Response
+        Adapter2-->>Aggregator: Standardized Quote
+    end
+    
+    Note over Aggregator: 4. Quote Processing
+    Aggregator->>Aggregator: Rank, filter & select best quotes
+    
+    Note over Aggregator: 5. Response Assembly
+    Aggregator->>Aggregator: Add integrity hashes & metadata
+    Aggregator-->>API: Aggregated Response
+    API-->>Client: Best Quotes
+```
+
 ### 1. Request Validation
 
 Basic validation ensures request format, required fields, and valid chain IDs/addresses before processing.

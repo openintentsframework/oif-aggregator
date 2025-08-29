@@ -74,8 +74,28 @@ export INTEGRITY_SECRET="your-secure-random-string-minimum-32-chars"
 
 ## 🏗️ Architecture
 
-The OIF Aggregator follows a modular, crate-based architecture:
+The OIF Aggregator follows a modular, crate-based architecture with clear separation of concerns:
 
+```mermaid
+graph TD
+    A[HTTP Requests] --> B[API Layer<br/>oif-api]
+    B --> C[Aggregator Service<br/>oif-service]
+    C --> D[Solver Service<br/>oif-service]
+    C --> E[Order Service<br/>oif-service]
+    D --> F[Adapter Registry<br/>oif-adapters]
+    F --> G[OIF Adapter]
+    F --> H[Custom Adapters]
+    E --> I[Storage Layer<br/>oif-storage]
+    G --> J[OIF-Compatible<br/>Solvers]
+    H --> K[External Solver<br/>APIs]
+    
+    style A fill:#e1f5fe
+    style B fill:#f3e5f5
+    style C fill:#e8f5e8
+    style I fill:#fff3e0
+```
+
+### Crate Structure
 ```
 oif-aggregator/
 ├── crates/
