@@ -2,6 +2,8 @@
 
 This directory contains the auto-generated OpenAPI documentation for the OIF Aggregator API.
 
+📚 **[View Live Documentation](https://openintentsframework.github.io/oif-aggregator/)** - Interactive Swagger UI deployed on GitHub Pages
+
 ## Files
 
 - `openapi.json` - OpenAPI 3.1 specification (auto-generated)
