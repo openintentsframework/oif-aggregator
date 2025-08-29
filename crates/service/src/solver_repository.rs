@@ -9,14 +9,13 @@ use crate::solver_adapter::SolverAdapterTrait;
 use async_trait::async_trait;
 use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;
+use oif_types::models::health::SolverStats;
 use oif_types::solvers::AssetSource;
 use oif_types::solvers::Solver;
 use oif_types::{SolverRuntimeConfig, SolverStatus};
-use serde::Serialize;
+
 use thiserror::Error;
 use tracing::{debug, info, warn};
-#[cfg(feature = "openapi")]
-use utoipa::ToSchema;
 
 /// Trait for solver service operations
 #[cfg_attr(test, mockall::automock)]
@@ -60,18 +59,6 @@ pub enum SolverServiceError {
 	Storage(String),
 	#[error("not found: {0}")]
 	NotFound(String),
-}
-
-/// Solver statistics for health checks and monitoring
-#[derive(Debug, Serialize, Clone)]
-#[cfg_attr(feature = "openapi", derive(ToSchema))]
-pub struct SolverStats {
-	pub total: usize,
-	pub active: usize,
-	pub inactive: usize,
-	pub healthy: usize,
-	pub unhealthy: usize,
-	pub health_details: HashMap<String, bool>,
 }
 
 #[derive(Clone)]

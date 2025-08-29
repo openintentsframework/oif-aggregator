@@ -20,6 +20,7 @@ pub use aggregator::{MockAggregatorTrait, MockTaskExecutorTrait};
 #[cfg(test)]
 pub use integrity::MockIntegrityTrait;
 pub use integrity::{IntegrityError, IntegrityService, IntegrityTrait};
+pub use oif_types::models::health::SolverStats;
 pub use oif_types::IntegrityPayload;
 #[cfg(test)]
 pub use order::MockOrderServiceTrait;
@@ -35,7 +36,7 @@ pub use solver_filter::{
 };
 #[cfg(test)]
 pub use solver_repository::MockSolverServiceTrait;
-pub use solver_repository::{SolverService, SolverServiceError, SolverServiceTrait, SolverStats};
+pub use solver_repository::{SolverService, SolverServiceError, SolverServiceTrait};
 
 // Background job processing
 #[cfg(test)]

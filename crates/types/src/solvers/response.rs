@@ -2,6 +2,9 @@
 
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "openapi")]
+#[allow(unused_imports)]
+use serde_json::json;
+#[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
 use super::{Solver, SolverStatus};
@@ -10,6 +13,32 @@ use crate::models::Asset as AssetResponse;
 /// Response format for individual solvers in API
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[cfg_attr(feature = "openapi", schema(example = json!({
+    "solverId": "example-solver",
+    "adapterId": "oif-adapter-v1",
+    "name": "Example DeFi Solver",
+    "description": "An example solver for cross-chain swaps",
+    "endpoint": "https://api.example-solver.com",
+    "status": "active",
+    "supportedAssets": [
+        {
+            "address": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+            "symbol": "USDC",
+            "name": "USD Coin",
+            "decimals": 6,
+            "chainId": 1
+        },
+        {
+            "address": "0x01000002147a69C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+            "symbol": "WETH",
+            "name": "Wrapped Ether",
+            "decimals": 18,
+            "chainId": 1
+        }
+    ],
+    "createdAt": 1756400000,
+    "lastSeen": 1756457492
+})))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SolverResponse {
 	pub solver_id: String,
@@ -26,6 +55,49 @@ pub struct SolverResponse {
 /// Collection of solvers response for API endpoints
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[cfg_attr(feature = "openapi", schema(example = json!({
+    "solvers": [
+        {
+            "solverId": "example-solver",
+            "adapterId": "oif-adapter-v1",
+            "name": "Example DeFi Solver",
+            "description": "An example solver for cross-chain swaps",
+            "endpoint": "https://api.example-solver.com",
+            "status": "active",
+            "supportedAssets": [
+                {
+                    "address": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                    "symbol": "USDC",
+                    "name": "USD Coin",
+                    "decimals": 6,
+                    "chainId": 1
+                }
+            ],
+            "createdAt": 1756400000,
+            "lastSeen": 1756457492
+        },
+        {
+            "solverId": "uniswap-solver",
+            "adapterId": "uniswap-adapter-v1",
+            "name": "Uniswap V3 Solver",
+            "description": "Uniswap V3 liquidity pools solver",
+            "endpoint": "https://api.uniswap.solver.com",
+            "status": "active",
+            "supportedAssets": [
+                {
+                    "address": "0x01000002147a69C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+                    "symbol": "WETH",
+                    "name": "Wrapped Ether",
+                    "decimals": 18,
+                    "chainId": 1
+                }
+            ],
+            "createdAt": 1756400000,
+            "lastSeen": 1756457490
+        }
+    ],
+    "totalSolvers": 2
+})))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SolversResponse {
 	pub solvers: Vec<SolverResponse>,

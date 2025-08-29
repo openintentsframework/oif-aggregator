@@ -219,7 +219,6 @@ pub struct MaintenanceSettings {
 	/// will be automatically deleted by the daily cleanup job.
 	///
 	/// Default: 10 days
-	/// Environment variable: ORDER_RETENTION_DAYS
 	pub order_retention_days: u32,
 }
 

@@ -18,6 +18,8 @@ docker run -p 4000:4000 -e INTEGRITY_SECRET=your-secret oif-aggregator
 
 All core settings can be configured via environment variables with config file fallbacks:
 
+> **📚 Complete Reference**: See the [Configuration Guide](configuration.md) for all available environment variables and JSON configuration options.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `HOST` | `127.0.0.1` | Server bind address |

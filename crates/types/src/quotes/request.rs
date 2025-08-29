@@ -6,6 +6,9 @@ use crate::constants::limits::{
 use crate::{models::InteropAddress, AvailableInput, QuotePreference, RequestedOutput};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "openapi")]
+#[allow(unused_imports)]
+use serde_json::json;
+#[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
 use super::{QuoteValidationError, QuoteValidationResult};
@@ -23,6 +26,13 @@ pub enum SolverSelection {
 /// API request body for /v1/quotes endpoint
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[cfg_attr(feature = "openapi", schema(example = json!({
+    "includeSolvers": ["example-solver"],
+    "timeout": 4000,
+    "solverTimeout": 2000,
+    "minQuotes": 1,
+    "solverSelection": "all"
+})))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SolverOptions {
 	/// Solver IDs to include (overrides circuit breaker Open state with warning)
@@ -159,6 +169,29 @@ impl SolverOptions {
 /// API request body for /v1/quotes endpoint
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[cfg_attr(feature = "openapi", schema(example = json!({
+    "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8",
+    "availableInputs": [
+        {
+            "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8",
+            "asset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+            "amount": "1000000000000000000"
+        }
+    ],
+    "requestedOutputs": [
+        {
+            "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+            "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
+            "amount": "1000000000000000000"
+        }
+    ],
+    "preference": "speed",
+    "minValidUntil": 600,
+    "solverOptions": {
+        "timeout": 4000,
+        "solverTimeout": 2000
+    }
+})))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QuoteRequest {
 	/// User making the request in ERC-7930 interoperable format

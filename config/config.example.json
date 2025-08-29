@@ -26,8 +26,8 @@
   "environment": {
     "rate_limiting": {
       "enabled": false,
-      "requests_per_minute": 100,
-      "burst_size": 10
+      "requests_per_minute": 1000,
+      "burst_size": 100
     }
   },
   "logging": {

@@ -85,7 +85,7 @@ async fn test_health_endpoint() {
 	assert!(solvers.get("inactive").is_some());
 	assert!(solvers.get("healthy").is_some());
 	assert!(solvers.get("unhealthy").is_some());
-	assert!(solvers.get("health_details").is_some());
+	assert!(solvers.get("healthDetails").is_some());
 
 	// Verify storage structure
 	let storage = json_body.get("storage").unwrap();
