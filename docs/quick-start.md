@@ -22,55 +22,19 @@ export INTEGRITY_SECRET="your-secure-random-string-minimum-32-chars"
 
 ## ⚙️ Step 2: Create Configuration
 
-Create a basic configuration file:
+Copy the example configuration file:
 
 ```bash
-mkdir -p config
-cat > config/config.json << 'EOF'
-{
-  "server": {
-    "host": "0.0.0.0",
-    "port": 4000
-  },
-  "solvers": {
-    "example-solver": {
-      "solver_id": "example-solver",
-      "adapter_id": "oif-v1",
-      "endpoint": "http://127.0.0.1:3000/api",
-      "enabled": true,
-      "headers": null,
-      "name": "OIF Solver",
-      "description": "OIF Solver Description"
-    }
-  },
-  "aggregation": {
-    "global_timeout_ms": 4000,
-    "per_solver_timeout_ms": 2000,
-    "max_concurrent_solvers": 50,
-    "max_retries_per_solver": 2,
-    "retry_delay_ms": 100
-  },
-  "environment": {
-    "rate_limiting": {
-      "enabled": false,
-      "requests_per_minute": 1000,
-      "burst_size": 100
-    }
-  },
-  "logging": {
-    "level": "debug",
-    "format": "compact",
-    "structured": false
-  },
-  "security": {
-    "integrity_secret": {
-      "type": "env",
-      "value": "INTEGRITY_SECRET"
-    }
-  }
-}
-EOF
+cp config/config.example.json config/config.json
 ```
+
+This creates a working configuration with:
+- **Server**: Runs on `127.0.0.1:4000`
+- **Example solver**: OIF-compatible solver endpoint
+- **Reasonable defaults**: Timeouts, retries, and rate limiting
+- **Debug logging**: Detailed logs for development
+
+**💡 Tip**: Edit `config/config.json` to customize for your needs. See the [Configuration Guide](configuration.md) for all available options.
 
 ## 🎯 Step 3: Run the Server
 

@@ -16,7 +16,7 @@ A high-performance aggregator for **Open Intent Framework (OIF)** solvers, provi
 git clone https://github.com/openintentsframework/oif-aggregator.git
 cd oif-aggregator
 export INTEGRITY_SECRET="your-secure-random-string-minimum-32-chars"
-# Create config/config.json (see Quick Start Guide)
+cp config/config.example.json config/config.json
 cargo run
 ```
 
@@ -140,7 +140,7 @@ cargo run --example builder_demo
 ### Health Checks
 
 ```bash
-curl http://localhost:3000/health
+curl http://localhost:4000/health
 ```
 
 Response:
