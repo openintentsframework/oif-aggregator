@@ -16,14 +16,14 @@ use crate::mocks::api_fixtures::INTEGRITY_SECRET;
 #[test]
 fn test_adapter_registry_creation() {
 	let registry = AdapterRegistry::new();
-	// Registry starts with default adapters (OIF and LiFi)
+	// Registry starts with default adapters (OIF, LiFi, Across)
 	assert!(registry.get_all().is_empty());
 }
 
 #[test]
 fn test_adapter_registry_with_defaults() {
 	let registry = AdapterRegistry::with_defaults();
-	// Should have default OIF and LiFi adapters
+	// Should have default OIF, LiFi and Across adapters
 	assert!(registry.get_all().len() >= 2);
 }
 

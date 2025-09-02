@@ -18,11 +18,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 	// Demo 1: Minimal builder with default adapters only
 	println!("\n1. 📦 Minimal Builder (Default Adapters Only)");
-	println!("   Creating aggregator with OIF and LiFi adapters...");
+	println!("   Creating aggregator with OIF, LiFi and Across adapters...");
 
 	let (_app1, _state1) = AggregatorBuilder::default().start().await?;
 
-	println!("   ✅ Built aggregator with default adapters (OIF + LiFi)");
+	println!("   ✅ Built aggregator with default adapters (OIF + LiFi + Across)");
 
 	// Demo 2: Builder with custom mock adapter
 	println!("\n2. 🔧 Builder with Custom Mock Adapter");
@@ -131,7 +131,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 	println!("\n6. 📊 Builder Pattern Summary");
 	println!("   The AggregatorBuilder provides:");
-	println!("   🔸 AggregatorBuilder::default() - Start with OIF/LiFi defaults");
+	println!("   🔸 AggregatorBuilder::default() - Start with OIF/LiFi/Across defaults");
 	println!("   🔸 .with_adapter(adapter) - Add custom adapter implementations");
 	println!("   🔸 .with_solver(solver) - Register solvers for adapters");
 	println!("   🔸 .start() - Build the router and application state");

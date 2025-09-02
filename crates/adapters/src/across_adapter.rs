@@ -1036,7 +1036,6 @@ mod tests {
 		assert!(across_data.get("id").is_some());
 
 		println!("✅ All Across metadata fields are present and accessible!");
-		println!("✅ Simplified approach: Complete Across response serialized as-is!");
 	}
 
 	#[tokio::test]
