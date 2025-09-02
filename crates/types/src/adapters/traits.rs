@@ -4,7 +4,7 @@ use super::{AdapterResult, SolverRuntimeConfig};
 use crate::{
 	adapters::{
 		models::{SubmitOrderRequest, SubmitOrderResponse},
-		GetOrderResponse,
+		AdapterError, GetOrderResponse,
 	},
 	models::{Asset, Network},
 };
@@ -18,14 +18,14 @@ use std::fmt::Debug;
 /// Users can create custom adapters by implementing this trait.
 #[async_trait]
 pub trait SolverAdapter: Send + Sync + Debug {
-	/// Get adapter ID (for registration and solver matching)
-	fn adapter_id(&self) -> &str;
-
-	/// Get adapter name (human-readable)
-	fn adapter_name(&self) -> &str;
-
 	/// Get adapter configuration information
+	/// This is the only required method - others have default implementations
 	fn adapter_info(&self) -> &Adapter;
+
+	/// Get adapter ID (for registration and solver matching)
+	fn id(&self) -> &str {
+		&self.adapter_info().adapter_id
+	}
 
 	/// Get quotes from the solver using runtime configuration
 	/// Adapters can choose to handle multi-input/output or process simple swaps
@@ -36,11 +36,19 @@ pub trait SolverAdapter: Send + Sync + Debug {
 	) -> AdapterResult<GetQuoteResponse>;
 
 	/// Submit an order to the solver using runtime configuration
+	///
+	/// Default implementation returns UnsupportedOperation error.
+	/// Override this method if your adapter supports order submission.
 	async fn submit_order(
 		&self,
-		order: &SubmitOrderRequest,
-		config: &SolverRuntimeConfig,
-	) -> AdapterResult<SubmitOrderResponse>;
+		_order: &SubmitOrderRequest,
+		_config: &SolverRuntimeConfig,
+	) -> AdapterResult<SubmitOrderResponse> {
+		Err(AdapterError::UnsupportedOperation {
+			operation: "submit_order".to_string(),
+			adapter_id: self.id().to_string(),
+		})
+	}
 
 	/// Health check for the solver using runtime configuration
 	async fn health_check(&self, config: &SolverRuntimeConfig) -> AdapterResult<bool>;
@@ -49,11 +57,19 @@ pub trait SolverAdapter: Send + Sync + Debug {
 	///
 	/// This method retrieves comprehensive information about an order including
 	/// transaction status, gas usage, fees, and any additional metadata from the solver.
+	///
+	/// Default implementation returns UnsupportedOperation error.
+	/// Override this method if your adapter supports order tracking.
 	async fn get_order_details(
 		&self,
-		order_id: &str,
-		config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetOrderResponse>;
+		_order_id: &str,
+		_config: &SolverRuntimeConfig,
+	) -> AdapterResult<GetOrderResponse> {
+		Err(AdapterError::UnsupportedOperation {
+			operation: "get_order_details".to_string(),
+			adapter_id: self.id().to_string(),
+		})
+	}
 
 	/// Get the list of blockchain networks supported by this adapter
 	///

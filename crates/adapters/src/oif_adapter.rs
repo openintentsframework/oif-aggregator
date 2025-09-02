@@ -144,14 +144,6 @@ impl OifAdapter {
 
 #[async_trait]
 impl SolverAdapter for OifAdapter {
-	fn adapter_id(&self) -> &str {
-		&self.config.adapter_id
-	}
-
-	fn adapter_name(&self) -> &str {
-		&self.config.name
-	}
-
 	fn adapter_info(&self) -> &Adapter {
 		&self.config
 	}
@@ -500,8 +492,8 @@ mod tests {
 	#[test]
 	fn test_oif_adapter_default_config() {
 		let adapter = OifAdapter::with_default_config().unwrap();
-		assert_eq!(adapter.adapter_id(), "oif-v1");
-		assert_eq!(adapter.adapter_name(), "OIF v1 Adapter");
+		assert_eq!(adapter.id(), "oif-v1");
+		assert_eq!(adapter.name(), "OIF v1 Adapter");
 		assert!(matches!(adapter.client_strategy, ClientStrategy::Cached(_)));
 	}
 

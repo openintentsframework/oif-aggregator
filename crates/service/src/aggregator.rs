@@ -387,15 +387,9 @@ impl TaskExecutorTrait for TaskExecutor {
 		let mut domain_quotes = Vec::new();
 
 		for adapter_quote in response.quotes {
-			let mut domain_quote = Quote::new(
-				solver.solver_id.clone(),
-				adapter_quote.orders,
-				adapter_quote.details,
-				adapter_quote.provider,
-				String::new(),
-			)
-			.with_valid_until(adapter_quote.valid_until.unwrap_or(0))
-			.with_eta(adapter_quote.eta.unwrap_or(0));
+			let quote_id = adapter_quote.quote_id.clone(); // Store for error logging
+			let mut domain_quote = Quote::try_from((adapter_quote, solver.solver_id.clone()))
+				.map_err(|e| format!("Failed to convert AdapterQuote to Quote: {}", e))?;
 
 			let payload = domain_quote.to_integrity_payload();
 			match self
@@ -409,7 +403,7 @@ impl TaskExecutorTrait for TaskExecutor {
 				Err(e) => {
 					warn!(
 						"Failed to generate integrity checksum for quote {} from solver {}: {}",
-						adapter_quote.quote_id, solver.solver_id, e
+						quote_id, solver.solver_id, e
 					);
 				},
 			}
@@ -941,22 +935,39 @@ mod tests {
 		id: String,
 		should_fail: bool,
 		delay_ms: Option<u64>,
+		adapter_info: oif_types::Adapter,
 	}
 
 	impl TestMockAdapter {
 		fn new(id: &str, should_fail: bool) -> Self {
+			let adapter_info = oif_types::Adapter::new(
+				id.to_string(),
+				format!("Mock adapter {}", id),
+				format!("Test Mock Adapter {}", id),
+				"1.0.0".to_string(),
+			);
+
 			Self {
 				id: id.to_string(),
 				should_fail,
 				delay_ms: None,
+				adapter_info,
 			}
 		}
 
 		fn with_delay(id: &str, delay_ms: u64) -> Self {
+			let adapter_info = oif_types::Adapter::new(
+				id.to_string(),
+				format!("Mock adapter {}", id),
+				format!("Test Mock Adapter {}", id),
+				"1.0.0".to_string(),
+			);
+
 			Self {
 				id: id.to_string(),
 				should_fail: false,
 				delay_ms: Some(delay_ms),
+				adapter_info,
 			}
 		}
 
@@ -968,15 +979,8 @@ mod tests {
 
 	#[async_trait]
 	impl SolverAdapter for TestMockAdapter {
-		fn adapter_id(&self) -> &str {
-			&self.id
-		}
-		fn adapter_name(&self) -> &str {
-			&self.id
-		}
 		fn adapter_info(&self) -> &oif_types::Adapter {
-			// Not used in tests
-			panic!("adapter_info not implemented for test mock")
+			&self.adapter_info
 		}
 
 		async fn get_quotes(
@@ -1069,6 +1073,7 @@ mod tests {
 				valid_until: Some(oif_types::chrono::Utc::now().timestamp() as u64 + 300),
 				eta: Some(30),
 				provider: format!("{} Provider", self.id),
+				metadata: None,
 			};
 
 			Ok(oif_types::GetQuoteResponse {
@@ -2508,6 +2513,7 @@ mod tests {
 				eta: Some(300), // 300 seconds (slowest)
 				provider: "test_provider".to_string(),
 				integrity_checksum: "checksum_3".to_string(),
+				metadata: None,
 			},
 			Quote {
 				quote_id: "quote_1".to_string(),
@@ -2518,6 +2524,7 @@ mod tests {
 				eta: Some(100), // 100 seconds (fastest)
 				provider: "test_provider".to_string(),
 				integrity_checksum: "checksum_1".to_string(),
+				metadata: None,
 			},
 			Quote {
 				quote_id: "quote_no_eta".to_string(),
@@ -2528,6 +2535,7 @@ mod tests {
 				eta: None, // No eta (should go last)
 				provider: "test_provider".to_string(),
 				integrity_checksum: "checksum_no_eta".to_string(),
+				metadata: None,
 			},
 			Quote {
 				quote_id: "quote_2".to_string(),
@@ -2538,6 +2546,7 @@ mod tests {
 				eta: Some(200), // 200 seconds (middle)
 				provider: "test_provider".to_string(),
 				integrity_checksum: "checksum_2".to_string(),
+				metadata: None,
 			},
 		];
 
@@ -2588,6 +2597,7 @@ mod tests {
 				eta: Some(500), // Slow (should be last)
 				provider: "test_provider".to_string(),
 				integrity_checksum: "checksum_slow".to_string(),
+				metadata: None,
 			},
 			Quote {
 				quote_id: "quote_fast".to_string(),
@@ -2598,6 +2608,7 @@ mod tests {
 				eta: Some(50), // Fast (should be first)
 				provider: "test_provider".to_string(),
 				integrity_checksum: "checksum_fast".to_string(),
+				metadata: None,
 			},
 		];
 

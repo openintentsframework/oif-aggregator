@@ -46,6 +46,11 @@ pub struct Quote {
 	/// HMAC-SHA256 integrity checksum for quote verification
 	/// This ensures the quote originated from the aggregator service
 	pub integrity_checksum: String,
+	/// Adapter-specific metadata for additional context and execution details
+	/// This field allows each adapter to include protocol-specific information
+	/// that consumers might need for order execution or additional context
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub metadata: Option<serde_json::Value>,
 }
 
 // ================================
@@ -111,6 +116,7 @@ impl Quote {
 			eta: None,
 			provider,
 			integrity_checksum,
+			metadata: None,
 		}
 	}
 
@@ -180,6 +186,40 @@ impl Quote {
 	pub fn with_eta(mut self, eta: u64) -> Self {
 		self.eta = Some(eta);
 		self
+	}
+
+	/// Update the adapter metadata
+	pub fn with_metadata(mut self, metadata: Option<serde_json::Value>) -> Self {
+		self.metadata = metadata;
+		self
+	}
+}
+
+// ================================
+// CONVERSION IMPLEMENTATIONS
+// ================================
+
+impl TryFrom<(crate::adapters::AdapterQuote, String)> for Quote {
+	type Error = QuoteError;
+
+	/// Convert from AdapterQuote to Quote domain model
+	///
+	/// Requires a solver_id parameter since AdapterQuote doesn't contain it.
+	/// The integrity_checksum will be empty and should be set by the aggregator service.
+	fn try_from(
+		(adapter_quote, solver_id): (crate::adapters::AdapterQuote, String),
+	) -> Result<Self, Self::Error> {
+		Ok(Quote {
+			quote_id: adapter_quote.quote_id,
+			solver_id,
+			orders: adapter_quote.orders,
+			details: adapter_quote.details,
+			valid_until: adapter_quote.valid_until,
+			eta: adapter_quote.eta,
+			provider: adapter_quote.provider,
+			integrity_checksum: String::new(), // Will be set by aggregator service
+			metadata: adapter_quote.metadata,
+		})
 	}
 }
 
@@ -323,5 +363,51 @@ mod tests {
 		// Verify deterministic output
 		let payload2 = quote.to_integrity_payload();
 		assert_eq!(payload, payload2);
+	}
+
+	#[test]
+	fn test_try_from_adapter_quote() {
+		use crate::adapters::AdapterQuote;
+		use crate::{InteropAddress, QuoteDetails, QuoteOrder, SignatureType};
+		use serde_json::json;
+
+		// Create a test AdapterQuote
+		let adapter_quote = AdapterQuote {
+			quote_id: "test-quote-123".to_string(),
+			orders: vec![QuoteOrder {
+				signature_type: SignatureType::Eip712,
+				domain: InteropAddress::from_chain_and_address(
+					1,
+					"0x742d35Cc6634C0532925a3b8D38BA2297C33A9D7",
+				)
+				.unwrap(),
+				primary_type: "TestOrder".to_string(),
+				message: json!({"test": "data"}),
+			}],
+			details: QuoteDetails {
+				available_inputs: vec![],
+				requested_outputs: vec![],
+			},
+			valid_until: Some(1234567890),
+			eta: Some(300),
+			provider: "Test Provider".to_string(),
+			metadata: Some(json!({"test_key": "test_value"})),
+		};
+
+		let solver_id = "test-solver".to_string();
+
+		// Test the TryFrom conversion
+		let quote = Quote::try_from((adapter_quote, solver_id.clone())).unwrap();
+
+		// Verify all fields are correctly transferred
+		assert_eq!(quote.quote_id, "test-quote-123");
+		assert_eq!(quote.solver_id, solver_id);
+		assert_eq!(quote.orders.len(), 1);
+		assert_eq!(quote.valid_until, Some(1234567890));
+		assert_eq!(quote.eta, Some(300));
+		assert_eq!(quote.provider, "Test Provider");
+		assert_eq!(quote.integrity_checksum, ""); // Should be empty initially
+		assert!(quote.metadata.is_some());
+		assert_eq!(quote.metadata.unwrap()["test_key"], "test_value");
 	}
 }

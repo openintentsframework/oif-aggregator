@@ -28,8 +28,6 @@ use oif_types::{models::Asset, models::Network, InteropAddress, SolverRuntimeCon
 /// Simple mock adapter for examples and testing
 #[derive(Debug, Clone)]
 pub struct MockDemoAdapter {
-	pub id: String,
-	pub name: String,
 	pub adapter: oif_types::Adapter,
 }
 
@@ -37,8 +35,6 @@ impl MockDemoAdapter {
 	/// Create a new mock demo adapter
 	pub fn new() -> Self {
 		Self {
-			id: "mock-demo-v1".to_string(),
-			name: "Mock Demo Adapter".to_string(),
 			adapter: oif_types::Adapter {
 				adapter_id: "mock-demo-v1".to_string(),
 				name: "Mock Demo Adapter".to_string(),
@@ -53,8 +49,6 @@ impl MockDemoAdapter {
 	#[allow(dead_code)]
 	pub fn with_config(id: String, name: String) -> Self {
 		Self {
-			id: id.clone(),
-			name: name.clone(),
 			adapter: oif_types::Adapter {
 				adapter_id: id,
 				name: name.clone(),
@@ -74,14 +68,6 @@ impl Default for MockDemoAdapter {
 
 #[async_trait]
 impl SolverAdapter for MockDemoAdapter {
-	fn adapter_id(&self) -> &str {
-		&self.id
-	}
-
-	fn adapter_name(&self) -> &str {
-		&self.name
-	}
-
 	fn adapter_info(&self) -> &oif_types::Adapter {
 		&self.adapter
 	}
@@ -144,7 +130,7 @@ impl SolverAdapter for MockDemoAdapter {
 					"orderType": "swap",
 					"inputAsset": available_input.asset.to_hex(),
 					"outputAsset": requested_output.asset.to_hex(),
-					"mockProvider": self.name
+					"mockProvider": self.adapter.name
 				}),
 			}],
 			details: QuoteDetails {
@@ -153,7 +139,8 @@ impl SolverAdapter for MockDemoAdapter {
 			},
 			valid_until: Some(Utc::now().timestamp() as u64 + 300),
 			eta: Some(30),
-			provider: format!("{} Provider", self.name),
+			provider: format!("{} Provider", self.adapter.name),
+			metadata: None,
 		};
 
 		Ok(GetQuoteResponse {
@@ -274,8 +261,6 @@ impl SolverAdapter for MockDemoAdapter {
 /// Simple test adapter that can be configured to succeed or fail
 #[derive(Debug, Clone)]
 pub struct MockTestAdapter {
-	pub id: String,
-	pub name: String,
 	pub should_fail: bool,
 	pub adapter: oif_types::Adapter,
 }
@@ -283,8 +268,6 @@ pub struct MockTestAdapter {
 impl MockTestAdapter {
 	pub fn new() -> Self {
 		Self {
-			id: "mock-test-v1".to_string(),
-			name: "Mock Test Adapter".to_string(),
 			should_fail: false,
 			adapter: oif_types::Adapter {
 				adapter_id: "mock-test-v1".to_string(),
@@ -299,8 +282,6 @@ impl MockTestAdapter {
 	#[allow(dead_code)]
 	pub fn with_failure() -> Self {
 		Self {
-			id: "mock-test-v1".to_string(),
-			name: "Mock Test Adapter".to_string(),
 			should_fail: true,
 			adapter: oif_types::Adapter {
 				adapter_id: "mock-test-v1".to_string(),
@@ -321,14 +302,6 @@ impl Default for MockTestAdapter {
 
 #[async_trait]
 impl SolverAdapter for MockTestAdapter {
-	fn adapter_id(&self) -> &str {
-		&self.id
-	}
-
-	fn adapter_name(&self) -> &str {
-		&self.name
-	}
-
 	fn adapter_info(&self) -> &oif_types::Adapter {
 		&self.adapter
 	}
@@ -499,8 +472,6 @@ impl CallTracker {
 /// Useful for testing timeout behavior and solver selection strategies
 #[derive(Debug, Clone)]
 pub struct TimingControlledAdapter {
-	pub id: String,
-	pub name: String,
 	pub adapter: oif_types::Adapter,
 	pub response_delay_ms: u64,
 	pub should_fail: bool,
@@ -534,8 +505,6 @@ impl TimingControlledAdapter {
 		let name = format!("Timing Controlled Adapter {}", id);
 
 		Self {
-			id: adapter_id.clone(),
-			name: name.clone(),
 			adapter: oif_types::Adapter {
 				adapter_id: adapter_id.clone(),
 				name: name.clone(),
@@ -560,14 +529,6 @@ impl TimingControlledAdapter {
 
 #[async_trait]
 impl SolverAdapter for TimingControlledAdapter {
-	fn adapter_id(&self) -> &str {
-		&self.id
-	}
-
-	fn adapter_name(&self) -> &str {
-		&self.name
-	}
-
 	fn adapter_info(&self) -> &oif_types::Adapter {
 		&self.adapter
 	}
@@ -586,13 +547,17 @@ impl SolverAdapter for TimingControlledAdapter {
 		if self.should_fail {
 			return Err(oif_types::AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {
-					reason: format!("Adapter {} configured to fail", self.id),
+					reason: format!("Adapter {} configured to fail", self.adapter.adapter_id),
 				},
 			));
 		}
 
 		// Create a realistic quote response
-		let quote_id = format!("{}-quote-{}", self.id, Utc::now().timestamp());
+		let quote_id = format!(
+			"{}-quote-{}",
+			self.adapter.adapter_id,
+			Utc::now().timestamp()
+		);
 
 		let available_input = request
 			.available_inputs
@@ -644,7 +609,7 @@ impl SolverAdapter for TimingControlledAdapter {
 				primary_type: "Order".to_string(),
 				message: oif_types::serde_json::json!({
 					"orderType": "swap",
-					"adapter": self.id,
+					"adapter": self.adapter.adapter_id,
 					"delay_ms": self.response_delay_ms
 				}),
 			}],
@@ -654,7 +619,8 @@ impl SolverAdapter for TimingControlledAdapter {
 			},
 			valid_until: Some(Utc::now().timestamp() as u64 + 300),
 			eta: Some(self.response_delay_ms / 10), // ETA in seconds
-			provider: format!("{} Provider", self.name),
+			provider: format!("{} Provider", self.adapter.name),
+			metadata: None,
 		};
 
 		Ok(GetQuoteResponse {
@@ -674,12 +640,16 @@ impl SolverAdapter for TimingControlledAdapter {
 		if self.should_fail {
 			return Err(oif_types::AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {
-					reason: format!("Adapter {} configured to fail", self.id),
+					reason: format!("Adapter {} configured to fail", self.adapter.adapter_id),
 				},
 			));
 		}
 
-		let order_id = format!("{}-order-{}", self.id, Utc::now().timestamp());
+		let order_id = format!(
+			"{}-order-{}",
+			self.adapter.adapter_id,
+			Utc::now().timestamp()
+		);
 		Ok(SubmitOrderResponse {
 			status: "success".to_string(),
 			order_id: Some(order_id.clone()),
@@ -721,7 +691,7 @@ impl SolverAdapter for TimingControlledAdapter {
 		if self.should_fail {
 			return Err(oif_types::AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {
-					reason: format!("Adapter {} configured to fail", self.id),
+					reason: format!("Adapter {} configured to fail", self.adapter.adapter_id),
 				},
 			));
 		}

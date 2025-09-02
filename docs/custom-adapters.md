@@ -113,14 +113,6 @@ impl MyCustomAdapter {
 
 #[async_trait]
 impl SolverAdapter for MyCustomAdapter {
-    fn adapter_id(&self) -> &str {
-        &self.adapter_info.adapter_id
-    }
-
-    fn adapter_name(&self) -> &str {
-        &self.adapter_info.name
-    }
-
     fn adapter_info(&self) -> &Adapter {
         &self.adapter_info
     }

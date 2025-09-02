@@ -1032,8 +1032,14 @@ async fn test_solver_inclusion_filtering_behavior() {
 	let client = Client::new();
 
 	// Find our adapters by their IDs
-	let fast_adapter = adapters.iter().find(|a| a.id == "timing-fast").unwrap();
-	let slow_adapter = adapters.iter().find(|a| a.id == "timing-slow").unwrap();
+	let fast_adapter = adapters
+		.iter()
+		.find(|a| a.adapter.adapter_id == "timing-fast")
+		.unwrap();
+	let slow_adapter = adapters
+		.iter()
+		.find(|a| a.adapter.adapter_id == "timing-slow")
+		.unwrap();
 
 	// Test: Include only fast-solver - should only call fast adapter
 	let mut request = ApiFixtures::valid_quote_request();
@@ -1156,9 +1162,18 @@ async fn test_solver_exclusion_filtering_behavior() {
 		.expect("Failed to start test server");
 	let client = Client::new();
 
-	let fast_adapter = adapters.iter().find(|a| a.id == "timing-fast").unwrap();
-	let slow_adapter = adapters.iter().find(|a| a.id == "timing-slow").unwrap();
-	let timeout_adapter = adapters.iter().find(|a| a.id == "timing-timeout").unwrap();
+	let fast_adapter = adapters
+		.iter()
+		.find(|a| a.adapter.adapter_id == "timing-fast")
+		.unwrap();
+	let slow_adapter = adapters
+		.iter()
+		.find(|a| a.adapter.adapter_id == "timing-slow")
+		.unwrap();
+	let timeout_adapter = adapters
+		.iter()
+		.find(|a| a.adapter.adapter_id == "timing-timeout")
+		.unwrap();
 
 	// Test: Exclude timeout and failing solvers - should only call fast and slow
 	let mut request = ApiFixtures::valid_quote_request();
@@ -1282,8 +1297,14 @@ async fn test_timeout_behavior_verification() {
 		.expect("Failed to start test server");
 	let client = Client::new();
 
-	let fast_adapter = adapters.iter().find(|a| a.id == "timing-fast").unwrap();
-	let slow_adapter = adapters.iter().find(|a| a.id == "timing-slow").unwrap();
+	let fast_adapter = adapters
+		.iter()
+		.find(|a| a.adapter.adapter_id == "timing-fast")
+		.unwrap();
+	let slow_adapter = adapters
+		.iter()
+		.find(|a| a.adapter.adapter_id == "timing-slow")
+		.unwrap();
 
 	// Test: Short solver timeout (500ms) should allow fast but timeout slow
 	let mut request = ApiFixtures::valid_quote_request();
@@ -1393,7 +1414,10 @@ async fn test_early_termination_with_min_quotes() {
 		.expect("Failed to start test server");
 	let client = Client::new();
 
-	let fast_adapter = adapters.iter().find(|a| a.id == "timing-fast").unwrap();
+	let fast_adapter = adapters
+		.iter()
+		.find(|a| a.adapter.adapter_id == "timing-fast")
+		.unwrap();
 
 	// Test: Include all but set minQuotes to 1 - should terminate early when fast responds
 	let mut request = ApiFixtures::valid_quote_request();
@@ -1502,7 +1526,10 @@ async fn test_global_timeout_enforcement() {
 		.expect("Failed to start test server");
 	let client = Client::new();
 
-	let _timeout_adapter = adapters.iter().find(|a| a.id == "timing-timeout").unwrap();
+	let _timeout_adapter = adapters
+		.iter()
+		.find(|a| a.adapter.adapter_id == "timing-timeout")
+		.unwrap();
 
 	// Test: Short global timeout should cut off before very slow solvers respond
 	let mut request = ApiFixtures::valid_quote_request();
@@ -1599,9 +1626,18 @@ async fn test_mixed_solver_performance_scenario() {
 		.expect("Failed to start test server");
 	let client = Client::new();
 
-	let fast_adapter = adapters.iter().find(|a| a.id == "timing-fast").unwrap();
-	let slow_adapter = adapters.iter().find(|a| a.id == "timing-slow").unwrap();
-	let failing_adapter = adapters.iter().find(|a| a.id == "timing-failing").unwrap();
+	let fast_adapter = adapters
+		.iter()
+		.find(|a| a.adapter.adapter_id == "timing-fast")
+		.unwrap();
+	let slow_adapter = adapters
+		.iter()
+		.find(|a| a.adapter.adapter_id == "timing-slow")
+		.unwrap();
+	let failing_adapter = adapters
+		.iter()
+		.find(|a| a.adapter.adapter_id == "timing-failing")
+		.unwrap();
 
 	// Test: Complex scenario with multiple solver types
 	let mut request = ApiFixtures::valid_quote_request();
@@ -1751,8 +1787,14 @@ async fn test_comprehensive_timing_verification() {
 		.expect("Failed to start test server");
 	let client = Client::new();
 
-	let fast_adapter = adapters.iter().find(|a| a.id == "timing-fast").unwrap();
-	let slow_adapter = adapters.iter().find(|a| a.id == "timing-slow").unwrap();
+	let fast_adapter = adapters
+		.iter()
+		.find(|a| a.adapter.adapter_id == "timing-fast")
+		.unwrap();
+	let slow_adapter = adapters
+		.iter()
+		.find(|a| a.adapter.adapter_id == "timing-slow")
+		.unwrap();
 
 	// Test multiple scenarios and verify timing behavior
 

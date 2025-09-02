@@ -92,6 +92,12 @@ pub struct QuoteResponse {
 	/// HMAC-SHA256 integrity checksum for quote verification
 	/// This ensures the quote originated from the aggregator service
 	pub integrity_checksum: String,
+
+	/// Adapter-specific metadata for additional context and execution details
+	/// This field allows each adapter to include protocol-specific information
+	/// that consumers might need for order execution or additional context
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub metadata: Option<serde_json::Value>,
 }
 
 /// Collection of quotes response for API endpoints
@@ -212,6 +218,7 @@ impl TryFrom<Quote> for QuoteResponse {
 			eta: quote.eta,
 			provider: quote.provider,
 			integrity_checksum: quote.integrity_checksum,
+			metadata: quote.metadata,
 		})
 	}
 }
@@ -230,6 +237,7 @@ impl TryFrom<QuoteResponse> for Quote {
 			eta: response.eta,
 			provider: response.provider,
 			integrity_checksum: response.integrity_checksum,
+			metadata: response.metadata,
 		})
 	}
 }

@@ -57,14 +57,6 @@ impl Default for MockDemoAdapter {
 
 #[async_trait]
 impl SolverAdapter for MockDemoAdapter {
-	fn adapter_id(&self) -> &str {
-		&self.id
-	}
-
-	fn adapter_name(&self) -> &str {
-		&self.name
-	}
-
 	fn adapter_info(&self) -> &oif_types::Adapter {
 		&self.adapter
 	}
@@ -137,6 +129,7 @@ impl SolverAdapter for MockDemoAdapter {
 			valid_until: Some(Utc::now().timestamp() as u64 + 300),
 			eta: Some(30),
 			provider: format!("{} Provider", self.name),
+			metadata: None,
 		};
 
 		Ok(GetQuoteResponse {
@@ -260,13 +253,23 @@ pub struct MockTestAdapter {
 	pub id: String,
 	pub name: String,
 	pub should_fail: bool,
+	pub adapter_info: oif_types::Adapter,
 }
 
 impl MockTestAdapter {
 	pub fn new() -> Self {
+		let id = "mock-test-v1".to_string();
+		let name = "Mock Test Adapter".to_string();
+
 		Self {
-			id: "mock-test-v1".to_string(),
-			name: "Mock Test Adapter".to_string(),
+			adapter_info: oif_types::Adapter::new(
+				id.clone(),
+				"Mock Test Adapter for testing".to_string(),
+				name.clone(),
+				"1.0.0".to_string(),
+			),
+			id,
+			name,
 			should_fail: false,
 		}
 	}
@@ -280,16 +283,8 @@ impl Default for MockTestAdapter {
 
 #[async_trait]
 impl SolverAdapter for MockTestAdapter {
-	fn adapter_id(&self) -> &str {
-		&self.id
-	}
-
-	fn adapter_name(&self) -> &str {
-		&self.name
-	}
-
 	fn adapter_info(&self) -> &oif_types::Adapter {
-		todo!("Mock adapters don't need full adapter info")
+		&self.adapter_info
 	}
 
 	async fn get_quotes(
