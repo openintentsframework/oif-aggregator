@@ -13,7 +13,7 @@
 //!
 //! ```rust,no_run
 //! use oif_adapters::{ClientCache, SolverAdapter, AdapterResult};
-//! use oif_types::{Adapter, SolverRuntimeConfig, GetQuoteRequest, GetQuoteResponse, Asset, Network};
+//! use oif_types::{Adapter, SolverRuntimeConfig, GetQuoteRequest, GetQuoteResponse, Asset, Network, AssetRoute};
 //! use oif_types::adapters::{models::{SubmitOrderRequest, SubmitOrderResponse}, GetOrderResponse};
 //! use async_trait::async_trait;
 //! use std::sync::Arc;
@@ -53,7 +53,7 @@
 //!     
 //!     async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> { todo!() }
 //!     async fn get_supported_networks(&self, _config: &SolverRuntimeConfig) -> AdapterResult<Vec<Network>> { todo!() }
-//!     async fn get_supported_assets(&self, _config: &SolverRuntimeConfig) -> AdapterResult<Vec<Asset>> { todo!() }
+//!     async fn get_supported_routes(&self, _config: &SolverRuntimeConfig) -> AdapterResult<Vec<AssetRoute>> { todo!() }
 //! }
 //! ```
 //!

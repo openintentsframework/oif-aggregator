@@ -12,6 +12,7 @@ use oif_storage::Storage;
 use oif_types::models::health::SolverStats;
 use oif_types::solvers::AssetSource;
 use oif_types::solvers::Solver;
+
 use oif_types::{SolverRuntimeConfig, SolverStatus};
 
 use thiserror::Error;
@@ -40,8 +41,8 @@ pub trait SolverServiceTrait: Send + Sync {
 	/// Get comprehensive solver statistics including health status
 	async fn get_stats(&self) -> Result<SolverStats, SolverServiceError>;
 
-	/// Fetch and update supported assets and networks for a specific solver
-	async fn fetch_and_update_assets(&self, solver_id: &str) -> Result<(), SolverServiceError>;
+	/// Fetch and update supported routes and networks for a specific solver
+	async fn fetch_and_update_routes(&self, solver_id: &str) -> Result<(), SolverServiceError>;
 
 	/// Perform health check on a specific solver
 	async fn health_check_solver(&self, solver_id: &str) -> Result<bool, SolverServiceError>;
@@ -249,7 +250,7 @@ impl SolverServiceTrait for SolverService {
 		})
 	}
 
-	async fn fetch_and_update_assets(&self, solver_id: &str) -> Result<(), SolverServiceError> {
+	async fn fetch_and_update_routes(&self, solver_id: &str) -> Result<(), SolverServiceError> {
 		use crate::solver_adapter::SolverAdapterService;
 		use chrono::Utc;
 
@@ -263,19 +264,19 @@ impl SolverServiceTrait for SolverService {
 				SolverServiceError::NotFound(format!("Solver '{}' not found", solver_id))
 			})?;
 
-		// Check if assets are from config (manual) or should be auto-discovered
+		// Check if routes are from config (manual) or should be auto-discovered
 		if solver.metadata.assets_source == AssetSource::Config {
 			info!(
-				"Solver '{}' has {} manually configured assets, skipping auto-discovery",
+				"Solver '{}' has {} manually configured routes, skipping auto-discovery",
 				solver_id,
-				solver.metadata.supported_assets.len()
+				solver.metadata.supported_routes.len()
 			);
 			return Ok(());
 		}
 
-		// Assets should be auto-discovered, proceed with fetching
+		// Routes should be auto-discovered, proceed with fetching
 		info!(
-			"Solver '{}' is configured for auto-discovery, fetching assets from API",
+			"Solver '{}' is configured for auto-discovery, fetching routes from API",
 			solver_id
 		);
 
@@ -288,28 +289,28 @@ impl SolverServiceTrait for SolverService {
 				.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
 		// Call standard adapter methods to get data
-		let assets_result = adapter_service.get_supported_assets().await;
 		let networks_result = adapter_service.get_supported_networks().await;
+		let routes_result = adapter_service.get_supported_routes().await;
 
 		let mut has_updates = false;
 
-		// Business logic: Handle assets result and update solver
-		match assets_result {
-			Ok(assets) => {
+		// Business logic: Handle routes result and update solver
+		match routes_result {
+			Ok(routes) => {
 				info!(
-					"Auto-discovered {} assets for solver: {}",
-					assets.len(),
+					"Auto-discovered {} routes for solver: {}",
+					routes.len(),
 					solver_id
 				);
-				updated_solver.metadata.supported_assets = assets;
+				updated_solver.metadata.supported_routes = routes;
 				has_updates = true;
 			},
 			Err(e) => {
 				warn!(
-					"Failed to auto-discover assets for solver {}: {}",
+					"Failed to auto-discover routes for solver {}: {}",
 					solver_id, e
 				);
-				// Continue with networks even if assets failed
+				// Continue with networks even if routes failed
 			},
 		}
 
@@ -468,20 +469,20 @@ impl SolverServiceTrait for SolverService {
 		let mut success_count = 0;
 		let mut error_count = 0;
 
-		// Auto-discover assets for each solver (only if config assets are empty)
+		// Auto-discover routes for each solver (only if config routes are empty)
 		for solver in solvers {
-			match self.fetch_and_update_assets(&solver.solver_id).await {
+			match self.fetch_and_update_routes(&solver.solver_id).await {
 				Ok(()) => {
 					success_count += 1;
 					debug!(
-						"Asset auto-discovery completed for solver: {}",
+						"Route auto-discovery completed for solver: {}",
 						solver.solver_id
 					);
 				},
 				Err(e) => {
 					error_count += 1;
 					warn!(
-						"Asset auto-discovery failed for solver {}: {}",
+						"Route auto-discovery failed for solver {}: {}",
 						solver.solver_id, e
 					);
 				},

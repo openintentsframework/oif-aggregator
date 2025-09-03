@@ -925,8 +925,8 @@ mod tests {
 	use super::*;
 	use oif_adapters::AdapterRegistry;
 	use oif_types::{
-		AvailableInput, InteropAddress, QuoteDetails, QuoteRequest, RequestedOutput, SecretString,
-		SolverAdapter, U256,
+		AssetRoute, AvailableInput, InteropAddress, QuoteDetails, QuoteRequest, RequestedOutput,
+		SecretString, SolverAdapter, U256,
 	};
 
 	/// Simple mock adapter for testing success scenarios
@@ -1199,10 +1199,10 @@ mod tests {
 			)])
 		}
 
-		async fn get_supported_assets(
+		async fn get_supported_routes(
 			&self,
 			_config: &oif_types::SolverRuntimeConfig,
-		) -> oif_types::AdapterResult<Vec<oif_types::models::Asset>> {
+		) -> oif_types::AdapterResult<Vec<oif_types::AssetRoute>> {
 			if self.should_fail {
 				return Err(oif_types::AdapterError::from(
 					oif_types::adapters::AdapterValidationError::InvalidConfiguration {
@@ -1256,77 +1256,107 @@ mod tests {
 		let solvers = vec![
 			// Fast solver that will succeed
 			{
-				let mut solver = Solver::new(
+				let solver = Solver::new(
 					"fast-solver".to_string(),
 					"mock-fast-adapter".to_string(),
 					"http://localhost:8001".to_string(),
-				);
-				solver.metadata.supported_assets = vec![
-					oif_types::models::Asset::new(
-						"0x0000000000000000000000000000000000000000".to_string(),
+				)
+				.with_routes(vec![
+					AssetRoute::with_symbols(
+						InteropAddress::from_text(
+							"eip155:1:0x0000000000000000000000000000000000000000",
+						)
+						.unwrap(), // ETH on Ethereum
 						"ETH".to_string(),
-						"Ethereum".to_string(),
-						18,
-						1,
-					),
-					oif_types::models::Asset::new(
-						"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0".to_string(),
+						InteropAddress::from_text(
+							"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+						)
+						.unwrap(), // USDC on Optimism
 						"USDC".to_string(),
-						"USD Coin".to_string(),
-						6,
-						1,
 					),
-				];
+					AssetRoute::with_symbols(
+						InteropAddress::from_text(
+							"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+						)
+						.unwrap(), // USDC on Optimism
+						"USDC".to_string(),
+						InteropAddress::from_text(
+							"eip155:1:0x0000000000000000000000000000000000000000",
+						)
+						.unwrap(), // ETH on Ethereum
+						"ETH".to_string(),
+					),
+				]);
 				solver
 			},
 			// Slow solver that will timeout
 			{
-				let mut solver = Solver::new(
+				let solver = Solver::new(
 					"slow-solver".to_string(),
 					"mock-slow-adapter".to_string(),
 					"http://localhost:8002".to_string(),
-				);
-				solver.metadata.supported_assets = vec![
-					oif_types::models::Asset::new(
-						"0x0000000000000000000000000000000000000000".to_string(),
+				)
+				.with_routes(vec![
+					AssetRoute::with_symbols(
+						InteropAddress::from_text(
+							"eip155:1:0x0000000000000000000000000000000000000000",
+						)
+						.unwrap(), // ETH on Ethereum
 						"ETH".to_string(),
-						"Ethereum".to_string(),
-						18,
-						1,
-					),
-					oif_types::models::Asset::new(
-						"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0".to_string(),
+						InteropAddress::from_text(
+							"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+						)
+						.unwrap(), // USDC on Optimism
 						"USDC".to_string(),
-						"USD Coin".to_string(),
-						6,
-						1,
 					),
-				];
+					AssetRoute::with_symbols(
+						InteropAddress::from_text(
+							"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+						)
+						.unwrap(), // USDC on Optimism
+						"USDC".to_string(),
+						InteropAddress::from_text(
+							"eip155:1:0x0000000000000000000000000000000000000000",
+						)
+						.unwrap(), // ETH on Ethereum
+						"ETH".to_string(),
+					),
+				]);
 				solver
 			},
 			// Another fast solver for comparison
 			{
-				let mut solver = Solver::new(
+				let solver = Solver::new(
 					"fast-solver2".to_string(),
 					"mock-demo-v1".to_string(),
 					"http://localhost:8003".to_string(),
-				);
-				solver.metadata.supported_assets = vec![
-					oif_types::models::Asset::new(
-						"0x0000000000000000000000000000000000000000".to_string(),
+				)
+				.with_routes(vec![
+					AssetRoute::with_symbols(
+						InteropAddress::from_text(
+							"eip155:1:0x0000000000000000000000000000000000000000",
+						)
+						.unwrap(), // ETH on Ethereum
 						"ETH".to_string(),
-						"Ethereum".to_string(),
-						18,
-						1,
-					),
-					oif_types::models::Asset::new(
-						"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0".to_string(),
+						InteropAddress::from_text(
+							"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+						)
+						.unwrap(), // USDC on Optimism
 						"USDC".to_string(),
-						"USD Coin".to_string(),
-						6,
-						1,
 					),
-				];
+					AssetRoute::with_symbols(
+						InteropAddress::from_text(
+							"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+						)
+						.unwrap(), // USDC on Optimism
+						"USDC".to_string(),
+						InteropAddress::from_text(
+							"eip155:1:0x0000000000000000000000000000000000000000",
+						)
+						.unwrap(), // ETH on Ethereum
+						"ETH".to_string(),
+					),
+				]);
 				solver
 			},
 		];
@@ -1357,29 +1387,26 @@ mod tests {
 		let mut solvers = Vec::new();
 		for i in 1..=solver_count {
 			// Create solver with proper network and asset support for filtering
-			let mut solver = Solver::new(
+			let solver = Solver::new(
 				format!("demo-solver{}", i),
 				"mock-demo-v1".to_string(), // Use actual mock adapter ID
 				format!("http://localhost:800{}", i),
-			);
-
-			// Add network and asset support to prevent filtering issues
-			solver.metadata.supported_assets = vec![
-				oif_types::models::Asset::new(
-					"0x0000000000000000000000000000000000000000".to_string(),
+			)
+			// Add cross-chain routes support
+			.with_routes(vec![
+				AssetRoute::with_symbols(
+					InteropAddress::from_text("eip155:1:0x0000000000000000000000000000000000000000").unwrap(), // ETH on Ethereum
 					"ETH".to_string(),
-					"Ethereum".to_string(),
-					18,
-					1,
-				),
-				oif_types::models::Asset::new(
-					"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0".to_string(),
+					InteropAddress::from_text("eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607").unwrap(), // USDC on Optimism
 					"USDC".to_string(),
-					"USD Coin".to_string(),
-					6,
-					1,
 				),
-			];
+				AssetRoute::with_symbols(
+					InteropAddress::from_text("eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607").unwrap(), // USDC on Optimism
+					"USDC".to_string(),
+					InteropAddress::from_text("eip155:1:0x0000000000000000000000000000000000000000").unwrap(), // ETH on Ethereum
+					"ETH".to_string(),
+				),
+			]);
 
 			solvers.push(solver);
 		}
@@ -1446,21 +1473,24 @@ mod tests {
 	fn create_valid_quote_request() -> QuoteRequest {
 		let user = InteropAddress::from_text("eip155:1:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
 			.unwrap();
-		let asset =
-			InteropAddress::from_text("eip155:1:0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0")
+		let input_asset =
+			InteropAddress::from_text("eip155:1:0x0000000000000000000000000000000000000000") // ETH on Ethereum
+				.unwrap();
+		let output_asset =
+			InteropAddress::from_text("eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607") // USDC on Optimism
 				.unwrap();
 
 		QuoteRequest {
 			user: user.clone(),
 			available_inputs: vec![AvailableInput {
 				user: user.clone(),
-				asset: asset.clone(),
+				asset: input_asset,
 				amount: U256::from(1000u64),
 				lock: None,
 			}],
 			requested_outputs: vec![RequestedOutput {
 				receiver: user,
-				asset,
+				asset: output_asset,
 				amount: U256::from(500u64),
 				calldata: None,
 			}],

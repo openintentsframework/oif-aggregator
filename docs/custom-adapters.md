@@ -28,7 +28,7 @@ graph LR
     C --> F[health_check]
     C --> G[get_order_details]
     C --> H[get_supported_networks]
-    C --> I[get_supported_assets]
+    C --> I[get_supported_routes]
     
     B --> J[Adapter Registry]
     J --> K[OIF Aggregator]
@@ -164,13 +164,13 @@ impl SolverAdapter for MyCustomAdapter {
         todo!("Implement networks fetching logic")
     }
 
-    async fn get_supported_assets(
+    async fn get_supported_routes(
         &self,
         config: &SolverRuntimeConfig,
-    ) -> AdapterResult<Vec<Asset>> {
-        // 1. Fetch supported assets from solver endpoint
-        // 2. Convert to Vec<Asset> format
-        todo!("Implement assets fetching logic")
+    ) -> AdapterResult<Vec<AssetRoute>> {
+        // 1. Fetch supported routes from solver endpoint
+        // 2. Convert to Vec<AssetRoute> format
+        todo!("Implement routes fetching logic")
     }
 }
 ```

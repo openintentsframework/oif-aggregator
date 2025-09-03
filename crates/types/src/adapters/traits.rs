@@ -6,7 +6,7 @@ use crate::{
 		models::{SubmitOrderRequest, SubmitOrderResponse},
 		AdapterError, GetOrderResponse,
 	},
-	models::{Asset, Network},
+	models::{AssetRoute, Network},
 };
 use crate::{Adapter, GetQuoteRequest, GetQuoteResponse};
 use async_trait::async_trait;
@@ -80,12 +80,19 @@ pub trait SolverAdapter: Send + Sync + Debug {
 		config: &SolverRuntimeConfig,
 	) -> AdapterResult<Vec<Network>>;
 
-	/// Get the list of assets supported on a specific network
+	/// Get the list of supported asset routes (origin -> destination pairs)
 	///
-	/// Returns the tokens/assets that this adapter can handle on the given network.
-	/// Each asset includes contract address, symbol, name, decimals, and chain ID.
-	async fn get_supported_assets(&self, config: &SolverRuntimeConfig)
-		-> AdapterResult<Vec<Asset>>;
+	/// Returns the specific asset conversion routes that this adapter can handle.
+	/// Routes provide precise compatibility checking for cross-chain operations.
+	/// For example, an adapter might support Base USDC → Ethereum USDC but not the reverse.
+	///
+	/// All adapters must implement this method to provide route information.
+	/// For adapters that only expose asset lists (like some legacy APIs),
+	/// generate cross-chain routes from the available assets.
+	async fn get_supported_routes(
+		&self,
+		config: &SolverRuntimeConfig,
+	) -> AdapterResult<Vec<AssetRoute>>;
 
 	/// Get human-readable name for this adapter
 	fn name(&self) -> &str {

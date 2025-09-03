@@ -11,12 +11,14 @@ use std::{str::FromStr, sync::Arc};
 use async_trait::async_trait;
 use oif_types::adapters::models::{SubmitOrderRequest, SubmitOrderResponse};
 use oif_types::adapters::GetOrderResponse;
-use oif_types::{Adapter, Asset, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig};
+use oif_types::{
+	Adapter, Asset, AssetRoute, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig,
+};
 use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::client_cache::{ClientCache, ClientConfig};
 
@@ -139,6 +141,134 @@ impl OifAdapter {
 		);
 
 		Self::new(config)
+	}
+
+	/// Fetch assets from OIF API (private helper method)
+	async fn fetch_assets_from_api(
+		&self,
+		config: &SolverRuntimeConfig,
+	) -> AdapterResult<Vec<Asset>> {
+		let client = self.get_client(config)?;
+		let tokens_url = format!("{}/tokens", config.endpoint);
+
+		debug!(
+			"Fetching supported assets from OIF adapter at {} (solver: {})",
+			tokens_url, config.solver_id
+		);
+
+		// Make the tokens request
+		let response = client
+			.get(&tokens_url)
+			.send()
+			.await
+			.map_err(AdapterError::HttpError)?;
+
+		if !response.status().is_success() {
+			return Err(AdapterError::InvalidResponse {
+				reason: format!("OIF tokens endpoint returned status {}", response.status()),
+			});
+		}
+
+		// Get response body as text first so we can print it
+		let body = response.text().await.unwrap_or_default();
+		debug!("OIF tokens endpoint response body: {}", body);
+
+		// Parse the OIF tokens response
+		let oif_response: OifTokensResponse =
+			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Failed to parse OIF tokens response: {}", e),
+			})?;
+
+		// Transform OIF response to internal asset format
+		let mut assets = Vec::new();
+		let networks_count = oif_response.networks.len();
+
+		for (chain_id_str, network_data) in oif_response.networks {
+			let chain_id = chain_id_str.parse::<u64>().unwrap_or(network_data.chain_id);
+
+			for token in network_data.tokens {
+				let asset = Asset::new(
+					token.address,
+					token.symbol,
+					"".to_string(), // OIF doesn't provide token names
+					token.decimals,
+					chain_id,
+				);
+				assets.push(asset);
+			}
+		}
+
+		info!(
+			"OIF adapter found {} supported assets across {} networks",
+			assets.len(),
+			networks_count
+		);
+
+		Ok(assets)
+	}
+
+	/// Generate cross-chain routes from supported assets
+	///
+	/// This creates routes for all cross-chain asset pairs, providing good
+	/// compatibility coverage until native route support is available.
+	fn generate_routes_from_assets(&self, assets: Vec<Asset>) -> Vec<AssetRoute> {
+		use oif_types::models::InteropAddress;
+
+		let mut routes = Vec::new();
+		let assets_count = assets.len();
+
+		debug!(
+			"Generating cross-chain routes from {} assets for OIF adapter",
+			assets_count
+		);
+
+		// Create cross-chain routes only (avoid same-chain noise)
+		for origin in &assets {
+			for destination in &assets {
+				// Skip same-asset pairs and same-chain pairs
+				if origin.chain_id != destination.chain_id && origin != destination {
+					match (
+						InteropAddress::from_chain_and_address(origin.chain_id, &origin.address),
+						InteropAddress::from_chain_and_address(
+							destination.chain_id,
+							&destination.address,
+						),
+					) {
+						(Ok(origin_addr), Ok(dest_addr)) => {
+							let metadata = serde_json::json!({
+								"source": "generated-from-assets",
+								"originChainId": origin.chain_id,
+								"destinationChainId": destination.chain_id,
+								"generatedAt": chrono::Utc::now().timestamp()
+							});
+
+							routes.push(AssetRoute::with_symbols_and_metadata(
+								origin_addr,
+								origin.symbol.clone(),
+								dest_addr,
+								destination.symbol.clone(),
+								metadata,
+							));
+						},
+						(Err(e), _) | (_, Err(e)) => {
+							warn!(
+								"Failed to create InteropAddress for route generation: {}",
+								e
+							);
+							continue;
+						},
+					}
+				}
+			}
+		}
+
+		info!(
+			"Generated {} cross-chain routes from {} assets for OIF adapter",
+			routes.len(),
+			assets_count
+		);
+
+		routes
 	}
 }
 
@@ -351,7 +481,7 @@ impl SolverAdapter for OifAdapter {
 			tokens_url, config.solver_id
 		);
 
-		// Make the tokens request (same as get_supported_assets)
+		// Make the tokens request (for asset-to-route conversion)
 		let response = client
 			.get(&tokens_url)
 			.send()
@@ -388,67 +518,26 @@ impl SolverAdapter for OifAdapter {
 		Ok(networks)
 	}
 
-	async fn get_supported_assets(
+	async fn get_supported_routes(
 		&self,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Asset>> {
-		let client = self.get_client(config)?;
-		let tokens_url = format!("{}/tokens", config.endpoint);
-
+	) -> AdapterResult<Vec<AssetRoute>> {
 		debug!(
-			"Fetching supported assets from OIF adapter at {} (solver: {})",
-			tokens_url, config.solver_id
+			"OIF adapter getting supported routes via asset conversion for solver: {}",
+			config.solver_id
 		);
 
-		// Make the tokens request
-		let response = client
-			.get(&tokens_url)
-			.send()
-			.await
-			.map_err(AdapterError::HttpError)?;
-
-		if !response.status().is_success() {
-			return Err(AdapterError::InvalidResponse {
-				reason: format!("OIF tokens endpoint returned status {}", response.status()),
-			});
-		}
-
-		// Get response body as text first so we can print it
-		let body = response.text().await.unwrap_or_default();
-		debug!("OIF tokens endpoint response body: {}", body);
-
-		// Parse the OIF tokens response
-		let oif_response: OifTokensResponse =
-			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
-				reason: format!("Failed to parse OIF tokens response: {}", e),
-			})?;
-
-		// Convert OIF tokens to Assets
-		let mut assets = Vec::new();
-		let networks_count = oif_response.networks.len();
-
-		for (chain_id_str, network) in oif_response.networks {
-			let chain_id = chain_id_str.parse::<u64>().unwrap_or(network.chain_id);
-
-			for token in network.tokens {
-				let asset = Asset::new(
-					token.address,
-					token.symbol.clone(),
-					token.symbol, // Use symbol as name for now
-					token.decimals,
-					chain_id,
-				);
-				assets.push(asset);
-			}
-		}
+		// Generate routes from assets using existing tokens endpoint
+		let assets = self.fetch_assets_from_api(config).await?;
+		let routes = self.generate_routes_from_assets(assets);
 
 		debug!(
-			"OIF adapter found {} supported assets across {} networks",
-			assets.len(),
-			networks_count
+			"OIF adapter generated {} routes from assets for solver {}",
+			routes.len(),
+			config.solver_id
 		);
 
-		Ok(assets)
+		Ok(routes)
 	}
 }
 
@@ -643,5 +732,110 @@ mod tests {
 			"0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
 		);
 		assert_eq!(usdc_poly.decimals, 6);
+	}
+
+	#[test]
+	fn test_route_generation_from_assets() {
+		let adapter = OifAdapter::with_default_config().unwrap();
+
+		// Create test assets on different chains with different addresses
+		let assets = vec![
+			Asset::new(
+				"0x5fbdb2315678afecb367f032d93f642f64180aa3".to_string(),
+				"TOKA".to_string(),
+				"Token A".to_string(),
+				18,
+				31338,
+			),
+			Asset::new(
+				"0xe7f1725e7734ce288f8367e1bb143e90bb3f0512".to_string(),
+				"TOKB".to_string(),
+				"Token B".to_string(),
+				18,
+				31338,
+			),
+			Asset::new(
+				"0xa0b86a33e6441e7c81f7c93451777f5f4de78e86".to_string(),
+				"TOKA".to_string(),
+				"Token A".to_string(),
+				18,
+				31337,
+			),
+		];
+
+		let routes = adapter.generate_routes_from_assets(assets);
+
+		// Should generate cross-chain routes only
+		// 3 assets across 2 chains = 4 cross-chain routes:
+		// 31338:TOKA -> 31337:TOKA
+		// 31338:TOKB -> 31337:TOKA
+		// 31337:TOKA -> 31338:TOKA
+		// 31337:TOKA -> 31338:TOKB
+		assert_eq!(routes.len(), 4);
+
+		// Verify all routes are cross-chain
+		for route in &routes {
+			assert!(route.is_cross_chain());
+			assert!(!route.is_same_chain());
+
+			// Verify metadata
+			assert!(route.metadata.is_some());
+			let metadata = route.metadata.as_ref().unwrap();
+			assert_eq!(metadata["source"], "generated-from-assets");
+			assert!(metadata.get("generatedAt").is_some());
+		}
+
+		// Verify specific routes exist
+		let has_toka_cross_route = routes.iter().any(|r| {
+			r.origin_chain_id().unwrap_or(0) == 31338
+				&& r.destination_chain_id().unwrap_or(0) == 31337
+				&& r.origin_token_symbol == Some("TOKA".to_string())
+				&& r.destination_token_symbol == Some("TOKA".to_string())
+		});
+		assert!(has_toka_cross_route, "Should have TOKA cross-chain route");
+	}
+
+	#[test]
+	fn test_route_generation_edge_cases() {
+		let adapter = OifAdapter::with_default_config().unwrap();
+
+		// Test with empty assets
+		let empty_routes = adapter.generate_routes_from_assets(vec![]);
+		assert_eq!(empty_routes.len(), 0);
+
+		// Test with single asset (no routes possible)
+		let single_asset = vec![Asset::new(
+			"0x123".to_string(),
+			"USDC".to_string(),
+			"USD Coin".to_string(),
+			6,
+			1,
+		)];
+		let single_routes = adapter.generate_routes_from_assets(single_asset);
+		assert_eq!(single_routes.len(), 0);
+
+		// Test with same-chain assets only (no cross-chain routes)
+		let same_chain_assets = vec![
+			Asset::new(
+				"0x123".to_string(),
+				"USDC".to_string(),
+				"USD Coin".to_string(),
+				6,
+				1,
+			),
+			Asset::new(
+				"0x456".to_string(),
+				"WETH".to_string(),
+				"Wrapped Ether".to_string(),
+				18,
+				1,
+			),
+		];
+		let same_chain_routes = adapter.generate_routes_from_assets(same_chain_assets);
+		assert_eq!(
+			same_chain_routes.len(),
+			0,
+			"Should not generate same-chain routes"
+		);
 	}
 }

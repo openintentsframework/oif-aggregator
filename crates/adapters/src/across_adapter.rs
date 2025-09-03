@@ -5,7 +5,9 @@
 
 use async_trait::async_trait;
 use oif_types::adapters::AdapterQuote;
-use oif_types::{Adapter, Asset, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig};
+use oif_types::{
+	Adapter, Asset, AssetRoute, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig,
+};
 use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 use reqwest::{
 	header::{HeaderMap, HeaderValue},
@@ -163,6 +165,42 @@ impl AcrossRoute {
 		);
 
 		Ok((origin_asset, destination_asset))
+	}
+
+	/// Convert Across route to internal AssetRoute model
+	pub fn to_asset_route(&self) -> AdapterResult<AssetRoute> {
+		use oif_types::models::InteropAddress;
+
+		// Create InteropAddresses for origin and destination
+		let origin_asset =
+			InteropAddress::from_chain_and_address(self.origin_chain_id, &self.origin_token)
+				.map_err(|e| AdapterError::InvalidResponse {
+					reason: format!("Invalid origin asset in Across route: {}", e),
+				})?;
+
+		let destination_asset = InteropAddress::from_chain_and_address(
+			self.destination_chain_id,
+			&self.destination_token,
+		)
+		.map_err(|e| AdapterError::InvalidResponse {
+			reason: format!("Invalid destination asset in Across route: {}", e),
+		})?;
+
+		// Create AssetRoute with symbols and metadata
+		let metadata = serde_json::json!({
+			"isNative": self.is_native,
+			"source": "across-api",
+			"originChainId": self.origin_chain_id,
+			"destinationChainId": self.destination_chain_id
+		});
+
+		Ok(AssetRoute::with_symbols_and_metadata(
+			origin_asset,
+			self.origin_token_symbol.clone(),
+			destination_asset,
+			self.destination_token_symbol.clone(),
+			metadata,
+		))
 	}
 }
 
@@ -547,21 +585,26 @@ impl SolverAdapter for AcrossAdapter {
 		Ok(networks)
 	}
 
-	async fn get_supported_assets(
+	async fn get_supported_routes(
 		&self,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Asset>> {
-		let client = self.get_client(config)?;
-		let tokens_url = format!("{}/available-routes", config.endpoint);
-
+	) -> AdapterResult<Vec<AssetRoute>> {
 		debug!(
-			"Fetching supported assets from Across adapter at {} (solver: {})",
-			tokens_url, config.solver_id
+			"Across adapter getting supported routes via solver: {}",
+			config.solver_id
 		);
 
-		// Make the tokens request
+		let client = self.get_client(config)?;
+		let routes_url = format!("{}/available-routes", config.endpoint);
+
+		debug!(
+			"Fetching supported routes from Across adapter at {} (solver: {})",
+			routes_url, config.solver_id
+		);
+
+		// Make the routes request
 		let response = client
-			.get(&tokens_url)
+			.get(&routes_url)
 			.send()
 			.await
 			.map_err(AdapterError::HttpError)?;
@@ -569,14 +612,14 @@ impl SolverAdapter for AcrossAdapter {
 		if !response.status().is_success() {
 			return Err(AdapterError::InvalidResponse {
 				reason: format!(
-					"Across tokens endpoint returned status {}",
+					"Across routes endpoint returned status {}",
 					response.status()
 				),
 			});
 		}
 
 		// Parse the JSON response into Across route models
-		let routes: Vec<AcrossRoute> =
+		let across_routes: Vec<AcrossRoute> =
 			response
 				.json()
 				.await
@@ -584,43 +627,34 @@ impl SolverAdapter for AcrossAdapter {
 					reason: format!("Failed to parse Across routes response: {}", e),
 				})?;
 
-		let routes_count = routes.len();
-		debug!("Parsed {} routes from Across adapter", routes_count);
+		let routes_count = across_routes.len();
+		debug!(
+			"Parsed {} routes from Across adapter for route conversion",
+			routes_count
+		);
 
-		// Transform Across routes to internal Asset models
-		let mut assets = Vec::new();
-		for route in routes {
-			match route.to_assets() {
-				Ok((origin_asset, destination_asset)) => {
-					assets.push(origin_asset);
-					assets.push(destination_asset);
+		// Transform Across routes to internal AssetRoute models
+		let mut asset_routes = Vec::new();
+		for across_route in across_routes {
+			match across_route.to_asset_route() {
+				Ok(asset_route) => {
+					asset_routes.push(asset_route);
 				},
 				Err(e) => {
-					warn!("Failed to convert Across route to assets: {}", e);
+					warn!("Failed to convert Across route to AssetRoute: {}", e);
 					continue;
 				},
 			}
 		}
 
-		// Deduplicate assets by address and chain_id
-		let mut unique_assets = HashSet::new();
-		let mut final_assets = Vec::new();
-
-		for asset in assets {
-			let key = (asset.address.clone(), asset.chain_id);
-			if unique_assets.insert(key) {
-				final_assets.push(asset);
-			}
-		}
-
 		info!(
-			"Across adapter fetched {} unique supported assets from {} routes for solver {}",
-			final_assets.len(),
+			"Across adapter converted {} Across routes to {} asset routes for solver {}",
 			routes_count,
+			asset_routes.len(),
 			config.solver_id
 		);
 
-		Ok(final_assets)
+		Ok(asset_routes)
 	}
 }
 
@@ -700,6 +734,52 @@ mod tests {
 		assert_eq!(destination_asset.symbol, "WETH");
 		assert_eq!(destination_asset.chain_id, 10);
 		assert_eq!(destination_asset.decimals, 18);
+	}
+
+	#[test]
+	fn test_across_route_to_asset_route() {
+		let route = AcrossRoute {
+			origin_chain_id: 1,
+			destination_chain_id: 137,
+			origin_token: "0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0".to_string(),
+			destination_token: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174".to_string(),
+			origin_token_symbol: "USDC".to_string(),
+			destination_token_symbol: "USDC".to_string(),
+			is_native: false,
+		};
+
+		let asset_route = route.to_asset_route().unwrap();
+
+		// Verify the AssetRoute was created correctly
+		assert_eq!(asset_route.origin_chain_id().unwrap(), 1);
+		assert_eq!(asset_route.destination_chain_id().unwrap(), 137);
+		assert_eq!(
+			asset_route.origin_address().to_lowercase(),
+			"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0"
+		);
+		assert_eq!(
+			asset_route.destination_address().to_lowercase(),
+			"0x2791bca1f2de4661ed88a30c99a7a9449aa84174"
+		);
+
+		// Verify symbols are preserved
+		assert_eq!(asset_route.origin_token_symbol, Some("USDC".to_string()));
+		assert_eq!(
+			asset_route.destination_token_symbol,
+			Some("USDC".to_string())
+		);
+
+		// Verify metadata
+		assert!(asset_route.metadata.is_some());
+		let metadata = asset_route.metadata.clone().unwrap();
+		assert_eq!(metadata["isNative"], false);
+		assert_eq!(metadata["source"], "across-api");
+		assert_eq!(metadata["originChainId"], 1);
+		assert_eq!(metadata["destinationChainId"], 137);
+
+		// Verify route properties
+		assert!(asset_route.is_cross_chain());
+		assert!(!asset_route.is_same_chain());
 	}
 
 	#[test]

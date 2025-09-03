@@ -3,7 +3,9 @@
 //! This adapter uses an optimized client cache for connection pooling and keep-alive.
 
 use async_trait::async_trait;
-use oif_types::{Adapter, Asset, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig};
+use oif_types::{
+	Adapter, AssetRoute, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig,
+};
 use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 use reqwest::{
 	header::{HeaderMap, HeaderValue},
@@ -156,16 +158,17 @@ impl SolverAdapter for LifiAdapter {
 		unimplemented!()
 	}
 
-	async fn get_supported_assets(
+	async fn get_supported_routes(
 		&self,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Asset>> {
+	) -> AdapterResult<Vec<AssetRoute>> {
 		debug!(
-			"LiFi adapter getting supported assets via solver: {}",
+			"LiFi adapter getting supported routes via solver: {}",
 			config.solver_id
 		);
 
-		unimplemented!()
+		// TODO: Implement LiFi route fetching
+		Ok(Vec::new())
 	}
 }
 

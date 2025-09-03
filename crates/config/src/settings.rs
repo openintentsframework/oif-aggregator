@@ -6,6 +6,7 @@ use oif_types::constants::limits::{
 	DEFAULT_ORDER_RETENTION_DAYS, DEFAULT_RETRY_DELAY_MS,
 };
 use oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS;
+use oif_types::solvers::RouteConfig;
 use oif_types::SecretString;
 use oif_types::SolverConfig as DomainSolverConfig;
 use serde::{Deserialize, Serialize};
@@ -47,7 +48,7 @@ pub struct SolverConfig {
 	pub name: Option<String>,
 	pub description: Option<String>,
 	// Optional domain metadata for discoverability
-	pub supported_assets: Option<Vec<AssetConfig>>,
+	pub supported_routes: Option<Vec<RouteConfig>>,
 }
 
 /// Convert from settings SolverConfig to domain SolverConfig
@@ -62,14 +63,9 @@ impl From<SolverConfig> for DomainSolverConfig {
 			name: settings_config.name,
 			description: settings_config.description,
 			version: None,
-			supported_assets: settings_config.supported_assets.map(|assets| {
-				assets
-					.into_iter()
-					.map(|a| {
-						oif_types::Asset::new(a.address, a.symbol, a.name, a.decimals, a.chain_id)
-					})
-					.collect()
-			}),
+			supported_routes: settings_config
+				.supported_routes
+				.map(|routes| routes.into_iter().map(|r| r.into()).collect()),
 			config: None,
 		}
 	}
@@ -81,16 +77,6 @@ pub struct NetworkConfig {
 	pub chain_id: u64,
 	pub name: String,
 	pub is_testnet: bool,
-}
-
-/// Minimal asset shape for config to avoid cross-crate cycle
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct AssetConfig {
-	pub address: String,
-	pub symbol: String,
-	pub name: String,
-	pub decimals: u8,
-	pub chain_id: u64,
 }
 
 /// Aggregation behavior configuration

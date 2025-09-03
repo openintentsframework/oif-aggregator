@@ -6,7 +6,7 @@ use std::collections::HashMap;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
-use crate::models::Asset;
+use crate::models::{Asset, AssetRoute, InteropAddress};
 use url::Url;
 
 pub mod config;
@@ -14,7 +14,7 @@ pub mod errors;
 pub mod response;
 pub mod storage;
 
-pub use config::{AdapterConfig, AdapterType, SolverConfig};
+pub use config::{AdapterConfig, AdapterType, RouteConfig, SolverConfig};
 pub use errors::{SolverError, SolverValidationError};
 pub use response::SolverResponse;
 pub use storage::SolverStorage;
@@ -127,10 +127,11 @@ pub struct SolverMetadata {
 	/// Version of the solver API
 	pub version: Option<String>,
 
-	/// Supported assets/tokens
-	pub supported_assets: Vec<Asset>,
+	/// Supported asset conversion routes (origin -> destination pairs)
+	/// Provides precise compatibility checking for cross-chain operations
+	pub supported_routes: Vec<AssetRoute>,
 
-	/// Source of the supported assets (config vs auto-discovered)
+	/// Source of the supported routes (config vs auto-discovered)
 	pub assets_source: AssetSource,
 
 	/// Custom HTTP headers for requests
@@ -320,31 +321,68 @@ impl Solver {
 
 	/// Check if solver supports a specific chain
 	pub fn supports_chain(&self, chain_id: u64) -> bool {
-		self.metadata
-			.supported_assets
-			.iter()
-			.any(|a| a.chain_id == chain_id)
+		self.metadata.supported_routes.iter().any(|r| {
+			r.origin_chain_id().unwrap_or(0) == chain_id
+				|| r.destination_chain_id().unwrap_or(0) == chain_id
+		})
 	}
 
 	/// Check if solver supports a specific asset by symbol
 	pub fn supports_asset_symbol(&self, symbol: &str) -> bool {
-		self.metadata
-			.supported_assets
-			.iter()
-			.any(|a| a.symbol.eq_ignore_ascii_case(symbol))
+		self.metadata.supported_routes.iter().any(|r| {
+			r.origin_token_symbol
+				.as_ref()
+				.map_or(false, |s| s.eq_ignore_ascii_case(symbol))
+				|| r.destination_token_symbol
+					.as_ref()
+					.map_or(false, |s| s.eq_ignore_ascii_case(symbol))
+		})
 	}
 
 	/// Check if solver supports a specific asset on a specific chain
 	pub fn supports_asset_on_chain(&self, chain_id: u64, address: &str) -> bool {
-		self.metadata
-			.supported_assets
-			.iter()
-			.any(|asset| asset.chain_id == chain_id && asset.address.eq_ignore_ascii_case(address))
+		self.metadata.supported_routes.iter().any(|r| {
+			(r.origin_chain_id().unwrap_or(0) == chain_id
+				&& r.origin_address().eq_ignore_ascii_case(address))
+				|| (r.destination_chain_id().unwrap_or(0) == chain_id
+					&& r.destination_address().eq_ignore_ascii_case(address))
+		})
 	}
 
 	/// Check if solver supports a specific asset
 	pub fn supports_asset(&self, asset: &Asset) -> bool {
-		self.metadata.supported_assets.contains(asset)
+		self.supports_asset_on_chain(asset.chain_id, &asset.address)
+	}
+
+	/// Check if solver supports a specific asset route
+	pub fn supports_route(&self, origin: &InteropAddress, destination: &InteropAddress) -> bool {
+		self.metadata
+			.supported_routes
+			.iter()
+			.any(|route| route.matches(origin, destination))
+	}
+
+	/// Check if solver has route information available
+	pub fn has_route_info(&self) -> bool {
+		!self.metadata.supported_routes.is_empty()
+	}
+
+	/// Get all routes for a specific origin asset
+	pub fn routes_from_asset(&self, origin: &InteropAddress) -> Vec<&AssetRoute> {
+		self.metadata
+			.supported_routes
+			.iter()
+			.filter(|route| route.origin_asset == *origin)
+			.collect()
+	}
+
+	/// Get all routes to a specific destination asset
+	pub fn routes_to_asset(&self, destination: &InteropAddress) -> Vec<&AssetRoute> {
+		self.metadata
+			.supported_routes
+			.iter()
+			.filter(|route| route.destination_asset == *destination)
+			.collect()
 	}
 
 	/// Get solver priority score (higher is better)
@@ -387,8 +425,9 @@ impl Solver {
 		self
 	}
 
-	pub fn with_assets(mut self, assets: Vec<Asset>) -> Self {
-		self.metadata.supported_assets = assets;
+	pub fn with_routes(mut self, routes: Vec<AssetRoute>) -> Self {
+		self.metadata.supported_routes = routes;
+		// routes_source is now tracked via assets_source
 		self
 	}
 
@@ -409,7 +448,7 @@ impl Default for SolverMetadata {
 			name: None,
 			description: None,
 			version: None,
-			supported_assets: Vec::new(),
+			supported_routes: Vec::new(),
 			assets_source: AssetSource::Config, // Default to config-based until determined
 			headers: None,
 			config: HashMap::new(),
@@ -580,42 +619,67 @@ mod tests {
 		let solver = create_test_solver()
 			.with_name("Test Solver".to_string())
 			.with_version("1.0.0".to_string())
-			.with_assets(vec![Asset::new(
-				"0x0000000000000000000000000000000000000000".to_string(),
-				"ETH".to_string(),
-				"Ethereum".to_string(),
-				18,
-				1,
-			)]);
+			.with_routes(vec![
+				AssetRoute::with_symbols(
+					InteropAddress::from_text(
+						"eip155:1:0x0000000000000000000000000000000000000000",
+					)
+					.unwrap(), // ETH on Ethereum
+					"ETH".to_string(),
+					InteropAddress::from_text(
+						"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+					)
+					.unwrap(), // USDC on Optimism
+					"USDC".to_string(),
+				),
+				AssetRoute::with_symbols(
+					InteropAddress::from_text(
+						"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+					)
+					.unwrap(), // USDC on Optimism
+					"USDC".to_string(),
+					InteropAddress::from_text(
+						"eip155:1:0x0000000000000000000000000000000000000000",
+					)
+					.unwrap(), // ETH on Ethereum
+					"ETH".to_string(),
+				),
+			]);
 
 		assert_eq!(solver.metadata.name, Some("Test Solver".to_string()));
 		assert_eq!(solver.metadata.version, Some("1.0.0".to_string()));
-		assert!(solver.supports_chain(1));
+		assert!(solver.supports_chain(1)); // Should support chain 1 via cross-chain routes
+		assert!(solver.supports_chain(10)); // Should support chain 10 via cross-chain routes
 	}
 
 	#[test]
 	fn test_supports_asset_on_chain() {
-		let solver = create_test_solver().with_assets(vec![
-			Asset::new(
-				"0x1234567890123456789012345678901234567890".to_string(),
+		let solver = create_test_solver().with_routes(vec![
+			// USDC Ethereum <-> USDC Polygon
+			AssetRoute::with_symbols(
+				InteropAddress::from_text("eip155:1:0x1234567890123456789012345678901234567890")
+					.unwrap(), // USDC on Ethereum
 				"USDC".to_string(),
-				"USD Coin".to_string(),
-				6,
-				1, // Ethereum
-			),
-			Asset::new(
-				"0x1234567890123456789012345678901234567890".to_string(), // Same address
+				InteropAddress::from_text("eip155:137:0x1234567890123456789012345678901234567890")
+					.unwrap(), // USDC on Polygon
 				"USDC".to_string(),
-				"USD Coin".to_string(),
-				6,
-				137, // Polygon
 			),
-			Asset::new(
-				"0xAbCdEf1234567890123456789012345678901234".to_string(),
+			AssetRoute::with_symbols(
+				InteropAddress::from_text("eip155:137:0x1234567890123456789012345678901234567890")
+					.unwrap(), // USDC on Polygon
+				"USDC".to_string(),
+				InteropAddress::from_text("eip155:1:0x1234567890123456789012345678901234567890")
+					.unwrap(), // USDC on Ethereum
+				"USDC".to_string(),
+			),
+			// WETH Ethereum <-> USDC Polygon
+			AssetRoute::with_symbols(
+				InteropAddress::from_text("eip155:1:0xAbCdEf1234567890123456789012345678901234")
+					.unwrap(), // WETH on Ethereum
 				"WETH".to_string(),
-				"Wrapped Ether".to_string(),
-				18,
-				1, // Ethereum
+				InteropAddress::from_text("eip155:137:0x1234567890123456789012345678901234567890")
+					.unwrap(), // USDC on Polygon
+				"USDC".to_string(),
 			),
 		]);
 

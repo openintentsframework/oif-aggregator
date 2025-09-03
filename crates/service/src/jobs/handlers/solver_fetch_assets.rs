@@ -23,11 +23,11 @@ impl SolverFetchAssetsHandler {
 #[async_trait]
 impl GenericJobHandler<SolverFetchAssetsParams> for SolverFetchAssetsHandler {
 	async fn handle(&self, params: SolverFetchAssetsParams) -> JobResult<()> {
-		debug!("Starting asset fetch for solver: {}", params.solver_id);
+		debug!("Starting route fetch for solver: {}", params.solver_id);
 
 		// Delegate to the solver service which contains the business logic
 		self.solver_service
-			.fetch_and_update_assets(&params.solver_id)
+			.fetch_and_update_routes(&params.solver_id)
 			.await
 			.map_err(|e| match e {
 				crate::solver_repository::SolverServiceError::Storage(msg) => {
@@ -38,7 +38,7 @@ impl GenericJobHandler<SolverFetchAssetsParams> for SolverFetchAssetsHandler {
 				},
 			})?;
 
-		debug!("Asset fetch completed for solver: {}", params.solver_id);
+		debug!("Route fetch completed for solver: {}", params.solver_id);
 		Ok(())
 	}
 }
@@ -64,7 +64,7 @@ mod tests {
 				name: Some("Test Solver".to_string()),
 				description: Some("Test solver for unit testing".to_string()),
 				version: None,
-				supported_assets: vec![],
+				supported_routes: Vec::new(),
 				assets_source: AssetSource::AutoDiscovered, // Test solver for auto-discovery
 				headers: None,
 				config: HashMap::new(),

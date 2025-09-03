@@ -8,7 +8,7 @@ use oif_service::{
 	IntegrityTrait, JobProcessor, JobProcessorConfig, SolverFilterService, SolverFilterTrait,
 	SolverService, SolverServiceTrait,
 };
-use oif_types::{solvers::AssetSource, Asset};
+use oif_types::solvers::AssetSource;
 
 // Core domain types - the most commonly used types
 pub use oif_types::{
@@ -220,45 +220,20 @@ where
 
 	/// Convert solver configuration to Solver domain object
 	fn solver_from_config(&self, solver_config: &oif_config::settings::SolverConfig) -> Solver {
-		let mut solver = Solver::new(
-			solver_config.solver_id.clone(),
-			solver_config.adapter_id.clone(),
-			solver_config.endpoint.clone(),
-		);
+		// Convert config layer SolverConfig to domain layer SolverConfig
+		let domain_config: oif_types::SolverConfig = solver_config.clone().into();
 
-		// Populate metadata
-		solver.metadata.name = solver_config
-			.name
-			.clone()
-			.or_else(|| Some(solver_config.solver_id.clone()));
-		solver.metadata.headers = solver_config.headers.clone();
-		if let Some(desc) = &solver_config.description {
-			solver.metadata.description = Some(desc.clone());
-		}
-		if let Some(assets) = &solver_config.supported_assets {
-			solver.metadata.supported_assets = assets
-				.iter()
-				.map(|a| {
-					Asset::new(
-						a.address.clone(),
-						a.symbol.clone(),
-						a.name.clone(),
-						a.decimals,
-						a.chain_id,
-					)
-				})
-				.collect();
-			// Set source based on whether config has assets
-			solver.metadata.assets_source = if assets.is_empty() {
-				AssetSource::AutoDiscovered
-			} else {
-				AssetSource::Config
-			};
-		} else {
-			// No assets in config, will be auto-discovered
-			solver.metadata.assets_source = AssetSource::AutoDiscovered;
-		}
+		// Convert domain SolverConfig to domain Solver using TryFrom
+		let mut solver =
+			Solver::try_from(domain_config).expect("Failed to convert valid config to solver");
+
+		// Set runtime status and discovery source
 		solver.status = SolverStatus::Active;
+		solver.metadata.assets_source = if solver.metadata.supported_routes.is_empty() {
+			AssetSource::AutoDiscovered
+		} else {
+			AssetSource::Config
+		};
 
 		solver
 	}

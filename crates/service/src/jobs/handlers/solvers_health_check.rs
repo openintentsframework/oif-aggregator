@@ -64,8 +64,9 @@ mod tests {
 				name: Some(format!("{} Solver", solver_id)),
 				description: Some("Test solver for unit testing".to_string()),
 				version: None,
-				supported_assets: vec![],
+
 				assets_source: AssetSource::AutoDiscovered, // Test solver for auto-discovery
+				supported_routes: Vec::new(),
 				headers: None,
 				config: HashMap::new(),
 			},

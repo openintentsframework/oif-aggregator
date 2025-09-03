@@ -72,13 +72,8 @@ impl MockConfigs {
 			description: Some("Test solver for unit testing".to_string()),
 			endpoint: "http://localhost:8080".to_string(),
 			headers: Some(HashMap::new()),
-			supported_assets: Some(vec![AssetConfig {
-				address: "0x0000000000000000000000000000000000000000".to_string(),
-				symbol: "ETH".to_string(),
-				name: "Ethereum".to_string(),
-				decimals: 18,
-				chain_id: 1,
-			}]),
+
+			supported_routes: None,
 			enabled: true,
 		}
 	}
@@ -106,13 +101,8 @@ impl SolverConfigBuilder {
 				description: Some("Test solver".to_string()),
 				endpoint: "http://localhost:8080".to_string(),
 				headers: Some(HashMap::new()),
-				supported_assets: Some(vec![AssetConfig {
-					address: "0x0000000000000000000000000000000000000000".to_string(),
-					symbol: "ETH".to_string(),
-					name: "Ethereum".to_string(),
-					decimals: 18,
-					chain_id: 1,
-				}]),
+
+				supported_routes: None,
 				enabled: true,
 			},
 		}

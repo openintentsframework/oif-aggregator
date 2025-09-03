@@ -23,7 +23,7 @@ use oif_types::adapters::{
 	AdapterResult, AdapterValidationError,
 };
 use oif_types::serde_json::json;
-use oif_types::{models::Asset, models::Network, InteropAddress, SolverRuntimeConfig, U256};
+use oif_types::{models::AssetRoute, models::Network, InteropAddress, SolverRuntimeConfig, U256};
 
 /// Simple mock adapter for examples and testing
 #[derive(Debug, Clone)]
@@ -221,24 +221,34 @@ impl SolverAdapter for MockDemoAdapter {
 		})
 	}
 
-	async fn get_supported_assets(
+	async fn get_supported_routes(
 		&self,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Asset>> {
+	) -> AdapterResult<Vec<AssetRoute>> {
+		// Mock cross-chain routes for testing
+		use oif_types::models::InteropAddress;
+
+		let eth_mainnet =
+			InteropAddress::from_chain_and_address(1, "0x0000000000000000000000000000000000000000")
+				.unwrap();
+		let usdc_optimism = InteropAddress::from_chain_and_address(
+			10,
+			"0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+		)
+		.unwrap();
+
 		Ok(vec![
-			Asset::new(
-				"0x0000000000000000000000000000000000000000".to_string(),
+			AssetRoute::with_symbols(
+				eth_mainnet.clone(),
 				"ETH".to_string(),
-				"Ethereum".to_string(),
-				18,
-				1,
-			),
-			Asset::new(
-				"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0".to_string(),
+				usdc_optimism.clone(),
 				"USDC".to_string(),
-				"USD Coin".to_string(),
-				6,
-				1,
+			),
+			AssetRoute::with_symbols(
+				usdc_optimism,
+				"USDC".to_string(),
+				eth_mainnet,
+				"ETH".to_string(),
 			),
 		])
 	}
@@ -410,10 +420,10 @@ impl SolverAdapter for MockTestAdapter {
 		})
 	}
 
-	async fn get_supported_assets(
+	async fn get_supported_routes(
 		&self,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Asset>> {
+	) -> AdapterResult<Vec<AssetRoute>> {
 		if self.should_fail {
 			return Err(oif_types::AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {
@@ -751,10 +761,10 @@ impl SolverAdapter for TimingControlledAdapter {
 		}])
 	}
 
-	async fn get_supported_assets(
+	async fn get_supported_routes(
 		&self,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<oif_types::models::Asset>> {
+	) -> AdapterResult<Vec<AssetRoute>> {
 		Ok(vec![])
 	}
 }

@@ -8,7 +8,7 @@ use serde_json::json;
 use utoipa::ToSchema;
 
 use super::{Solver, SolverStatus};
-use crate::models::Asset as AssetResponse;
+use crate::models::AssetRouteResponse;
 
 /// Response format for individual solvers in API
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,20 +20,19 @@ use crate::models::Asset as AssetResponse;
     "description": "An example solver for cross-chain swaps",
     "endpoint": "https://api.example-solver.com",
     "status": "active",
-    "supportedAssets": [
+    "supportedRoutes": [
         {
-            "address": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
-            "symbol": "USDC",
-            "name": "USD Coin",
-            "decimals": 6,
-            "chainId": 1
-        },
-        {
-            "address": "0x01000002147a69C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-            "symbol": "WETH",
-            "name": "Wrapped Ether",
-            "decimals": 18,
-            "chainId": 1
+            "originChainId": 1,
+            "originTokenAddress": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+            "originTokenSymbol": "WETH",
+            "destinationChainId": 10,
+            "destinationTokenAddress": "0x4200000000000000000000000000000000000006",
+            "destinationTokenSymbol": "WETH",
+            "metadata": {
+                "source": "across-api",
+                "estimatedFee": "0.001",
+                "estimatedTime": 120
+            }
         }
     ],
     "createdAt": 1756400000,
@@ -47,7 +46,7 @@ pub struct SolverResponse {
 	pub description: Option<String>,
 	pub endpoint: String,
 	pub status: SolverStatus,
-	pub supported_assets: Vec<AssetResponse>,
+	pub supported_routes: Vec<AssetRouteResponse>,
 	pub created_at: i64,
 	pub last_seen: Option<i64>,
 }
@@ -73,6 +72,21 @@ pub struct SolverResponse {
                     "chainId": 1
                 }
             ],
+            "supportedRoutes": [
+                {
+                    "originChainId": 1,
+                    "originTokenAddress": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+                    "originTokenSymbol": "WETH",
+                    "destinationChainId": 10,
+                    "destinationTokenAddress": "0x4200000000000000000000000000000000000006",
+                    "destinationTokenSymbol": "WETH",
+                    "metadata": {
+                        "isNative": false,
+                        "source": "across-api",
+                        "estimatedFee": "0.001",
+                        "estimatedTime": 120
+                    }                }
+            ],
             "createdAt": 1756400000,
             "lastSeen": 1756457492
         },
@@ -83,13 +97,14 @@ pub struct SolverResponse {
             "description": "Uniswap V3 liquidity pools solver",
             "endpoint": "https://api.uniswap.solver.com",
             "status": "active",
-            "supportedAssets": [
+            "supportedRoutes": [
                 {
-                    "address": "0x01000002147a69C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-                    "symbol": "WETH",
-                    "name": "Wrapped Ether",
-                    "decimals": 18,
-                    "chainId": 1
+                    "originChainId": 1,
+                    "originTokenAddress": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+                    "originTokenSymbol": "WETH",
+                    "destinationChainId": 137,
+                    "destinationTokenAddress": "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619",
+                    "destinationTokenSymbol": "WETH"
                 }
             ],
             "createdAt": 1756400000,
@@ -118,6 +133,20 @@ impl TryFrom<&Solver> for SolverResponse {
 	type Error = crate::solvers::SolverError;
 
 	fn try_from(solver: &Solver) -> Result<Self, Self::Error> {
+		let routes: Result<Vec<AssetRouteResponse>, String> = solver
+			.metadata
+			.supported_routes
+			.iter()
+			.map(AssetRouteResponse::try_from)
+			.collect();
+
+		let supported_routes = routes.map_err(|e| {
+			crate::solvers::SolverError::Configuration(format!(
+				"Failed to convert routes to response format: {}",
+				e
+			))
+		})?;
+
 		Ok(Self {
 			solver_id: solver.solver_id.clone(),
 			adapter_id: solver.adapter_id.clone(),
@@ -125,13 +154,12 @@ impl TryFrom<&Solver> for SolverResponse {
 			description: solver.metadata.description.clone(),
 			endpoint: solver.endpoint.clone(),
 			status: solver.status.clone(),
-			supported_assets: solver.metadata.supported_assets.clone(),
+			supported_routes,
 			created_at: solver.created_at.timestamp(),
 			last_seen: solver.last_seen.map(|dt| dt.timestamp()),
 		})
 	}
 }
-
 /// Convert from domain collection to API response
 impl TryFrom<Vec<Solver>> for SolversResponse {
 	type Error = crate::solvers::SolverError;
@@ -150,31 +178,32 @@ impl TryFrom<Vec<Solver>> for SolversResponse {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::models::{AssetRoute, InteropAddress};
 	use crate::solvers::{Solver, SolverStatus};
 
 	fn create_test_solver() -> Solver {
-		use crate::models::Asset;
-
 		Solver::new(
 			"test-solver".to_string(),
 			"oif-v1".to_string(),
 			"https://api.example.com".to_string(),
 		)
 		.with_name("Test Solver".to_string())
-		.with_assets(vec![
-			Asset::new(
-				"0x0000000000000000000000000000000000000000".to_string(),
+		.with_routes(vec![
+			AssetRoute::with_symbols(
+				InteropAddress::from_text("eip155:1:0x0000000000000000000000000000000000000000")
+					.unwrap(), // ETH on Ethereum
 				"ETH".to_string(),
-				"Ethereum".to_string(),
-				18,
-				1,
-			),
-			Asset::new(
-				"0x0000000000000000000000000000000000000000".to_string(),
+				InteropAddress::from_text("eip155:137:0x0000000000000000000000000000000000000000")
+					.unwrap(), // MATIC on Polygon
 				"MATIC".to_string(),
-				"Polygon".to_string(),
-				18,
-				137,
+			),
+			AssetRoute::with_symbols(
+				InteropAddress::from_text("eip155:137:0x0000000000000000000000000000000000000000")
+					.unwrap(), // MATIC on Polygon
+				"MATIC".to_string(),
+				InteropAddress::from_text("eip155:1:0x0000000000000000000000000000000000000000")
+					.unwrap(), // ETH on Ethereum
+				"ETH".to_string(),
 			),
 		])
 	}
@@ -189,9 +218,15 @@ mod tests {
 		assert_eq!(response.solver_id, "test-solver");
 		assert_eq!(response.name, Some("Test Solver".to_string()));
 		assert!(matches!(response.status, SolverStatus::Active));
-		assert_eq!(response.supported_assets.len(), 2);
-		assert!(response.supported_assets.iter().any(|a| a.chain_id == 1));
-		assert!(response.supported_assets.iter().any(|a| a.chain_id == 137));
+		assert_eq!(response.supported_routes.len(), 2);
+		assert!(response
+			.supported_routes
+			.iter()
+			.any(|r| r.origin_chain_id == 1));
+		assert!(response
+			.supported_routes
+			.iter()
+			.any(|r| r.destination_chain_id == 137));
 	}
 
 	#[test]
