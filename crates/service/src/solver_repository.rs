@@ -288,8 +288,7 @@ impl SolverServiceTrait for SolverService {
 			SolverAdapterService::from_solver(solver, Arc::clone(&self.adapter_registry))
 				.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
-		// Call standard adapter methods to get data
-		let networks_result = adapter_service.get_supported_networks().await;
+		// Call adapter method to get route data
 		let routes_result = adapter_service.get_supported_routes().await;
 
 		let mut has_updates = false;
@@ -308,26 +307,6 @@ impl SolverServiceTrait for SolverService {
 			Err(e) => {
 				warn!(
 					"Failed to auto-discover routes for solver {}: {}",
-					solver_id, e
-				);
-				// Continue with networks even if routes failed
-			},
-		}
-
-		// Business logic: Handle networks result (log for now)
-		match networks_result {
-			Ok(networks) => {
-				info!(
-					"Auto-discovered {} networks for solver: {}",
-					networks.len(),
-					solver_id
-				);
-				debug!("Networks for solver {}: {:?}", solver_id, networks);
-				// Future: Store networks in solver metadata if needed
-			},
-			Err(e) => {
-				warn!(
-					"Failed to auto-discover networks for solver {}: {}",
 					solver_id, e
 				);
 			},

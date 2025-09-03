@@ -23,7 +23,7 @@ use oif_types::adapters::{
 	AdapterResult, AdapterValidationError,
 };
 use oif_types::serde_json::json;
-use oif_types::{models::AssetRoute, models::Network, InteropAddress, SolverRuntimeConfig, U256};
+use oif_types::{models::AssetRoute, InteropAddress, SolverRuntimeConfig, U256};
 
 /// Simple mock adapter for examples and testing
 #[derive(Debug, Clone)]
@@ -256,16 +256,6 @@ impl SolverAdapter for MockDemoAdapter {
 	async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> {
 		Ok(true)
 	}
-
-	async fn get_supported_networks(
-		&self,
-		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Network>> {
-		Ok(vec![
-			Network::new(1, Some("Ethereum".to_string()), Some(false)),
-			Network::new(137, Some("Polygon".to_string()), Some(false)),
-		])
-	}
 }
 
 /// Simple test adapter that can be configured to succeed or fail
@@ -436,20 +426,6 @@ impl SolverAdapter for MockTestAdapter {
 
 	async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> {
 		Ok(!self.should_fail)
-	}
-
-	async fn get_supported_networks(
-		&self,
-		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Network>> {
-		if self.should_fail {
-			return Err(oif_types::AdapterError::from(
-				AdapterValidationError::InvalidConfiguration {
-					reason: "Mock adapter configured to fail".to_string(),
-				},
-			));
-		}
-		Ok(vec![])
 	}
 }
 
@@ -748,17 +724,6 @@ impl SolverAdapter for TimingControlledAdapter {
 		}
 
 		Ok(true)
-	}
-
-	async fn get_supported_networks(
-		&self,
-		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<oif_types::models::Network>> {
-		Ok(vec![oif_types::models::Network {
-			chain_id: 1,
-			name: Some("Ethereum Mainnet".to_string()),
-			is_testnet: Some(false),
-		}])
 	}
 
 	async fn get_supported_routes(

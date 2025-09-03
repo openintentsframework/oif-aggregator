@@ -52,7 +52,6 @@
 //!     }
 //!     
 //!     async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> { todo!() }
-//!     async fn get_supported_networks(&self, _config: &SolverRuntimeConfig) -> AdapterResult<Vec<Network>> { todo!() }
 //!     async fn get_supported_routes(&self, _config: &SolverRuntimeConfig) -> AdapterResult<Vec<AssetRoute>> { todo!() }
 //! }
 //! ```

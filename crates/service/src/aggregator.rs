@@ -1181,24 +1181,6 @@ mod tests {
 			Ok(!self.should_fail)
 		}
 
-		async fn get_supported_networks(
-			&self,
-			_config: &oif_types::SolverRuntimeConfig,
-		) -> oif_types::AdapterResult<Vec<oif_types::models::Network>> {
-			if self.should_fail {
-				return Err(oif_types::AdapterError::from(
-					oif_types::adapters::AdapterValidationError::InvalidConfiguration {
-						reason: format!("Mock adapter {} configured to fail", self.id),
-					},
-				));
-			}
-			Ok(vec![oif_types::models::Network::new(
-				1,
-				Some("Ethereum Mainnet".to_string()),
-				Some(false),
-			)])
-		}
-
 		async fn get_supported_routes(
 			&self,
 			_config: &oif_types::SolverRuntimeConfig,

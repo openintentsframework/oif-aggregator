@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use oif_types::adapters::models::{SubmitOrderRequest, SubmitOrderResponse};
 use oif_types::adapters::GetOrderResponse;
 use oif_types::{
-	Adapter, Asset, AssetRoute, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig,
+	Adapter, Asset, AssetRoute, GetQuoteRequest, GetQuoteResponse, SolverRuntimeConfig,
 };
 use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 use serde::{Deserialize, Serialize};
@@ -467,55 +467,6 @@ impl SolverAdapter for OifAdapter {
 			})?;
 
 		Ok(order_response)
-	}
-
-	async fn get_supported_networks(
-		&self,
-		config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Network>> {
-		let client = self.get_client(config)?;
-		let tokens_url = format!("{}/tokens", config.endpoint);
-
-		debug!(
-			"Fetching supported networks from OIF adapter at {} (solver: {})",
-			tokens_url, config.solver_id
-		);
-
-		// Make the tokens request (for asset-to-route conversion)
-		let response = client
-			.get(&tokens_url)
-			.send()
-			.await
-			.map_err(AdapterError::HttpError)?;
-
-		if !response.status().is_success() {
-			return Err(AdapterError::InvalidResponse {
-				reason: format!("OIF tokens endpoint returned status {}", response.status()),
-			});
-		}
-
-		// Get response body as text first so we can print it
-		let body = response.text().await.unwrap_or_default();
-		debug!("OIF networks endpoint response body: {}", body);
-
-		// Parse the OIF tokens response
-		let oif_response: OifTokensResponse =
-			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
-				reason: format!("Failed to parse OIF tokens response: {}", e),
-			})?;
-
-		// Extract networks from the response
-		let mut networks = Vec::new();
-		for (chain_id_str, network_data) in oif_response.networks {
-			let chain_id = chain_id_str.parse::<u64>().unwrap_or(network_data.chain_id);
-
-			let network = Network::new(chain_id, None, None);
-			networks.push(network);
-		}
-
-		debug!("OIF adapter found {} supported networks", networks.len());
-
-		Ok(networks)
 	}
 
 	async fn get_supported_routes(

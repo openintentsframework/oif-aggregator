@@ -6,7 +6,7 @@
 use async_trait::async_trait;
 use oif_types::adapters::AdapterQuote;
 use oif_types::{
-	Adapter, Asset, AssetRoute, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig,
+	Adapter, Asset, AssetRoute, GetQuoteRequest, GetQuoteResponse, SolverRuntimeConfig,
 };
 use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 use reqwest::{
@@ -14,7 +14,7 @@ use reqwest::{
 	Client,
 };
 use serde_json;
-use std::{collections::HashSet, str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -514,77 +514,6 @@ impl SolverAdapter for AcrossAdapter {
 		}
 	}
 
-	async fn get_supported_networks(
-		&self,
-		config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Network>> {
-		debug!(
-			"Across adapter getting supported networks via solver: {}",
-			config.solver_id
-		);
-
-		let client = self.get_client(config)?;
-		let routes_url = format!("{}/available-routes", config.endpoint);
-
-		debug!(
-			"Fetching supported networks from Across adapter at {} (solver: {})",
-			routes_url, config.solver_id
-		);
-
-		// Make the routes request
-		let response = client
-			.get(&routes_url)
-			.send()
-			.await
-			.map_err(AdapterError::HttpError)?;
-
-		if !response.status().is_success() {
-			return Err(AdapterError::InvalidResponse {
-				reason: format!(
-					"Across routes endpoint returned status {}",
-					response.status()
-				),
-			});
-		}
-
-		// Parse the JSON response into Across route models
-		let routes: Vec<AcrossRoute> =
-			response
-				.json()
-				.await
-				.map_err(|e| AdapterError::InvalidResponse {
-					reason: format!("Failed to parse Across routes response: {}", e),
-				})?;
-
-		let routes_count = routes.len();
-		debug!(
-			"Parsed {} routes from Across adapter for networks extraction",
-			routes_count
-		);
-
-		// Extract unique chain IDs from routes
-		let mut unique_chain_ids = HashSet::new();
-		for route in routes {
-			unique_chain_ids.insert(route.origin_chain_id);
-			unique_chain_ids.insert(route.destination_chain_id);
-		}
-
-		// Convert chain IDs to Network models
-		let networks: Vec<Network> = unique_chain_ids
-			.into_iter()
-			.map(|chain_id| Network::new(chain_id, None, None))
-			.collect();
-
-		info!(
-			"Across adapter extracted {} unique networks from {} routes for solver {}",
-			networks.len(),
-			routes_count,
-			config.solver_id
-		);
-
-		Ok(networks)
-	}
-
 	async fn get_supported_routes(
 		&self,
 		config: &SolverRuntimeConfig,
@@ -803,62 +732,6 @@ mod tests {
 		assert_eq!(destination_asset.chain_id, 10);
 		assert_eq!(origin_asset.symbol, "WETH");
 		assert_eq!(destination_asset.symbol, "WETH");
-	}
-
-	#[test]
-	fn test_network_extraction_from_routes() {
-		// Simulate extracting networks from multiple routes
-		let routes = vec![
-			AcrossRoute {
-				origin_chain_id: 1,
-				destination_chain_id: 10,
-				origin_token: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
-				destination_token: "0x4200000000000000000000000000000000000006".to_string(),
-				origin_token_symbol: "WETH".to_string(),
-				destination_token_symbol: "WETH".to_string(),
-				is_native: false,
-			},
-			AcrossRoute {
-				origin_chain_id: 137,
-				destination_chain_id: 1, // Duplicate chain 1
-				origin_token: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174".to_string(),
-				destination_token: "0xA0b86a33E6441E7C81F7C93451777f5F4dE78e86".to_string(),
-				origin_token_symbol: "USDC".to_string(),
-				destination_token_symbol: "USDC".to_string(),
-				is_native: false,
-			},
-		];
-
-		// Extract unique chain IDs
-		let mut unique_chain_ids = HashSet::new();
-		for route in routes {
-			unique_chain_ids.insert(route.origin_chain_id);
-			unique_chain_ids.insert(route.destination_chain_id);
-		}
-
-		// Should have 3 unique chain IDs: 1, 10, 137
-		assert_eq!(unique_chain_ids.len(), 3);
-		assert!(unique_chain_ids.contains(&1)); // Ethereum
-		assert!(unique_chain_ids.contains(&10)); // Optimism
-		assert!(unique_chain_ids.contains(&137)); // Polygon
-
-		// Convert to networks (matching the actual implementation)
-		let networks: Vec<Network> = unique_chain_ids
-			.into_iter()
-			.map(|chain_id| Network::new(chain_id, None, None))
-			.collect();
-
-		assert_eq!(networks.len(), 3);
-
-		// Verify specific networks exist
-		let eth_network = networks.iter().find(|n| n.chain_id == 1).unwrap();
-		assert_eq!(eth_network.name, None);
-
-		let optimism_network = networks.iter().find(|n| n.chain_id == 10).unwrap();
-		assert_eq!(optimism_network.name, None);
-
-		let polygon_network = networks.iter().find(|n| n.chain_id == 137).unwrap();
-		assert_eq!(polygon_network.name, None);
 	}
 
 	#[test]

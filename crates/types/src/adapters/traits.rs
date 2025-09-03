@@ -6,7 +6,7 @@ use crate::{
 		models::{SubmitOrderRequest, SubmitOrderResponse},
 		AdapterError, GetOrderResponse,
 	},
-	models::{AssetRoute, Network},
+	models::AssetRoute,
 };
 use crate::{Adapter, GetQuoteRequest, GetQuoteResponse};
 use async_trait::async_trait;
@@ -70,15 +70,6 @@ pub trait SolverAdapter: Send + Sync + Debug {
 			adapter_id: self.id().to_string(),
 		})
 	}
-
-	/// Get the list of blockchain networks supported by this adapter
-	///
-	/// Returns the networks (chains) that this adapter can process transactions on.
-	/// Each network includes chain ID, name, and testnet status.
-	async fn get_supported_networks(
-		&self,
-		config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Network>>;
 
 	/// Get the list of supported asset routes (origin -> destination pairs)
 	///

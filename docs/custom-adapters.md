@@ -27,8 +27,7 @@ graph LR
     C --> E[submit_order]
     C --> F[health_check]
     C --> G[get_order_details]
-    C --> H[get_supported_networks]
-    C --> I[get_supported_routes]
+    C --> H[get_supported_routes]
     
     B --> J[Adapter Registry]
     J --> K[OIF Aggregator]
@@ -153,15 +152,6 @@ impl SolverAdapter for MyCustomAdapter {
         // 1. Fetch order status from solver endpoint using order_id
         // 2. Convert solver response to GetOrderResponse format
         todo!("Implement order details fetching logic")
-    }
-
-    async fn get_supported_networks(
-        &self,
-        config: &SolverRuntimeConfig,
-    ) -> AdapterResult<Vec<Network>> {
-        // 1. Fetch supported networks from solver endpoint
-        // 2. Convert to Vec<Network> format
-        todo!("Implement networks fetching logic")
     }
 
     async fn get_supported_routes(
