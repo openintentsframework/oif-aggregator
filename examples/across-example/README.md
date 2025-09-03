@@ -26,7 +26,7 @@ The example includes both mainnet and testnet Across solvers:
 ```json
 {
   "server": { "host": "0.0.0.0", "port": 4000 },
-  "solvers": "solvers": {
+  "solvers": {
     "across-solver-testnet": {
       "solver_id": "across-solver-testnet",
       "adapter_id": "across-v1",

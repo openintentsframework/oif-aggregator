@@ -6,8 +6,6 @@
 
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "openapi")]
-use serde_json::json;
-#[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
 use super::InteropAddress;

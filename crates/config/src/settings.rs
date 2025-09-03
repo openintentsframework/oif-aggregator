@@ -65,7 +65,7 @@ impl From<SolverConfig> for DomainSolverConfig {
 			version: None,
 			supported_routes: settings_config
 				.supported_routes
-				.map(|routes| routes.into_iter().map(|r| r.into()).collect()),
+				.map(|routes| routes.into_iter().collect()),
 			config: None,
 		}
 	}

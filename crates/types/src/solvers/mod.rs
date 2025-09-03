@@ -332,10 +332,10 @@ impl Solver {
 		self.metadata.supported_routes.iter().any(|r| {
 			r.origin_token_symbol
 				.as_ref()
-				.map_or(false, |s| s.eq_ignore_ascii_case(symbol))
+				.is_some_and(|s| s.eq_ignore_ascii_case(symbol))
 				|| r.destination_token_symbol
 					.as_ref()
-					.map_or(false, |s| s.eq_ignore_ascii_case(symbol))
+					.is_some_and(|s| s.eq_ignore_ascii_case(symbol))
 		})
 	}
 
