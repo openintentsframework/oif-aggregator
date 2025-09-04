@@ -235,19 +235,11 @@ impl OifAdapter {
 						),
 					) {
 						(Ok(origin_addr), Ok(dest_addr)) => {
-							let metadata = serde_json::json!({
-								"source": "generated-from-assets",
-								"originChainId": origin.chain_id,
-								"destinationChainId": destination.chain_id,
-								"generatedAt": chrono::Utc::now().timestamp()
-							});
-
-							routes.push(AssetRoute::with_symbols_and_metadata(
+							routes.push(AssetRoute::with_symbols(
 								origin_addr,
 								origin.symbol.clone(),
 								dest_addr,
 								destination.symbol.clone(),
-								metadata,
 							));
 						},
 						(Err(e), _) | (_, Err(e)) => {
@@ -728,12 +720,6 @@ mod tests {
 		for route in &routes {
 			assert!(route.is_cross_chain());
 			assert!(!route.is_same_chain());
-
-			// Verify metadata
-			assert!(route.metadata.is_some());
-			let metadata = route.metadata.as_ref().unwrap();
-			assert_eq!(metadata["source"], "generated-from-assets");
-			assert!(metadata.get("generatedAt").is_some());
 		}
 
 		// Verify specific routes exist

@@ -339,39 +339,6 @@ where
 		// Initialize adapter registry early for validation
 		builder.ensure_adapter_registry_initialized();
 
-		// Load solvers from configuration into the provided storage
-		for solver_config in settings.enabled_solvers().values() {
-			let mut solver = Solver::new(
-				solver_config.solver_id.clone(),
-				solver_config.adapter_id.clone(),
-				solver_config.endpoint.clone(),
-			);
-
-			// Update metadata with configuration details
-			solver.metadata.name = Some(solver_config.solver_id.clone());
-			solver.metadata.headers = solver_config.headers.clone();
-			solver.status = SolverStatus::Active;
-
-			// Validate solver (including adapter validation)
-			if let Err(validation_error) = solver.validate() {
-				panic!(
-					"Solver '{}' validation failed: {}",
-					solver.solver_id, validation_error
-				);
-			}
-
-			// Validate adapter exists
-			if let Err(adapter_error) = builder.validate_solver_adapter(&solver) {
-				panic!("{}", adapter_error);
-			}
-
-			builder
-				.storage
-				.create_solver(solver)
-				.await
-				.expect("Failed to add solver to storage");
-		}
-
 		builder
 	}
 	/// Add a solver to the aggregator
@@ -466,14 +433,14 @@ where
 				.take()
 				.expect("Adapter registry should be initialized at this point"),
 		);
-		// Use base repository listing for solvers
-		let solvers = self
+		// Check solver count for logging
+		let solver_count = self
 			.storage
-			.list_all_solvers()
+			.count_solvers()
 			.await
-			.map_err(|e| format!("Failed to get solvers: {}", e))?;
+			.map_err(|e| format!("Failed to get solver count: {}", e))?;
 
-		info!("Successfully initialized with {} solver(s)", solvers.len());
+		info!("Successfully initialized with {} solver(s)", solver_count);
 
 		// Get integrity secret wrapped in SecretString for secure handling
 		let integrity_secret = settings
@@ -492,7 +459,7 @@ where
 		let solver_filter_service =
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>;
 		let aggregator_service = Arc::new(AggregatorService::with_config(
-			solvers.clone(),
+			Arc::clone(&storage_arc),
 			Arc::clone(&adapter_registry),
 			Arc::clone(&integrity_service),
 			Arc::clone(&solver_filter_service),

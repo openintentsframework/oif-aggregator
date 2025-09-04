@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use oif_config::AggregationConfig;
 use oif_types::constants::limits::{DEFAULT_PRIORITY_THRESHOLD, DEFAULT_SAMPLE_SIZE};
 use oif_types::quotes::request::{SolverOptions, SolverSelection};
-use oif_types::{InteropAddress, QuoteRequest, Solver};
+use oif_types::{QuoteRequest, Solver};
 
 use tracing::{debug, info};
 
@@ -91,55 +91,53 @@ impl CompatibilityAnalyzerTrait for CompatibilityAnalyzer {
 }
 
 impl CompatibilityAnalyzer {
-	/// Check route-based compatibility (more precise)
+	/// Check route-based compatibility using output-centric approach
+	///
+	/// For each requested output, verify that at least one available input can reach it.
+	/// This correctly handles multiple inputs as options (OR logic) and multiple outputs as requirements (AND logic).
 	fn check_route_compatibility(&self, solver: &Solver, request: &QuoteRequest) -> Compatibility {
-		let required_routes = self.extract_required_routes(request);
-
-		if required_routes.is_empty() {
-			// No valid routes could be extracted from request
+		if request.requested_outputs.is_empty() {
+			debug!("No requested outputs in request");
 			return Compatibility::Unknown;
 		}
 
-		// Check if ALL required routes are supported
-		for (origin, destination) in &required_routes {
-			if !solver.supports_route(origin, destination) {
+		// For each requested output, check if ANY available input can reach it
+		for output in &request.requested_outputs {
+			let mut output_satisfiable = false;
+
+			for input in &request.available_inputs {
+				// Skip only same-asset same-chain "routes" (not a real conversion)
+				// Allow: different assets (conversion) OR same asset on different chains (bridging)
+				let is_valid_route = input.asset != output.asset || // Different assets
+					!input.asset.is_on_chain(output.asset.extract_chain_id().unwrap_or(0)); // Different chains
+
+				if is_valid_route {
+					if solver.supports_route(&input.asset, &output.asset) {
+						debug!(
+							"Solver '{}' can satisfy output {} via input {}",
+							solver.solver_id, output.asset, input.asset
+						);
+						output_satisfiable = true;
+						break; // Found at least one path to this output
+					}
+				}
+			}
+
+			if !output_satisfiable {
 				debug!(
-					"Solver '{}' missing route: {} -> {}",
-					solver.solver_id, origin, destination
+					"Solver '{}' cannot satisfy output {} with any available input",
+					solver.solver_id, output.asset
 				);
 				return Compatibility::Incompatible;
 			}
 		}
 
 		debug!(
-			"Solver '{}' supports all {} required routes",
+			"Solver '{}' can satisfy all {} requested outputs",
 			solver.solver_id,
-			required_routes.len()
+			request.requested_outputs.len()
 		);
 		Compatibility::Compatible
-	}
-
-	/// Extract required routes from quote request
-	/// This creates origin->destination pairs from available_inputs to requested_outputs
-	fn extract_required_routes(
-		&self,
-		request: &QuoteRequest,
-	) -> Vec<(InteropAddress, InteropAddress)> {
-		let mut routes = Vec::new();
-
-		// Create routes from each input to each output
-		// This represents all possible conversion paths the user might need
-		for input in &request.available_inputs {
-			for output in &request.requested_outputs {
-				// Skip same-asset "routes" (not really a conversion)
-				if input.asset != output.asset {
-					routes.push((input.asset.clone(), output.asset.clone()));
-				}
-			}
-		}
-
-		debug!("Extracted {} required routes from request", routes.len());
-		routes
 	}
 }
 
@@ -313,7 +311,6 @@ impl SolverFilterTrait for SolverFilterService {
 			.iter()
 			.map(|solver| {
 				let compatibility = self.analyzer.analyze(solver, request);
-				debug!("Solver '{}': {:?}", solver.solver_id, compatibility);
 				(solver.clone(), compatibility)
 			})
 			.collect();
@@ -739,6 +736,200 @@ mod tests {
 
 			let result = analyzer.analyze(&solver_with_network2, &network1_request);
 			assert_eq!(result, Compatibility::Incompatible); // Same address but wrong network
+		}
+
+		#[test]
+		fn test_multiple_inputs_single_output_or_logic() {
+			let analyzer = CompatibilityAnalyzer;
+
+			// Solver only supports ETH→USDC route, not MATIC→USDC
+			let solver = create_test_solver(
+				"partial_solver",
+				vec![
+					(1, "0x1111111111111111111111111111111111111111"), // ETH on Ethereum
+					(137, "0x2222222222222222222222222222222222222222"), // USDC on Polygon
+				],
+			);
+
+			// Request with multiple input options but single output
+			let request = create_test_request(
+				vec![
+					(1, "0x1111111111111111111111111111111111111111"), // ETH on Ethereum (supported)
+					(137, "0x3333333333333333333333333333333333333333"), // MATIC on Polygon (not supported)
+				],
+				vec![(137, "0x2222222222222222222222222222222222222222")], // USDC on Polygon
+			);
+
+			let result = analyzer.analyze(&solver, &request);
+			// Should be Compatible because ETH(Ethereum)→USDC(Polygon) route exists
+			// Even though MATIC(Polygon)→USDC(Polygon) doesn't exist
+			assert_eq!(result, Compatibility::Compatible);
+		}
+
+		#[test]
+		fn test_single_input_multiple_outputs_and_logic() {
+			let analyzer = CompatibilityAnalyzer;
+
+			// Solver supports ETH→USDC but not ETH→USDT
+			let solver = create_test_solver(
+				"partial_solver",
+				vec![
+					(1, "0x1111111111111111111111111111111111111111"), // ETH on Ethereum
+					(137, "0x2222222222222222222222222222222222222222"), // USDC on Polygon
+					                                                   // Missing: USDT on Arbitrum
+				],
+			);
+
+			// Request with single input but multiple outputs
+			let request = create_test_request(
+				vec![(1, "0x1111111111111111111111111111111111111111")], // ETH on Ethereum
+				vec![
+					(137, "0x2222222222222222222222222222222222222222"), // USDC on Polygon (supported)
+					(42161, "0x3333333333333333333333333333333333333333"), // USDT on Arbitrum (not supported)
+				],
+			);
+
+			let result = analyzer.analyze(&solver, &request);
+			// Should be Incompatible because ETH→USDT route doesn't exist
+			// ALL outputs must be satisfiable
+			assert_eq!(result, Compatibility::Incompatible);
+		}
+
+		#[test]
+		fn test_multiple_inputs_multiple_outputs_mixed_logic() {
+			let analyzer = CompatibilityAnalyzer;
+
+			// Solver supports some but not all routes
+			let solver = create_test_solver(
+				"mixed_solver",
+				vec![
+					(1, "0x1111111111111111111111111111111111111111"), // ETH on Ethereum
+					(137, "0x2222222222222222222222222222222222222222"), // USDC on Polygon
+					(10, "0x3333333333333333333333333333333333333333"), // USDT on Optimism
+					                                                   // Missing: MATIC on Polygon, USDT on Arbitrum
+				],
+			);
+
+			// Complex request: multiple inputs and outputs
+			let request = create_test_request(
+				vec![
+					(1, "0x1111111111111111111111111111111111111111"), // ETH on Ethereum
+					(137, "0x4444444444444444444444444444444444444444"), // MATIC on Polygon (not supported)
+				],
+				vec![
+					(137, "0x2222222222222222222222222222222222222222"), // USDC on Polygon
+					(10, "0x3333333333333333333333333333333333333333"),  // USDT on Optimism
+				],
+			);
+
+			let result = analyzer.analyze(&solver, &request);
+			// Should be Compatible because:
+			// - USDC(Polygon) can be satisfied by ETH(Ethereum)→USDC(Polygon)
+			// - USDT(Optimism) can be satisfied by ETH(Ethereum)→USDT(Optimism)
+			// Even though MATIC inputs cannot satisfy these outputs
+			assert_eq!(result, Compatibility::Compatible);
+		}
+
+		#[test]
+		fn test_no_viable_input_for_output() {
+			let analyzer = CompatibilityAnalyzer;
+
+			// Solver supports limited routes
+			let solver = create_test_solver(
+				"limited_solver",
+				vec![
+					(1, "0x1111111111111111111111111111111111111111"), // ETH on Ethereum
+					(137, "0x2222222222222222222222222222222222222222"), // USDC on Polygon
+				],
+			);
+
+			// Request where no input can reach the desired output
+			let request = create_test_request(
+				vec![
+					(1, "0x1111111111111111111111111111111111111111"), // ETH on Ethereum
+					(137, "0x2222222222222222222222222222222222222222"), // USDC on Polygon
+				],
+				vec![(42161, "0x3333333333333333333333333333333333333333")], // USDT on Arbitrum (unreachable)
+			);
+
+			let result = analyzer.analyze(&solver, &request);
+			// Should be Incompatible because no input can reach USDT on Arbitrum
+			assert_eq!(result, Compatibility::Incompatible);
+		}
+
+		#[test]
+		fn test_same_asset_different_chains_supported() {
+			let analyzer = CompatibilityAnalyzer;
+
+			// Solver with same asset on different chains (valid bridging scenario)
+			let solver = create_test_solver(
+				"bridging_solver",
+				vec![
+					(1, "0x1111111111111111111111111111111111111111"), // USDC on Ethereum
+					(137, "0x1111111111111111111111111111111111111111"), // USDC on Polygon (same asset address)
+				],
+			);
+
+			// Request for USDC bridging (same asset, different chains)
+			let request = create_test_request(
+				vec![(1, "0x1111111111111111111111111111111111111111")], // USDC on Ethereum
+				vec![(137, "0x1111111111111111111111111111111111111111")], // USDC on Polygon
+			);
+
+			let result = analyzer.analyze(&solver, &request);
+			// Should be Compatible because USDC(Ethereum)→USDC(Polygon) is a valid cross-chain route
+			// Same asset bridging is a common use case
+			assert_eq!(result, Compatibility::Compatible);
+		}
+
+		#[test]
+		fn test_same_asset_same_chain_ignored() {
+			let analyzer = CompatibilityAnalyzer;
+
+			// Solver with assets on same chain
+			let solver = create_test_solver(
+				"same_chain_solver",
+				vec![
+					(1, "0x1111111111111111111111111111111111111111"), // USDC on Ethereum
+					(1, "0x2222222222222222222222222222222222222222"), // ETH on Ethereum
+				],
+			);
+
+			// Request with same asset on same chain (not a real conversion)
+			let request = create_test_request(
+				vec![(1, "0x1111111111111111111111111111111111111111")], // USDC on Ethereum
+				vec![(1, "0x1111111111111111111111111111111111111111")], // USDC on Ethereum (same asset, same chain)
+			);
+
+			let result = analyzer.analyze(&solver, &request);
+			// Should be Unknown because same-asset same-chain routes are ignored
+			// No valid routes to check
+			assert_eq!(result, Compatibility::Unknown);
+		}
+
+		#[test]
+		fn test_real_world_scenario_local_vs_testnet() {
+			let analyzer = CompatibilityAnalyzer;
+
+			// Local anvil solver with local chain routes (exactly like your data)
+			let local_solver = create_test_solver(
+				"example-solver", // Same ID as your local solver
+				vec![
+					(31337, "0x5fbdb2315678afecb367f032d93f642f64180aa3"), // TOKA on local chain
+					(31338, "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512"), // TOKB on local chain
+				],
+			);
+
+			// Request with testnet tokens (exactly like your request)
+			let testnet_request = create_test_request(
+				vec![(11155420, "0x4200000000000000000000000000000000000006")], // ETH on testnet
+				vec![(129399, "0x17b8ee96e3bcb3b04b3e8334de4524520c51cab4")],   // ETH on different testnet
+			);
+
+			let result = analyzer.analyze(&local_solver, &testnet_request);
+
+			// Should be Incompatible because local solver has no testnet routes
+			assert_eq!(result, Compatibility::Incompatible);
 		}
 	}
 

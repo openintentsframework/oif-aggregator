@@ -186,20 +186,11 @@ impl AcrossRoute {
 			reason: format!("Invalid destination asset in Across route: {}", e),
 		})?;
 
-		// Create AssetRoute with symbols and metadata
-		let metadata = serde_json::json!({
-			"isNative": self.is_native,
-			"source": "across-api",
-			"originChainId": self.origin_chain_id,
-			"destinationChainId": self.destination_chain_id
-		});
-
-		Ok(AssetRoute::with_symbols_and_metadata(
+		Ok(AssetRoute::with_symbols(
 			origin_asset,
 			self.origin_token_symbol.clone(),
 			destination_asset,
 			self.destination_token_symbol.clone(),
-			metadata,
 		))
 	}
 }
@@ -697,14 +688,6 @@ mod tests {
 			asset_route.destination_token_symbol,
 			Some("USDC".to_string())
 		);
-
-		// Verify metadata
-		assert!(asset_route.metadata.is_some());
-		let metadata = asset_route.metadata.clone().unwrap();
-		assert_eq!(metadata["isNative"], false);
-		assert_eq!(metadata["source"], "across-api");
-		assert_eq!(metadata["originChainId"], 1);
-		assert_eq!(metadata["destinationChainId"], 137);
 
 		// Verify route properties
 		assert!(asset_route.is_cross_chain());

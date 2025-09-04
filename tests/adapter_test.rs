@@ -81,8 +81,17 @@ async fn test_aggregation_service_creation() {
 		"test-secret",
 	)));
 
+	// Create storage and populate with solvers
+	let storage = Arc::new(oif_storage::MemoryStore::new()) as Arc<dyn oif_storage::Storage>;
+	for solver in solvers {
+		storage
+			.create_solver(solver)
+			.await
+			.expect("Failed to create test solver");
+	}
+
 	let service = AggregatorService::new(
-		solvers,
+		storage,
 		adapter_registry,
 		integrity_service,
 		Arc::new(oif_service::SolverFilterService::new())

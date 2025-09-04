@@ -109,13 +109,13 @@ use crate::solver_filter::SolverFilterTrait;
 use async_trait::async_trait;
 use oif_adapters::AdapterRegistry;
 use oif_config::AggregationConfig;
+use oif_storage::Storage;
 use oif_types::constants::limits::DEFAULT_MIN_QUOTES;
 use oif_types::quotes::errors::QuoteValidationError;
 use oif_types::quotes::request::{SolverOptions, SolverSelection};
 use oif_types::quotes::response::AggregationMetadata;
 use oif_types::{GetQuoteRequest, IntegrityPayload, Quote, QuotePreference, QuoteRequest, Solver};
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Semaphore};
 use tokio::time::{timeout, Duration, Instant};
@@ -138,6 +138,9 @@ pub enum AggregatorServiceError {
 
 	#[error("Integrity service error")]
 	IntegrityError(#[from] IntegrityError),
+
+	#[error("Storage error: {0}")]
+	Storage(String),
 
 	#[error("Resource limit exceeded: {0}")]
 	ResourceLimitExceeded(String),
@@ -419,22 +422,22 @@ impl TaskExecutorTrait for TaskExecutor {
 
 /// Service for aggregating quotes from multiple solvers
 pub struct AggregatorService {
-	solvers: HashMap<String, Solver>,
+	storage: Arc<dyn Storage>,
 	config: AggregationConfig,
 	solver_filter_service: Arc<dyn SolverFilterTrait>,
 	task_executor: Arc<dyn TaskExecutorTrait>,
 }
 
 impl AggregatorService {
-	/// Create a new aggregator service with pre-configured adapters
+	/// Create a new aggregator service with storage
 	pub fn new(
-		solvers: Vec<Solver>,
+		storage: Arc<dyn Storage>,
 		adapter_registry: Arc<AdapterRegistry>,
 		integrity_service: Arc<dyn IntegrityTrait>,
 		solver_filter_service: Arc<dyn SolverFilterTrait>,
 	) -> Self {
 		Self::with_config(
-			solvers,
+			storage,
 			adapter_registry,
 			integrity_service,
 			solver_filter_service,
@@ -444,17 +447,12 @@ impl AggregatorService {
 
 	/// Create a new aggregator service with custom configuration
 	pub fn with_config(
-		solvers: Vec<Solver>,
+		storage: Arc<dyn Storage>,
 		adapter_registry: Arc<AdapterRegistry>,
 		integrity_service: Arc<dyn IntegrityTrait>,
 		solver_filter_service: Arc<dyn SolverFilterTrait>,
 		config: AggregationConfig,
 	) -> Self {
-		let mut solver_map = HashMap::new();
-		for solver in solvers {
-			solver_map.insert(solver.solver_id.clone(), solver);
-		}
-
 		// Create TaskExecutor with the configuration
 		let concurrency_limiter = Arc::new(Semaphore::new(config.max_concurrent_solvers));
 		let task_executor = Arc::new(TaskExecutor::new(
@@ -465,7 +463,7 @@ impl AggregatorService {
 		)) as Arc<dyn TaskExecutorTrait>;
 
 		Self {
-			solvers: solver_map,
+			storage,
 			config,
 			solver_filter_service,
 			task_executor,
@@ -500,18 +498,24 @@ impl AggregatorService {
 	}
 
 	/// Initialize aggregation metadata with request configuration
-	fn initialize_metadata(
+	async fn initialize_metadata(
 		&self,
 		request: &QuoteRequest,
 		global_timeout_ms: u64,
 		per_solver_timeout_ms: u64,
 		min_quotes_required: usize,
 		selected_solvers_count: usize,
-	) -> AggregationMetadata {
-		AggregationMetadata {
+	) -> AggregatorResult<AggregationMetadata> {
+		let total_solvers_available = self
+			.storage
+			.count_solvers()
+			.await
+			.map_err(|e| AggregatorServiceError::Storage(e.to_string()))?;
+
+		Ok(AggregationMetadata {
 			solver_timeout_ms: per_solver_timeout_ms,
 			global_timeout_ms,
-			total_solvers_available: self.solvers.len(),
+			total_solvers_available,
 			solvers_queried: selected_solvers_count,
 			min_quotes_required,
 			solver_selection_mode: request
@@ -521,7 +525,7 @@ impl AggregatorService {
 				.unwrap_or(&SolverSelection::All)
 				.clone(),
 			..Default::default()
-		}
+		})
 	}
 
 	/// Spawn solver tasks and return their handles
@@ -536,7 +540,7 @@ impl AggregatorService {
 		let mut task_handles = Vec::new();
 
 		for solver in selected_solvers {
-			let request = Arc::clone(&request); // Share the Arc instead of cloning the request
+			let request = Arc::clone(&request);
 			let result_tx = result_tx.clone();
 			let cancel_rx = cancel_tx.subscribe();
 
@@ -571,7 +575,14 @@ impl AggregatorService {
 		// Validate request
 		request.validate()?;
 
-		if self.solvers.is_empty() {
+		// Check if we have any solvers available in storage
+		let solver_count = self
+			.storage
+			.count_solvers()
+			.await
+			.map_err(|e| AggregatorServiceError::Storage(e.to_string()))?;
+
+		if solver_count == 0 {
 			return Err(AggregatorServiceError::NoSolversAvailable);
 		}
 
@@ -595,8 +606,12 @@ impl AggregatorService {
 		min_quotes_required: usize,
 		aggregation_start: Instant,
 	) -> AggregatorResult<(Vec<Solver>, AggregationMetadata)> {
-		// Filter solvers using SolverFilterService
-		let available_solvers: Vec<Solver> = self.solvers.values().cloned().collect();
+		let available_solvers = self
+			.storage
+			.list_all_solvers()
+			.await
+			.map_err(|e| AggregatorServiceError::Storage(e.to_string()))?;
+
 		let selected_solvers = self
 			.solver_filter_service
 			.filter_solvers(
@@ -611,13 +626,15 @@ impl AggregatorService {
 			.await;
 
 		// Initialize metadata
-		let mut metadata = self.initialize_metadata(
-			request,
-			global_timeout_ms,
-			per_solver_timeout_ms,
-			min_quotes_required,
-			selected_solvers.len(),
-		);
+		let mut metadata = self
+			.initialize_metadata(
+				request,
+				global_timeout_ms,
+				per_solver_timeout_ms,
+				min_quotes_required,
+				selected_solvers.len(),
+			)
+			.await?;
 
 		if selected_solvers.is_empty() {
 			metadata.total_duration_ms = aggregation_start.elapsed().as_millis() as u64;
@@ -917,6 +934,7 @@ impl AggregatorTrait for AggregatorService {
 }
 
 #[cfg(test)]
+#[allow(unused)]
 mod tests {
 	//! Tests for AggregatorService focusing on core aggregation behavior.
 
@@ -1234,7 +1252,7 @@ mod tests {
 	}
 
 	// Helper function to create test aggregator with mixed timeout/success solvers
-	fn create_test_aggregator_with_timeout_solvers() -> AggregatorService {
+	async fn create_test_aggregator_with_timeout_solvers() -> AggregatorService {
 		let solvers = vec![
 			// Fast solver that will succeed
 			{
@@ -1343,8 +1361,9 @@ mod tests {
 			},
 		];
 
+		let storage = create_test_storage_with_solvers(solvers).await;
 		AggregatorService::new(
-			solvers,
+			storage,
 			Arc::new(create_test_adapter_registry()),
 			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
 				as Arc<dyn IntegrityTrait>,
@@ -1352,10 +1371,23 @@ mod tests {
 		)
 	}
 
+	// Helper function to create test storage with solvers
+	async fn create_test_storage_with_solvers(solvers: Vec<Solver>) -> Arc<dyn Storage> {
+		let storage = Arc::new(oif_storage::MemoryStore::new()) as Arc<dyn Storage>;
+		for solver in solvers {
+			storage
+				.create_solver(solver)
+				.await
+				.expect("Failed to create test solver");
+		}
+		storage
+	}
+
 	// Helper function to create test aggregator with no solvers
-	fn create_test_aggregator() -> AggregatorService {
+	async fn create_test_aggregator() -> AggregatorService {
+		let storage = create_test_storage_with_solvers(vec![]).await;
 		AggregatorService::new(
-			vec![], // No solvers
+			storage,
 			Arc::new(create_test_adapter_registry()),
 			Arc::new(crate::integrity::IntegrityService::new(SecretString::from(
 				"test-secret",
@@ -1365,7 +1397,7 @@ mod tests {
 	}
 
 	// Helper function to create test aggregator with mock demo solvers that will succeed
-	fn create_test_aggregator_with_demo_solvers(solver_count: usize) -> AggregatorService {
+	async fn create_test_aggregator_with_demo_solvers(solver_count: usize) -> AggregatorService {
 		let mut solvers = Vec::new();
 		for i in 1..=solver_count {
 			// Create solver with proper network and asset support for filtering
@@ -1393,8 +1425,9 @@ mod tests {
 			solvers.push(solver);
 		}
 
+		let storage = create_test_storage_with_solvers(solvers).await;
 		AggregatorService::new(
-			solvers,
+			storage,
 			Arc::new(create_test_adapter_registry()),
 			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
 				as Arc<dyn IntegrityTrait>,
@@ -1403,7 +1436,7 @@ mod tests {
 	}
 
 	// Helper function to create test aggregator with mixed success/failure solvers
-	fn create_test_aggregator_with_mixed_solvers() -> AggregatorService {
+	async fn create_test_aggregator_with_mixed_solvers() -> AggregatorService {
 		let solvers = vec![
 			Solver::new(
 				"success-solver1".to_string(),
@@ -1422,8 +1455,9 @@ mod tests {
 			),
 		];
 
+		let storage = create_test_storage_with_solvers(solvers).await;
 		AggregatorService::new(
-			solvers,
+			storage,
 			Arc::new(create_test_adapter_registry()),
 			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
 				as Arc<dyn IntegrityTrait>,
@@ -1432,7 +1466,9 @@ mod tests {
 	}
 
 	// Helper function to create test aggregator with specified solvers using non-existent adapters (for failure testing)
-	fn create_test_aggregator_with_invalid_adapters(solver_count: usize) -> AggregatorService {
+	async fn create_test_aggregator_with_invalid_adapters(
+		solver_count: usize,
+	) -> AggregatorService {
 		let mut solvers = Vec::new();
 		for i in 1..=solver_count {
 			solvers.push(Solver::new(
@@ -1442,8 +1478,9 @@ mod tests {
 			));
 		}
 
+		let storage = create_test_storage_with_solvers(solvers).await;
 		AggregatorService::new(
-			solvers,
+			storage,
 			Arc::new(create_test_adapter_registry()),
 			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
 				as Arc<dyn IntegrityTrait>,
@@ -1520,7 +1557,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_aggregation_metadata_on_no_solvers() {
-		let aggregator = create_test_aggregator(); // No solvers
+		let aggregator = create_test_aggregator().await; // No solvers
 		let request = create_valid_quote_request();
 
 		let result = aggregator.fetch_quotes(request).await;
@@ -1557,28 +1594,38 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_aggregator_creation() {
-		let aggregator = create_test_aggregator();
-		assert_eq!(aggregator.solvers.len(), 0);
+		let aggregator = create_test_aggregator().await;
+		assert_eq!(aggregator.storage.count_solvers().await.unwrap(), 0);
 		assert_eq!(aggregator.config.global_timeout_ms, 5000); // DEFAULT_GLOBAL_TIMEOUT_MS
 	}
 
 	#[tokio::test]
 	async fn test_aggregator_creation_with_demo_solvers() {
-		let aggregator = create_test_aggregator_with_demo_solvers(3);
-		assert_eq!(aggregator.solvers.len(), 3);
+		let aggregator = create_test_aggregator_with_demo_solvers(3).await;
+		assert_eq!(aggregator.storage.count_solvers().await.unwrap(), 3);
 
 		// Verify all demo solvers are present and use correct adapter
 		for i in 1..=3 {
 			let solver_id = format!("demo-solver{}", i);
-			assert!(aggregator.solvers.contains_key(&solver_id));
-			let solver = aggregator.solvers.get(&solver_id).unwrap();
+			assert!(aggregator
+				.storage
+				.get_solver(&solver_id)
+				.await
+				.unwrap()
+				.is_some());
+			let solver = aggregator
+				.storage
+				.get_solver(&solver_id)
+				.await
+				.unwrap()
+				.unwrap();
 			assert_eq!(solver.adapter_id, "mock-demo-v1");
 		}
 	}
 
 	#[tokio::test]
 	async fn test_successful_quote_aggregation() {
-		let aggregator = create_test_aggregator_with_demo_solvers(2);
+		let aggregator = create_test_aggregator_with_demo_solvers(2).await;
 		let request = create_valid_quote_request();
 
 		let result = aggregator.fetch_quotes(request).await;
@@ -1609,7 +1656,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_fetch_quotes_no_solvers() {
-		let aggregator = create_test_aggregator();
+		let aggregator = create_test_aggregator().await;
 		let request = create_valid_quote_request();
 
 		let result = aggregator.fetch_quotes(request).await;
@@ -1622,7 +1669,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_fetch_quotes_validation_error_empty_inputs() {
-		let aggregator = create_test_aggregator();
+		let aggregator = create_test_aggregator().await;
 		let user = InteropAddress::from_text("eip155:1:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
 			.unwrap();
 
@@ -1645,7 +1692,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_fetch_quotes_validation_error_empty_outputs() {
-		let aggregator = create_test_aggregator();
+		let aggregator = create_test_aggregator().await;
 		let user = InteropAddress::from_text("eip155:1:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
 			.unwrap();
 		let asset =
@@ -1676,7 +1723,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_mixed_solver_success_and_failure() {
-		let aggregator = create_test_aggregator_with_mixed_solvers();
+		let aggregator = create_test_aggregator_with_mixed_solvers().await;
 		let request = create_valid_quote_request();
 
 		let result = aggregator.fetch_quotes(request).await;
@@ -1705,7 +1752,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_fetch_quotes_with_solver_filtering_no_results() {
-		let aggregator = create_test_aggregator_with_demo_solvers(3);
+		let aggregator = create_test_aggregator_with_demo_solvers(3).await;
 
 		let options = SolverOptions {
 			include_solvers: Some(vec!["nonexistent".to_string()]),
@@ -1730,7 +1777,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_fetch_quotes_with_solver_filtering_success() {
-		let aggregator = create_test_aggregator_with_demo_solvers(3);
+		let aggregator = create_test_aggregator_with_demo_solvers(3).await;
 
 		let options = SolverOptions {
 			include_solvers: Some(vec!["demo-solver1".to_string(), "demo-solver2".to_string()]),
@@ -1763,7 +1810,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_fetch_quotes_uses_custom_timeout() {
-		let aggregator = create_test_aggregator_with_demo_solvers(2);
+		let aggregator = create_test_aggregator_with_demo_solvers(2).await;
 
 		let options = SolverOptions {
 			include_solvers: None,
@@ -1796,7 +1843,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_fetch_quotes_with_very_short_timeout() {
-		let aggregator = create_test_aggregator_with_demo_solvers(1);
+		let aggregator = create_test_aggregator_with_demo_solvers(1).await;
 
 		let options = SolverOptions {
 			include_solvers: None,
@@ -1831,7 +1878,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_fetch_quotes_with_solver_exclusion() {
-		let aggregator = create_test_aggregator_with_demo_solvers(3);
+		let aggregator = create_test_aggregator_with_demo_solvers(3).await;
 
 		let options = SolverOptions {
 			include_solvers: None,
@@ -1864,7 +1911,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_fetch_quotes_with_sampled_selection() {
-		let aggregator = create_test_aggregator_with_demo_solvers(5);
+		let aggregator = create_test_aggregator_with_demo_solvers(5).await;
 
 		let options = SolverOptions {
 			include_solvers: None,
@@ -1900,7 +1947,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_fetch_quotes_validation_zero_amount() {
-		let aggregator = create_test_aggregator_with_demo_solvers(1);
+		let aggregator = create_test_aggregator_with_demo_solvers(1).await;
 		let user = InteropAddress::from_text("eip155:1:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
 			.unwrap();
 		let asset =
@@ -1936,7 +1983,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_fetch_quotes_invalid_user_address() {
-		let aggregator = create_test_aggregator_with_demo_solvers(1);
+		let aggregator = create_test_aggregator_with_demo_solvers(1).await;
 
 		// This will fail during InteropAddress parsing, but let's test validation
 		let user = InteropAddress::from_text("eip155:1:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
@@ -1977,7 +2024,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_early_termination_behavior() {
 		// Test that early termination works as expected
-		let aggregator = create_test_aggregator_with_demo_solvers(3);
+		let aggregator = create_test_aggregator_with_demo_solvers(3).await;
 
 		let options = SolverOptions {
 			include_solvers: None,
@@ -2019,7 +2066,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_early_termination_timing_behavior() {
 		// Test that we can observe the timing difference with different min_quotes
-		let aggregator = create_test_aggregator_with_demo_solvers(5);
+		let aggregator = create_test_aggregator_with_demo_solvers(5).await;
 
 		// Test with high min_quotes requirement (impossible to meet)
 		let high_requirement_options = SolverOptions {
@@ -2075,7 +2122,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_aggregator_delegates_to_filter_service() {
-		let aggregator = create_test_aggregator_with_demo_solvers(5);
+		let aggregator = create_test_aggregator_with_demo_solvers(5).await;
 
 		// Test that aggregator properly delegates filtering to SolverFilterService
 		let options = SolverOptions {
@@ -2113,7 +2160,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_metadata_collection_and_structure() {
-		let aggregator = create_test_aggregator_with_demo_solvers(3);
+		let aggregator = create_test_aggregator_with_demo_solvers(3).await;
 
 		let options = SolverOptions {
 			include_solvers: None,
@@ -2159,7 +2206,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_adapter_not_found_error() {
 		// Test proper error handling when adapters don't exist
-		let aggregator = create_test_aggregator_with_invalid_adapters(2);
+		let aggregator = create_test_aggregator_with_invalid_adapters(2).await;
 		let request = create_valid_quote_request();
 
 		let result = aggregator.fetch_quotes(request).await;
@@ -2176,7 +2223,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_quote_integrity_checksum_generation() {
-		let aggregator = create_test_aggregator_with_demo_solvers(1);
+		let aggregator = create_test_aggregator_with_demo_solvers(1).await;
 		let request = create_valid_quote_request();
 
 		let result = aggregator.fetch_quotes(request).await;
@@ -2204,7 +2251,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_priority_based_selection() {
-		let aggregator = create_test_aggregator_with_demo_solvers(5);
+		let aggregator = create_test_aggregator_with_demo_solvers(5).await;
 
 		let options = SolverOptions {
 			include_solvers: None,
@@ -2238,7 +2285,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_concurrent_solver_execution() {
 		// Test that multiple solvers are executed concurrently, not sequentially
-		let aggregator = create_test_aggregator_with_demo_solvers(3);
+		let aggregator = create_test_aggregator_with_demo_solvers(3).await;
 		let request = create_valid_quote_request();
 
 		let start_time = std::time::Instant::now();
@@ -2264,7 +2311,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_solver_timeout_mixed_results() {
 		// Test with some solvers timing out and others succeeding
-		let aggregator = create_test_aggregator_with_timeout_solvers();
+		let aggregator = create_test_aggregator_with_timeout_solvers().await;
 
 		let options = SolverOptions {
 			include_solvers: None,
@@ -2329,7 +2376,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_timeout_behavior_verification() {
 		// Test timeout behavior - may succeed or fail depending on solver speeds vs timeouts
-		let aggregator = create_test_aggregator_with_timeout_solvers();
+		let aggregator = create_test_aggregator_with_timeout_solvers().await;
 
 		let options = SolverOptions {
 			include_solvers: None,
@@ -2374,7 +2421,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_timeout_configuration_limits() {
 		// Test that timeout configuration is properly validated and applied
-		let aggregator = create_test_aggregator_with_timeout_solvers();
+		let aggregator = create_test_aggregator_with_timeout_solvers().await;
 
 		// Test with only slow solver to ensure timeout behavior
 		let options = SolverOptions {
@@ -2413,7 +2460,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_global_timeout() {
 		// Test global timeout when aggregation takes too long overall
-		let aggregator = create_test_aggregator_with_timeout_solvers();
+		let aggregator = create_test_aggregator_with_timeout_solvers().await;
 
 		let options = SolverOptions {
 			include_solvers: None,
@@ -2458,7 +2505,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_timeout_with_early_termination() {
 		// Test that early termination works even with some solvers timing out
-		let aggregator = create_test_aggregator_with_timeout_solvers();
+		let aggregator = create_test_aggregator_with_timeout_solvers().await;
 
 		let options = SolverOptions {
 			include_solvers: None,
@@ -2502,10 +2549,10 @@ mod tests {
 		// The slow solver might not have had time to timeout before cancellation
 	}
 
-	#[test]
-	fn test_sort_quotes_by_speed_preference() {
+	#[tokio::test]
+	async fn test_sort_quotes_by_speed_preference() {
 		// Test the quote sorting functionality for Speed preference
-		let aggregator = create_test_aggregator();
+		let aggregator = create_test_aggregator().await;
 
 		// Create test quote details from a sample request
 		let sample_request = create_valid_quote_request();
@@ -2586,10 +2633,10 @@ mod tests {
 		assert_eq!(sorted_quotes[3].eta, None);
 	}
 
-	#[test]
-	fn test_sort_quotes_no_preference_defaults_to_speed() {
+	#[tokio::test]
+	async fn test_sort_quotes_no_preference_defaults_to_speed() {
 		// Test that quotes are sorted by speed (eta) when no preference is specified (default behavior)
-		let aggregator = create_test_aggregator();
+		let aggregator = create_test_aggregator().await;
 
 		// Create test quote details from a sample request
 		let sample_request = create_valid_quote_request();
