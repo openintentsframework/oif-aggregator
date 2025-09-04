@@ -111,15 +111,13 @@ impl CompatibilityAnalyzer {
 				let is_valid_route = input.asset != output.asset || // Different assets
 					!input.asset.is_on_chain(output.asset.extract_chain_id().unwrap_or(0)); // Different chains
 
-				if is_valid_route {
-					if solver.supports_route(&input.asset, &output.asset) {
-						debug!(
-							"Solver '{}' can satisfy output {} via input {}",
-							solver.solver_id, output.asset, input.asset
-						);
-						output_satisfiable = true;
-						break; // Found at least one path to this output
-					}
+				if is_valid_route && solver.supports_route(&input.asset, &output.asset) {
+					debug!(
+						"Solver '{}' can satisfy output {} via input {}",
+						solver.solver_id, output.asset, input.asset
+					);
+					output_satisfiable = true;
+					break; // Found at least one path to this output
 				}
 			}
 
