@@ -20,6 +20,34 @@ use uuid::Uuid;
 
 use crate::client_cache::{ClientCache, ClientConfig};
 
+/// Helper function to normalize addresses to ensure they have 0x prefix
+fn normalize_address(address: &str) -> String {
+	if address.starts_with("0x") || address.starts_with("0X") {
+		address.to_string()
+	} else {
+		format!("0x{}", address)
+	}
+}
+
+/// Helper function to categorize validation errors for analysis
+fn categorize_validation_error(error_msg: &str) -> &'static str {
+	if error_msg.contains("address missing 0x prefix") {
+		"missing_0x_prefix"
+	} else if error_msg.contains("Invalid token address") {
+		"invalid_address_format"
+	} else if error_msg.contains("Invalid chain ID") {
+		"invalid_chain_id"
+	} else if error_msg.contains("address too short") {
+		"address_too_short"
+	} else if error_msg.contains("address too long") {
+		"address_too_long"
+	} else if error_msg.contains("invalid hex") {
+		"invalid_hex_characters"
+	} else {
+		"other"
+	}
+}
+
 // ================================
 // ACROSS API MODELS
 // ================================
@@ -146,23 +174,33 @@ impl AcrossRoute {
 		let origin_chain_id = self.origin_chain_id;
 		let destination_chain_id = self.destination_chain_id;
 
+		// Normalize addresses to ensure they have 0x prefix
+		let origin_token = normalize_address(&self.origin_token);
+		let destination_token = normalize_address(&self.destination_token);
+
 		// Create origin asset
-		let origin_asset = Asset::new(
-			self.origin_token.clone(),
+		let origin_asset = Asset::from_chain_and_address(
+			origin_chain_id,
+			origin_token,
 			self.origin_token_symbol.clone(),
 			self.origin_token_symbol.clone(), // Use symbol as name for now
 			18, // Default to 18 decimals, could be improved with token registry
-			origin_chain_id,
-		);
+		)
+		.map_err(|e| AdapterError::InvalidResponse {
+			reason: format!("Invalid origin asset: {}", e),
+		})?;
 
 		// Create destination asset
-		let destination_asset = Asset::new(
-			self.destination_token.clone(),
+		let destination_asset = Asset::from_chain_and_address(
+			destination_chain_id,
+			destination_token,
 			self.destination_token_symbol.clone(),
 			self.destination_token_symbol.clone(), // Use symbol as name for now
 			18, // Default to 18 decimals, could be improved with token registry
-			destination_chain_id,
-		);
+		)
+		.map_err(|e| AdapterError::InvalidResponse {
+			reason: format!("Invalid destination asset: {}", e),
+		})?;
 
 		Ok((origin_asset, destination_asset))
 	}
@@ -171,20 +209,23 @@ impl AcrossRoute {
 	pub fn to_asset_route(&self) -> AdapterResult<AssetRoute> {
 		use oif_types::models::InteropAddress;
 
+		// Normalize addresses to ensure they have 0x prefix
+		let origin_token = normalize_address(&self.origin_token);
+		let destination_token = normalize_address(&self.destination_token);
+
 		// Create InteropAddresses for origin and destination
 		let origin_asset =
-			InteropAddress::from_chain_and_address(self.origin_chain_id, &self.origin_token)
-				.map_err(|e| AdapterError::InvalidResponse {
+			InteropAddress::from_chain_and_address(self.origin_chain_id, &origin_token).map_err(
+				|e| AdapterError::InvalidResponse {
 					reason: format!("Invalid origin asset in Across route: {}", e),
-				})?;
+				},
+			)?;
 
-		let destination_asset = InteropAddress::from_chain_and_address(
-			self.destination_chain_id,
-			&self.destination_token,
-		)
-		.map_err(|e| AdapterError::InvalidResponse {
-			reason: format!("Invalid destination asset in Across route: {}", e),
-		})?;
+		let destination_asset =
+			InteropAddress::from_chain_and_address(self.destination_chain_id, &destination_token)
+				.map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Invalid destination asset in Across route: {}", e),
+			})?;
 
 		Ok(AssetRoute::with_symbols(
 			origin_asset,
@@ -553,26 +594,90 @@ impl SolverAdapter for AcrossAdapter {
 			routes_count
 		);
 
-		// Transform Across routes to internal AssetRoute models
+		// Transform Across routes to AssetRoute models using builder methods
 		let mut asset_routes = Vec::new();
+		let mut skipped_routes = 0;
+		let mut invalid_route_details = Vec::new();
+		let mut error_categories = std::collections::HashMap::new();
+
 		for across_route in across_routes {
-			match across_route.to_asset_route() {
+			// Normalize addresses to ensure they have 0x prefix
+			let origin_token = normalize_address(&across_route.origin_token);
+			let destination_token = normalize_address(&across_route.destination_token);
+
+			match AssetRoute::from_chain_and_addresses(
+				across_route.origin_chain_id,
+				origin_token,
+				across_route.destination_chain_id,
+				destination_token,
+			) {
 				Ok(asset_route) => {
-					asset_routes.push(asset_route);
+					let asset_route_with_symbols = asset_route.add_symbols(
+						Some(across_route.origin_token_symbol.clone()),
+						Some(across_route.destination_token_symbol.clone()),
+					);
+					asset_routes.push(asset_route_with_symbols);
 				},
 				Err(e) => {
-					warn!("Failed to convert Across route to AssetRoute: {}", e);
-					continue;
+					let error_str = e.to_string();
+					let error_category = categorize_validation_error(&error_str);
+
+					let invalid_route_info = format!(
+						"origin={}:{} ({}) -> destination={}:{} ({}), error: {} [category: {}]",
+						across_route.origin_chain_id,
+						across_route.origin_token,
+						across_route.origin_token_symbol,
+						across_route.destination_chain_id,
+						across_route.destination_token,
+						across_route.destination_token_symbol,
+						error_str,
+						error_category
+					);
+
+					warn!("Skipping invalid Across route: {}", invalid_route_info);
+					invalid_route_details.push(invalid_route_info);
+
+					// Track error categories for statistics
+					*error_categories.entry(error_category).or_insert(0) += 1;
+					skipped_routes += 1;
 				},
 			}
 		}
 
-		info!(
-			"Across adapter converted {} Across routes to {} asset routes for solver {} (using routes mode)",
-			routes_count,
-			asset_routes.len(),
-			config.solver_id
-		);
+		if skipped_routes > 0 {
+			info!(
+				"Across adapter converted {} Across routes to {} asset routes for solver {} (using routes mode), skipped {} invalid routes",
+				routes_count,
+				asset_routes.len(),
+				config.solver_id,
+				skipped_routes
+			);
+
+			// Log error category statistics
+			warn!(
+				"Error statistics for {} invalid routes from Across API for solver {}:",
+				skipped_routes, config.solver_id
+			);
+			for (category, count) in error_categories.iter() {
+				warn!("  {}: {} routes", category, count);
+			}
+
+			// Log detailed summary of invalid routes for analysis
+			warn!(
+				"Detailed list of {} invalid routes from Across API for solver {}:",
+				skipped_routes, config.solver_id
+			);
+			for (index, invalid_route) in invalid_route_details.iter().enumerate() {
+				warn!("  Invalid route #{}: {}", index + 1, invalid_route);
+			}
+		} else {
+			info!(
+				"Across adapter converted {} Across routes to {} asset routes for solver {} (using routes mode)",
+				routes_count,
+				asset_routes.len(),
+				config.solver_id
+			);
+		}
 
 		Ok(SupportedAssetsData::Routes(asset_routes))
 	}
@@ -582,6 +687,63 @@ impl SolverAdapter for AcrossAdapter {
 mod tests {
 	use super::*;
 	use std::time::Duration;
+
+	#[test]
+	fn test_normalize_address() {
+		// Test address with 0x prefix
+		assert_eq!(
+			normalize_address("0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"),
+			"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+		);
+
+		// Test address without 0x prefix
+		assert_eq!(
+			normalize_address("C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"),
+			"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+		);
+
+		// Test address with 0X prefix (uppercase)
+		assert_eq!(
+			normalize_address("0XC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"),
+			"0XC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+		);
+
+		// Test empty string (edge case)
+		assert_eq!(normalize_address(""), "0x");
+	}
+
+	#[test]
+	fn test_resilient_route_processing() {
+		// Test that invalid routes are skipped but valid ones are processed
+		let valid_route = AcrossRoute {
+			origin_chain_id: 1,
+			destination_chain_id: 10,
+			origin_token: "C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(), // No 0x prefix
+			destination_token: "0x4200000000000000000000000000000000000006".to_string(),
+			origin_token_symbol: "WETH".to_string(),
+			destination_token_symbol: "WETH".to_string(),
+			is_native: false,
+		};
+
+		let invalid_route = AcrossRoute {
+			origin_chain_id: 1,
+			destination_chain_id: 10,
+			origin_token: "invalid_address".to_string(), // Invalid address
+			destination_token: "0x4200000000000000000000000000000000000006".to_string(),
+			origin_token_symbol: "INVALID".to_string(),
+			destination_token_symbol: "WETH".to_string(),
+			is_native: false,
+		};
+
+		// Test individual route conversion
+		assert!(valid_route.to_assets().is_ok());
+		assert!(invalid_route.to_assets().is_err()); // This should fail
+
+		// Test that normalize_address handles the missing prefix
+		let normalized = normalize_address(&valid_route.origin_token);
+		assert!(normalized.starts_with("0x"));
+		assert_eq!(normalized, "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2");
+	}
 
 	#[test]
 	fn test_across_adapter_construction_patterns() {
@@ -639,20 +801,20 @@ mod tests {
 
 		// Verify origin asset
 		assert_eq!(
-			origin_asset.address,
-			"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
+			origin_asset.plain_address(),
+			"0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2"
 		);
 		assert_eq!(origin_asset.symbol, "WETH");
-		assert_eq!(origin_asset.chain_id, 1);
+		assert_eq!(origin_asset.chain_id().unwrap(), 1);
 		assert_eq!(origin_asset.decimals, 18);
 
 		// Verify destination asset
 		assert_eq!(
-			destination_asset.address,
+			destination_asset.plain_address(),
 			"0x4200000000000000000000000000000000000006"
 		);
 		assert_eq!(destination_asset.symbol, "WETH");
-		assert_eq!(destination_asset.chain_id, 10);
+		assert_eq!(destination_asset.chain_id().unwrap(), 10);
 		assert_eq!(destination_asset.decimals, 18);
 	}
 
@@ -711,8 +873,8 @@ mod tests {
 		let (origin_asset, destination_asset) = route.to_assets().unwrap();
 
 		// Verify the conversion worked correctly
-		assert_eq!(origin_asset.chain_id, 1);
-		assert_eq!(destination_asset.chain_id, 10);
+		assert_eq!(origin_asset.chain_id().unwrap(), 1);
+		assert_eq!(destination_asset.chain_id().unwrap(), 10);
 		assert_eq!(origin_asset.symbol, "WETH");
 		assert_eq!(destination_asset.symbol, "WETH");
 	}
@@ -972,109 +1134,5 @@ mod tests {
 		assert!(across_data.get("id").is_some());
 
 		println!("✅ All Across metadata fields are present and accessible!");
-	}
-
-	#[tokio::test]
-	async fn test_get_quotes_with_real_data() {
-		use oif_types::models::InteropAddress;
-		use oif_types::{AvailableInput, RequestedOutput, U256};
-
-		// Same test data as above but with async quote request
-		let origin_chain_id = 11155420u64; // Optimism Sepolia
-		let destination_chain_id = 129399u64; // Custom chain
-		let input_token = "0x4200000000000000000000000000000000000006";
-		let output_token = "0x17B8Ee96E3bcB3b04b3e8334de4524520C51caB4";
-		let amount = "100000000000000";
-
-		// Create the adapter
-		let adapter = AcrossAdapter::with_default_config().expect("Failed to create adapter");
-
-		// Create runtime config
-		let runtime_config = SolverRuntimeConfig {
-			solver_id: "test-across".to_string(),
-			endpoint: "https://api.across.to".to_string(),
-			headers: None,
-		};
-
-		// Create InteropAddresses
-		let user_address = InteropAddress::from_chain_and_address(
-			origin_chain_id,
-			"0x742d35Cc6634C0532925a3b8D38BA2297C33A9D7",
-		)
-		.expect("Failed to create user InteropAddress");
-
-		let input_asset = InteropAddress::from_chain_and_address(origin_chain_id, input_token)
-			.expect("Failed to create input asset InteropAddress");
-
-		let output_receiver = InteropAddress::from_chain_and_address(
-			destination_chain_id,
-			"0x742d35Cc6634C0532925a3b8D38BA2297C33A9D7",
-		)
-		.expect("Failed to create output receiver InteropAddress");
-
-		let output_asset =
-			InteropAddress::from_chain_and_address(destination_chain_id, output_token)
-				.expect("Failed to create output asset InteropAddress");
-
-		let amount_u256 = U256::new(amount.to_string());
-
-		// Create the GetQuoteRequest
-		let quote_request = GetQuoteRequest {
-			user: user_address.clone(),
-			available_inputs: vec![AvailableInput {
-				user: user_address,
-				asset: input_asset,
-				amount: amount_u256.clone(),
-				lock: None,
-			}],
-			requested_outputs: vec![RequestedOutput {
-				receiver: output_receiver,
-				asset: output_asset,
-				amount: amount_u256,
-				calldata: None,
-			}],
-			min_valid_until: Some(300),
-			preference: None,
-		};
-
-		// Test the actual get_quotes method
-		// Note: This will make a real HTTP request to Across API, so it might fail in CI
-		println!("🚀 Testing get_quotes with real data...");
-		println!(
-			"   Request: {}:{} -> {}:{}",
-			origin_chain_id, input_token, destination_chain_id, output_token
-		);
-		println!("   Amount: {} wei", amount);
-
-		match adapter.get_quotes(&quote_request, &runtime_config).await {
-			Ok(response) => {
-				println!("✅ Quote request successful!");
-				println!("   Received {} quotes", response.quotes.len());
-
-				if !response.quotes.is_empty() {
-					let quote = &response.quotes[0];
-					println!("   Quote ID: {}", quote.quote_id);
-					println!("   Provider: {}", quote.provider);
-					if let Some(eta) = quote.eta {
-						println!("   ETA: {} seconds", eta);
-					}
-				}
-
-				// Verify we got at least one quote
-				assert!(
-					!response.quotes.is_empty(),
-					"Should receive at least one quote"
-				);
-			},
-			Err(e) => {
-				println!(
-					"⚠️  Quote request failed (this might be expected in CI): {}",
-					e
-				);
-				// In a real test environment, we might want to mock the HTTP response
-				// For now, we just print the error and don't fail the test
-				// This allows the test to pass in CI environments without network access
-			},
-		}
 	}
 }

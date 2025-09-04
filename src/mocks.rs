@@ -6,17 +6,17 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use oif_types::adapters::models::{SolMandateOutput, StandardOrder};
 use oif_types::chrono::Utc;
 
 use oif_types::adapters::{
 	models::{
 		AdapterQuote, AssetAmount, AvailableInput, GetOrderResponse, GetQuoteRequest,
 		GetQuoteResponse, OrderResponse, OrderStatus, QuoteDetails, QuoteOrder, RequestedOutput,
-		Settlement, SettlementType, SignatureType, SubmitOrderRequest, SubmitOrderResponse,
+		Settlement, SettlementType, SignatureType, SolMandateOutput, StandardOrder,
+		SubmitOrderRequest, SubmitOrderResponse,
 	},
 	traits::SolverAdapter,
-	AdapterResult, AdapterValidationError, SupportedAssetsData,
+	AdapterError, AdapterResult, AdapterValidationError, SupportedAssetsData,
 };
 use oif_types::serde_json::{json, Value};
 use oif_types::Solver;
@@ -218,29 +218,38 @@ impl SolverAdapter for MockDemoAdapter {
 		// Support assets that match the test fixtures
 		let assets = vec![
 			// Native ETH on Ethereum
-			Asset::new(
+			Asset::from_chain_and_address(
+				1,
 				"0x0000000000000000000000000000000000000000".to_string(),
 				"ETH".to_string(),
 				"Ethereum".to_string(),
 				18,
-				1,
-			),
+			)
+			.map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Invalid mock asset: {}", e),
+			})?,
 			// WETH on Ethereum (matches test fixtures)
-			Asset::new(
+			Asset::from_chain_and_address(
+				1,
 				"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
 				"WETH".to_string(),
 				"Wrapped Ethereum".to_string(),
 				18,
-				1,
-			),
+			)
+			.map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Invalid mock asset: {}", e),
+			})?,
 			// USDC on Ethereum (matches test fixtures)
-			Asset::new(
+			Asset::from_chain_and_address(
+				1,
 				"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0".to_string(),
 				"USDC".to_string(),
 				"USD Coin".to_string(),
 				6,
-				1,
-			),
+			)
+			.map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Invalid mock asset: {}", e),
+			})?,
 		];
 
 		Ok(SupportedAssetsData::Assets(assets))
@@ -413,29 +422,32 @@ pub fn mock_solver() -> Solver {
 	// Create assets that match the test fixtures for immediate compatibility
 	let assets = vec![
 		// Native ETH on Ethereum
-		Asset::new(
+		Asset::from_chain_and_address(
+			1,
 			"0x0000000000000000000000000000000000000000".to_string(),
 			"ETH".to_string(),
 			"Ethereum".to_string(),
 			18,
-			1,
-		),
+		)
+		.expect("Valid ETH asset"),
 		// WETH on Ethereum (matches test fixtures)
-		Asset::new(
+		Asset::from_chain_and_address(
+			1,
 			"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
 			"WETH".to_string(),
 			"Wrapped Ethereum".to_string(),
 			18,
-			1,
-		),
+		)
+		.expect("Valid WETH asset"),
 		// USDC on Ethereum (matches test fixtures)
-		Asset::new(
+		Asset::from_chain_and_address(
+			1,
 			"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0".to_string(),
 			"USDC".to_string(),
 			"USD Coin".to_string(),
 			6,
-			1,
-		),
+		)
+		.expect("Valid USDC asset"),
 	];
 
 	Solver::new(

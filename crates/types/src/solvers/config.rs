@@ -85,13 +85,14 @@ impl TryFrom<AssetConfig> for crate::models::Asset {
 		let symbol = config.symbol.unwrap_or_else(|| "UNKNOWN".to_string());
 		let name = symbol.clone();
 
-		Ok(crate::models::Asset {
-			address: config.address,
+		crate::models::Asset::from_chain_and_address(
+			config.chain_id,
+			config.address,
 			symbol,
 			name,
-			decimals: 18, // Default to 18 decimals (most common)
-			chain_id: config.chain_id,
-		})
+			18, // Default to 18 decimals (most common)
+		)
+		.map_err(|e| format!("Failed to create asset: {}", e))
 	}
 }
 

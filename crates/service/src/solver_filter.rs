@@ -121,19 +121,9 @@ impl CompatibilityAnalyzer {
 			let mut output_satisfiable = false;
 
 			for input in &request.available_inputs {
-				// For assets mode: check if solver supports both input and output assets
-				let input_supported = {
-					let input_chain_id = input.asset.extract_chain_id().unwrap_or(0);
-					let input_address = input.asset.extract_address();
-					solver.supports_asset_on_chain(input_chain_id, &input_address)
-				};
-				let output_supported = {
-					let output_chain_id = output.asset.extract_chain_id().unwrap_or(0);
-					let output_address = output.asset.extract_address();
-					solver.supports_asset_on_chain(output_chain_id, &output_address)
-				};
-
-				if input_supported && output_supported {
+				// For assets mode: check if solver supports the route from input to output asset
+				// The supports_route method handles assets mode correctly by checking both assets individually
+				if solver.supports_route(&input.asset, &output.asset) {
 					debug!(
 						"Solver '{}' (assets mode) can satisfy output {} via input {}",
 						solver.solver_id, output.asset, input.asset
@@ -503,11 +493,10 @@ mod tests {
 				let interop_addr =
 					InteropAddress::from_text(&format!("eip155:{}:{}", chain_id, address)).unwrap();
 				Asset::new(
-					interop_addr.extract_address(),
+					interop_addr,
 					format!("SYM{}", chain_id),
 					format!("Symbol {}", chain_id),
 					18,
-					chain_id,
 				)
 			})
 			.collect();

@@ -82,6 +82,38 @@ impl AssetRoute {
 		}
 	}
 
+	/// Builder method to add symbols to an existing route
+	pub fn add_symbols(
+		mut self,
+		origin_symbol: Option<String>,
+		destination_symbol: Option<String>,
+	) -> Self {
+		self.origin_token_symbol = origin_symbol;
+		self.destination_token_symbol = destination_symbol;
+		self
+	}
+
+	/// Builder method to add metadata to an existing route
+	pub fn add_metadata(mut self, metadata: Option<serde_json::Value>) -> Self {
+		self.metadata = metadata;
+		self
+	}
+
+	/// Create asset route from plain chain IDs and addresses
+	pub fn from_chain_and_addresses(
+		origin_chain_id: u64,
+		origin_address: String,
+		destination_chain_id: u64,
+		destination_address: String,
+	) -> Result<Self, crate::quotes::errors::QuoteValidationError> {
+		let origin_asset =
+			InteropAddress::from_chain_and_address(origin_chain_id, &origin_address)?;
+		let destination_asset =
+			InteropAddress::from_chain_and_address(destination_chain_id, &destination_address)?;
+
+		Ok(Self::new(origin_asset, destination_asset))
+	}
+
 	/// Create a new asset route with symbols and metadata
 	pub fn with_symbols_and_metadata(
 		origin_asset: InteropAddress,

@@ -330,9 +330,9 @@ impl Solver {
 	/// Check if solver supports a specific chain
 	pub fn supports_chain(&self, chain_id: u64) -> bool {
 		match &self.metadata.supported_assets {
-			SupportedAssets::Assets { assets, .. } => {
-				assets.iter().any(|asset| asset.chain_id == chain_id)
-			},
+			SupportedAssets::Assets { assets, .. } => assets
+				.iter()
+				.any(|asset| asset.chain_id().unwrap_or(0) == chain_id),
 			SupportedAssets::Routes { routes, .. } => routes.iter().any(|r| {
 				r.origin_chain_id().unwrap_or(0) == chain_id
 					|| r.destination_chain_id().unwrap_or(0) == chain_id
@@ -361,7 +361,8 @@ impl Solver {
 	pub fn supports_asset_on_chain(&self, chain_id: u64, address: &str) -> bool {
 		match &self.metadata.supported_assets {
 			SupportedAssets::Assets { assets, .. } => assets.iter().any(|asset| {
-				asset.chain_id == chain_id && asset.address.eq_ignore_ascii_case(address)
+				asset.chain_id().unwrap_or(0) == chain_id
+					&& asset.plain_address().eq_ignore_ascii_case(address)
 			}),
 			SupportedAssets::Routes { routes, .. } => routes.iter().any(|r| {
 				(r.origin_chain_id().unwrap_or(0) == chain_id
@@ -374,31 +375,24 @@ impl Solver {
 
 	/// Check if solver supports a specific asset
 	pub fn supports_asset(&self, asset: &Asset) -> bool {
-		self.supports_asset_on_chain(asset.chain_id, &asset.address)
+		match &self.metadata.supported_assets {
+			SupportedAssets::Assets { assets, .. } => assets
+				.iter()
+				.any(|supported_asset| supported_asset.address == asset.address),
+			SupportedAssets::Routes { routes, .. } => routes.iter().any(|route| {
+				route.origin_asset == asset.address || route.destination_asset == asset.address
+			}),
+		}
 	}
 
 	/// Check if solver supports a specific asset route
 	pub fn supports_route(&self, origin: &InteropAddress, destination: &InteropAddress) -> bool {
 		match &self.metadata.supported_assets {
 			SupportedAssets::Assets { assets, .. } => {
-				// Check if both origin and destination assets are supported
-				let origin_chain_id = match origin.extract_chain_id() {
-					Ok(chain_id) => chain_id,
-					Err(_) => return false,
-				};
-				let dest_chain_id = match destination.extract_chain_id() {
-					Ok(chain_id) => chain_id,
-					Err(_) => return false,
-				};
-
-				let origin_supported = assets.iter().any(|asset| {
-					asset.chain_id == origin_chain_id
-						&& asset.address.eq_ignore_ascii_case(&origin.to_string())
-				});
-				let dest_supported = assets.iter().any(|asset| {
-					asset.chain_id == dest_chain_id
-						&& asset.address.eq_ignore_ascii_case(&destination.to_string())
-				});
+				// For assets mode: check if both origin and destination assets are supported
+				// by directly comparing InteropAddress values
+				let origin_supported = assets.iter().any(|asset| asset.address == *origin);
+				let dest_supported = assets.iter().any(|asset| asset.address == *destination);
 
 				// Both assets must be supported (same-chain is allowed by default now)
 				origin_supported && dest_supported

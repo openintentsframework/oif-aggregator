@@ -187,7 +187,6 @@ impl SolverAdapterTrait for SolverAdapterService {
 			.await
 			.map_err(|e| SolverAdapterError::Adapter(e.to_string()))
 	}
-
 	/// Get the solver ID this service is connected to
 	fn solver_id(&self) -> &str {
 		&self.solver.solver_id

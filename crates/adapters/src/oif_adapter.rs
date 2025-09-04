@@ -185,13 +185,16 @@ impl OifAdapter {
 			let chain_id = chain_id_str.parse::<u64>().unwrap_or(network_data.chain_id);
 
 			for token in network_data.tokens {
-				let asset = Asset::new(
+				let asset = Asset::from_chain_and_address(
+					chain_id,
 					token.address,
 					token.symbol,
 					"".to_string(), // OIF doesn't provide token names
 					token.decimals,
-					chain_id,
-				);
+				)
+				.map_err(|e| AdapterError::InvalidResponse {
+					reason: format!("Invalid asset from OIF API: {}", e),
+				})?;
 				assets.push(asset);
 			}
 		}
@@ -525,7 +528,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_oif_tokens_to_assets_conversion() {
+	fn test_oif_tokens_to_assets_conversion() -> Result<(), Box<dyn std::error::Error>> {
 		let oif_response = OifTokensResponse {
 			networks: {
 				let mut networks = HashMap::new();
@@ -572,13 +575,13 @@ mod tests {
 			let chain_id = chain_id_str.parse::<u64>().unwrap_or(network.chain_id);
 
 			for token in network.tokens {
-				let asset = Asset::new(
+				let asset = Asset::from_chain_and_address(
+					chain_id,
 					token.address,
 					token.symbol.clone(),
 					token.symbol,
 					token.decimals,
-					chain_id,
-				);
+				)?;
 				assets.push(asset);
 			}
 		}
@@ -589,11 +592,11 @@ mod tests {
 		// Find USDC on Ethereum
 		let usdc_eth = assets
 			.iter()
-			.find(|a| a.symbol == "USDC" && a.chain_id == 1)
+			.find(|a| a.symbol == "USDC" && a.chain_id().unwrap_or(0) == 1)
 			.unwrap();
 		assert_eq!(
-			usdc_eth.address,
-			"0xA0b86a33E6441E7C81F7C93451777f5F4dE78e86"
+			usdc_eth.plain_address(),
+			"0xa0b86a33e6441e7c81f7c93451777f5f4de78e86"
 		);
 		assert_eq!(usdc_eth.decimals, 6);
 		assert_eq!(usdc_eth.name, "USDC");
@@ -601,21 +604,25 @@ mod tests {
 		// Find ETH on Ethereum
 		let eth = assets
 			.iter()
-			.find(|a| a.symbol == "ETH" && a.chain_id == 1)
+			.find(|a| a.symbol == "ETH" && a.chain_id().unwrap_or(0) == 1)
 			.unwrap();
-		assert_eq!(eth.address, "0x0000000000000000000000000000000000000000");
+		assert_eq!(
+			eth.plain_address(),
+			"0x0000000000000000000000000000000000000000"
+		);
 		assert_eq!(eth.decimals, 18);
 
 		// Find USDC on Polygon
 		let usdc_poly = assets
 			.iter()
-			.find(|a| a.symbol == "USDC" && a.chain_id == 137)
+			.find(|a| a.symbol == "USDC" && a.chain_id().unwrap_or(0) == 137)
 			.unwrap();
 		assert_eq!(
-			usdc_poly.address,
-			"0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+			usdc_poly.plain_address(),
+			"0x2791bca1f2de4661ed88a30c99a7a9449aa84174"
 		);
 		assert_eq!(usdc_poly.decimals, 6);
+		Ok(())
 	}
 
 	#[tokio::test]
