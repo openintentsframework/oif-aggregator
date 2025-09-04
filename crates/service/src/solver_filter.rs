@@ -81,16 +81,85 @@ pub struct CompatibilityAnalyzer;
 
 impl CompatibilityAnalyzerTrait for CompatibilityAnalyzer {
 	fn analyze(&self, solver: &Solver, request: &QuoteRequest) -> Compatibility {
-		// Routes-only compatibility check
-		if solver.metadata.supported_routes.is_empty() {
-			return Compatibility::Unknown;
-		}
+		use oif_types::solvers::{AssetSource, SupportedAssets};
 
-		self.check_route_compatibility(solver, request)
+		// Check what type of support information this solver has
+		match &solver.metadata.supported_assets {
+			SupportedAssets::Routes { routes, source } => {
+				// For routes mode, check if we have route data
+				if routes.is_empty() && source == &AssetSource::AutoDiscovered {
+					// Empty routes with auto-discovery means data hasn't been fetched yet
+					return Compatibility::Unknown;
+				}
+				self.check_route_compatibility(solver, request)
+			},
+			SupportedAssets::Assets { assets, source } => {
+				// For assets mode, check if we have asset data
+				if assets.is_empty() && source == &AssetSource::AutoDiscovered {
+					// Empty assets with auto-discovery means data hasn't been fetched yet
+					return Compatibility::Unknown;
+				}
+				self.check_asset_compatibility(solver, request)
+			},
+		}
 	}
 }
 
 impl CompatibilityAnalyzer {
+	/// Check asset-based compatibility
+	///
+	/// For assets mode, solver supports any-to-any within its asset list (including same-chain swaps).
+	/// Verify that all required outputs can be satisfied using available inputs.
+	fn check_asset_compatibility(&self, solver: &Solver, request: &QuoteRequest) -> Compatibility {
+		if request.requested_outputs.is_empty() {
+			debug!("No requested outputs in request");
+			return Compatibility::Unknown;
+		}
+
+		// For each requested output, check if ANY available input can reach it via asset support
+		for output in &request.requested_outputs {
+			let mut output_satisfiable = false;
+
+			for input in &request.available_inputs {
+				// For assets mode: check if solver supports both input and output assets
+				let input_supported = {
+					let input_chain_id = input.asset.extract_chain_id().unwrap_or(0);
+					let input_address = input.asset.extract_address();
+					solver.supports_asset_on_chain(input_chain_id, &input_address)
+				};
+				let output_supported = {
+					let output_chain_id = output.asset.extract_chain_id().unwrap_or(0);
+					let output_address = output.asset.extract_address();
+					solver.supports_asset_on_chain(output_chain_id, &output_address)
+				};
+
+				if input_supported && output_supported {
+					debug!(
+						"Solver '{}' (assets mode) can satisfy output {} via input {}",
+						solver.solver_id, output.asset, input.asset
+					);
+					output_satisfiable = true;
+					break; // Found at least one path to this output
+				}
+			}
+
+			if !output_satisfiable {
+				debug!(
+					"Solver '{}' (assets mode) cannot satisfy output {} with any available input",
+					solver.solver_id, output.asset
+				);
+				return Compatibility::Incompatible;
+			}
+		}
+
+		debug!(
+			"Solver '{}' (assets mode) can satisfy all {} requested outputs",
+			solver.solver_id,
+			request.requested_outputs.len()
+		);
+		Compatibility::Compatible
+	}
+
 	/// Check route-based compatibility using output-centric approach
 	///
 	/// For each requested output, verify that at least one available input can reach it.
@@ -106,12 +175,9 @@ impl CompatibilityAnalyzer {
 			let mut output_satisfiable = false;
 
 			for input in &request.available_inputs {
-				// Skip only same-asset same-chain "routes" (not a real conversion)
-				// Allow: different assets (conversion) OR same asset on different chains (bridging)
-				let is_valid_route = input.asset != output.asset || // Different assets
-					!input.asset.is_on_chain(output.asset.extract_chain_id().unwrap_or(0)); // Different chains
-
-				if is_valid_route && solver.supports_route(&input.asset, &output.asset) {
+				// In routes mode, check if solver explicitly supports this route
+				// (including same-asset same-chain if explicitly defined)
+				if solver.supports_route(&input.asset, &output.asset) {
 					debug!(
 						"Solver '{}' can satisfy output {} via input {}",
 						solver.solver_id, output.asset, input.asset
@@ -355,7 +421,7 @@ mod tests {
 	use std::collections::HashMap;
 
 	// Helper functions for creating test data
-	fn create_test_solver(id: &str, assets: Vec<(u64, &str)>) -> Solver {
+	fn create_test_solver_with_routes(id: &str, assets: Vec<(u64, &str)>) -> Solver {
 		// Convert assets to cross-chain routes directly
 		let mut routes = Vec::new();
 
@@ -427,6 +493,37 @@ mod tests {
 		.with_headers(HashMap::new())
 	}
 
+	fn create_test_solver_with_assets(id: &str, assets: Vec<(u64, &str)>) -> Solver {
+		use oif_types::{models::Asset, InteropAddress};
+
+		// Convert to Asset structs
+		let asset_list: Vec<Asset> = assets
+			.into_iter()
+			.map(|(chain_id, address)| {
+				let interop_addr =
+					InteropAddress::from_text(&format!("eip155:{}:{}", chain_id, address)).unwrap();
+				Asset::new(
+					interop_addr.extract_address(),
+					format!("SYM{}", chain_id),
+					format!("Symbol {}", chain_id),
+					18,
+					chain_id,
+				)
+			})
+			.collect();
+
+		Solver::new(
+			id.to_string(),
+			format!("{}_adapter", id),
+			format!("https://{}.example.com", id),
+		)
+		.with_name(format!("Test Solver {}", id))
+		.with_description(format!("Test solver {}", id))
+		.with_version("1.0.0".to_string())
+		.with_assets(asset_list)
+		.with_headers(HashMap::new())
+	}
+
 	fn create_test_request(
 		input_assets: Vec<(u64, &str)>,
 		output_assets: Vec<(u64, &str)>,
@@ -484,7 +581,7 @@ mod tests {
 		fn test_full_compatibility() {
 			let analyzer = CompatibilityAnalyzer;
 			// Solver supports BOTH input and output assets for full compatibility
-			let solver = create_test_solver(
+			let solver = create_test_solver_with_routes(
 				"solver1",
 				vec![
 					(1, "0xA0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1B"), // Input asset on Ethereum
@@ -506,7 +603,7 @@ mod tests {
 		fn test_strict_incompatibility_missing_output() {
 			let analyzer = CompatibilityAnalyzer;
 			// Solver only supports INPUT asset, NOT output asset
-			let solver = create_test_solver(
+			let solver = create_test_solver_with_routes(
 				"solver1",
 				vec![
 					(1, "0xA0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1B"), // Only input asset
@@ -527,7 +624,7 @@ mod tests {
 		#[test]
 		fn test_network_incompatibility() {
 			let analyzer = CompatibilityAnalyzer;
-			let solver = create_test_solver(
+			let solver = create_test_solver_with_routes(
 				"solver1",
 				vec![(1, "0x0000000000000000000000000000000000000000")],
 			);
@@ -544,7 +641,7 @@ mod tests {
 		fn test_strict_asset_incompatibility() {
 			let analyzer = CompatibilityAnalyzer;
 			// Solver supports cross-chain routes but not the specific assets requested
-			let solver = create_test_solver(
+			let solver = create_test_solver_with_routes(
 				"solver1",
 				vec![
 					(1, "0x3333333333333333333333333333333333333333"), // Chain 1
@@ -564,7 +661,7 @@ mod tests {
 		fn test_complete_incompatibility() {
 			let analyzer = CompatibilityAnalyzer;
 			// Solver supports different network entirely
-			let solver = create_test_solver(
+			let solver = create_test_solver_with_routes(
 				"solver1",
 				vec![(2, "0x2222222222222222222222222222222222222222")],
 			);
@@ -580,7 +677,14 @@ mod tests {
 		#[test]
 		fn test_unknown_compatibility() {
 			let analyzer = CompatibilityAnalyzer;
-			let solver = create_test_solver("solver1", vec![]); // No metadata
+			// Create solver with empty routes but auto-discovery source (data not fetched yet)
+			let mut solver = create_test_solver_with_routes("solver1", vec![]); // No metadata
+																	   // Override to simulate auto-discovery with empty data
+			solver.metadata.supported_assets = oif_types::solvers::SupportedAssets::Routes {
+				routes: vec![],
+				source: oif_types::solvers::AssetSource::AutoDiscovered,
+			};
+
 			let request = create_test_request(
 				vec![(1, "0xA0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1B")],
 				vec![(1, "0xB0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1C")],
@@ -590,28 +694,97 @@ mod tests {
 			assert_eq!(result, Compatibility::Unknown);
 		}
 
+		// Asset-based compatibility tests
 		#[test]
-		fn test_no_asset_metadata_unknown() {
+		fn test_asset_mode_full_compatibility() {
 			let analyzer = CompatibilityAnalyzer;
-			// Solver has no asset metadata - should return Unknown
-			let solver = create_test_solver(
+			// Solver supports BOTH input and output assets for full compatibility
+			let solver = create_test_solver_with_assets(
 				"solver1",
-				vec![], // No asset metadata
+				vec![
+					(1, "0xA0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1B"), // Input asset on Ethereum
+					(10, "0xB0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1C"), // Output asset on Optimism
+				],
 			);
 			let request = create_test_request(
-				vec![(1, "0xA0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1B")], // Input on network 1
-				vec![(1, "0xB0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1C")], // Output on network 1
+				vec![(1, "0xA0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1B")], // Input on Ethereum
+				vec![(10, "0xB0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1C")], // Output on Optimism
+			);
+
+			let result = analyzer.analyze(&solver, &request);
+			assert!(matches!(result, Compatibility::Compatible));
+			assert_eq!(result.score(), 1.0);
+		}
+
+		#[test]
+		fn test_asset_mode_same_chain_swap() {
+			let analyzer = CompatibilityAnalyzer;
+			// Solver supports same-chain swaps in asset mode
+			let solver = create_test_solver_with_assets(
+				"solver1",
+				vec![
+					(1, "0xA0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1B"), // USDC on Ethereum
+					(1, "0xB0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1C"), // WETH on Ethereum
+				],
+			);
+			let request = create_test_request(
+				vec![(1, "0xA0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1B")], // Input: USDC on Ethereum
+				vec![(1, "0xB0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1C")], // Output: WETH on Ethereum
+			);
+
+			let result = analyzer.analyze(&solver, &request);
+			assert!(matches!(result, Compatibility::Compatible));
+		}
+
+		#[test]
+		fn test_asset_mode_incompatible() {
+			let analyzer = CompatibilityAnalyzer;
+			// Solver only supports Ethereum assets, request needs Polygon output
+			let solver = create_test_solver_with_assets(
+				"solver1",
+				vec![
+					(1, "0xA0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1B"), // USDC on Ethereum
+					(1, "0xB0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1C"), // WETH on Ethereum
+				],
+			);
+			let request = create_test_request(
+				vec![(1, "0xA0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1B")], // Input: USDC on Ethereum
+				vec![(137, "0xC0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1D")], // Output: Token on Polygon
+			);
+
+			let result = analyzer.analyze(&solver, &request);
+			assert!(matches!(result, Compatibility::Incompatible));
+		}
+
+		#[test]
+		fn test_asset_mode_unknown_empty_autodiscovery() {
+			let analyzer = CompatibilityAnalyzer;
+			// Create a solver with empty assets but auto-discovery source (data not fetched yet)
+			let mut solver = create_test_solver_with_assets("solver1", vec![]);
+			// Override to simulate auto-discovery with empty data
+			solver.metadata.supported_assets = oif_types::solvers::SupportedAssets::Assets {
+				assets: vec![],
+				source: oif_types::solvers::AssetSource::AutoDiscovered,
+			};
+
+			let request = create_test_request(
+				vec![(1, "0xA0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1B")],
+				vec![(10, "0xB0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1C")],
 			);
 
 			let result = analyzer.analyze(&solver, &request);
 			assert_eq!(result, Compatibility::Unknown);
 		}
+	}
+
+	mod additional_tests {
+		use super::*;
 
 		#[test]
 		fn test_strict_cross_network_incompatibility() {
 			let analyzer = CompatibilityAnalyzer;
 			// Solver only has assets on networks 1,2 but request needs network 42
-			let solver = create_test_solver(
+			let solver = create_test_solver_with_routes(
 				"solver1",
 				vec![
 					(1, "0xA0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1B"),
@@ -632,7 +805,7 @@ mod tests {
 			let analyzer = CompatibilityAnalyzer;
 
 			// Create a solver that supports both Base (8453) and Ethereum (1) with USDC on both
-			let cross_chain_solver = create_test_solver(
+			let cross_chain_solver = create_test_solver_with_routes(
 				"cross_chain_solver",
 				vec![
 					(8453, "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"), // Base USDC
@@ -656,7 +829,7 @@ mod tests {
 			let analyzer = CompatibilityAnalyzer;
 
 			// Create a solver that only supports Ethereum, not Base
-			let ethereum_only_solver = create_test_solver(
+			let ethereum_only_solver = create_test_solver_with_routes(
 				"ethereum_only_solver",
 				vec![
 					(1, "0xA0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1B"), // Ethereum USDC
@@ -678,7 +851,7 @@ mod tests {
 			let analyzer = CompatibilityAnalyzer;
 
 			// Create a solver that supports both networks but missing Base USDC
-			let incomplete_solver = create_test_solver(
+			let incomplete_solver = create_test_solver_with_routes(
 				"incomplete_solver",
 				vec![
 					(8453, "0x5555555555555555555555555555555555555555"), // Different token on Base
@@ -701,7 +874,7 @@ mod tests {
 			let analyzer = CompatibilityAnalyzer;
 
 			// Create a solver that supports cross-chain routes involving network 1 but not network 2
-			let solver_with_network1 = create_test_solver(
+			let solver_with_network1 = create_test_solver_with_routes(
 				"solver_with_network1",
 				vec![
 					(1, "0x1234567890123456789012345678901234567890"), // Address on network 1
@@ -719,7 +892,7 @@ mod tests {
 			assert_eq!(result, Compatibility::Incompatible); // Same address but wrong network
 
 			// Now test the opposite: solver supports network 2, request needs network 1
-			let solver_with_network2 = create_test_solver(
+			let solver_with_network2 = create_test_solver_with_routes(
 				"solver_with_network2",
 				vec![
 					(2, "0x1234567890123456789012345678901234567890"), // Address on network 2
@@ -741,7 +914,7 @@ mod tests {
 			let analyzer = CompatibilityAnalyzer;
 
 			// Solver only supports ETH→USDC route, not MATIC→USDC
-			let solver = create_test_solver(
+			let solver = create_test_solver_with_routes(
 				"partial_solver",
 				vec![
 					(1, "0x1111111111111111111111111111111111111111"), // ETH on Ethereum
@@ -769,7 +942,7 @@ mod tests {
 			let analyzer = CompatibilityAnalyzer;
 
 			// Solver supports ETH→USDC but not ETH→USDT
-			let solver = create_test_solver(
+			let solver = create_test_solver_with_routes(
 				"partial_solver",
 				vec![
 					(1, "0x1111111111111111111111111111111111111111"), // ETH on Ethereum
@@ -798,7 +971,7 @@ mod tests {
 			let analyzer = CompatibilityAnalyzer;
 
 			// Solver supports some but not all routes
-			let solver = create_test_solver(
+			let solver = create_test_solver_with_routes(
 				"mixed_solver",
 				vec![
 					(1, "0x1111111111111111111111111111111111111111"), // ETH on Ethereum
@@ -833,7 +1006,7 @@ mod tests {
 			let analyzer = CompatibilityAnalyzer;
 
 			// Solver supports limited routes
-			let solver = create_test_solver(
+			let solver = create_test_solver_with_routes(
 				"limited_solver",
 				vec![
 					(1, "0x1111111111111111111111111111111111111111"), // ETH on Ethereum
@@ -860,7 +1033,7 @@ mod tests {
 			let analyzer = CompatibilityAnalyzer;
 
 			// Solver with same asset on different chains (valid bridging scenario)
-			let solver = create_test_solver(
+			let solver = create_test_solver_with_routes(
 				"bridging_solver",
 				vec![
 					(1, "0x1111111111111111111111111111111111111111"), // USDC on Ethereum
@@ -881,28 +1054,36 @@ mod tests {
 		}
 
 		#[test]
-		fn test_same_asset_same_chain_ignored() {
+		fn test_explicit_same_chain_route_respected() {
 			let analyzer = CompatibilityAnalyzer;
 
-			// Solver with assets on same chain
-			let solver = create_test_solver(
-				"same_chain_solver",
-				vec![
-					(1, "0x1111111111111111111111111111111111111111"), // USDC on Ethereum
-					(1, "0x2222222222222222222222222222222222222222"), // ETH on Ethereum
-				],
+			// Create solver with explicit same-asset same-chain route
+			let usdc_addr =
+				InteropAddress::from_text("eip155:1:0x1111111111111111111111111111111111111111")
+					.unwrap();
+			let same_chain_route = AssetRoute::with_symbols(
+				usdc_addr.clone(),
+				"USDC".to_string(),
+				usdc_addr.clone(), // Same asset, same chain
+				"USDC".to_string(),
 			);
 
-			// Request with same asset on same chain (not a real conversion)
+			let solver = Solver::new(
+				"same_chain_solver".to_string(),
+				"test_adapter".to_string(),
+				"https://test.example.com".to_string(),
+			)
+			.with_routes(vec![same_chain_route]);
+
+			// Request with same asset on same chain
 			let request = create_test_request(
 				vec![(1, "0x1111111111111111111111111111111111111111")], // USDC on Ethereum
 				vec![(1, "0x1111111111111111111111111111111111111111")], // USDC on Ethereum (same asset, same chain)
 			);
 
 			let result = analyzer.analyze(&solver, &request);
-			// Should be Unknown because same-asset same-chain routes are ignored
-			// No valid routes to check
-			assert_eq!(result, Compatibility::Unknown);
+			// Should be Compatible because the route is explicitly defined
+			assert_eq!(result, Compatibility::Compatible);
 		}
 
 		#[test]
@@ -910,7 +1091,7 @@ mod tests {
 			let analyzer = CompatibilityAnalyzer;
 
 			// Local anvil solver with local chain routes (exactly like your data)
-			let local_solver = create_test_solver(
+			let local_solver = create_test_solver_with_routes(
 				"example-solver", // Same ID as your local solver
 				vec![
 					(31337, "0x5fbdb2315678afecb367f032d93f642f64180aa3"), // TOKA on local chain
@@ -938,9 +1119,18 @@ mod tests {
 		fn test_select_all_strategy() {
 			let selector = SolverSelector::new();
 			let solvers = vec![
-				(create_test_solver("s1", vec![]), Compatibility::Compatible),
-				(create_test_solver("s2", vec![]), Compatibility::Compatible),
-				(create_test_solver("s3", vec![]), Compatibility::Unknown),
+				(
+					create_test_solver_with_routes("s1", vec![]),
+					Compatibility::Compatible,
+				),
+				(
+					create_test_solver_with_routes("s2", vec![]),
+					Compatibility::Compatible,
+				),
+				(
+					create_test_solver_with_routes("s3", vec![]),
+					Compatibility::Unknown,
+				),
 			];
 
 			let options = SolverOptions {
@@ -962,15 +1152,15 @@ mod tests {
 			let selector = SolverSelector::new();
 			let solvers = vec![
 				(
-					create_test_solver("s1", vec![]),
+					create_test_solver_with_routes("s1", vec![]),
 					Compatibility::Compatible, // score = 1.0
 				),
 				(
-					create_test_solver("s2", vec![]),
+					create_test_solver_with_routes("s2", vec![]),
 					Compatibility::Unknown, // score = 0.0
 				),
 				(
-					create_test_solver("s3", vec![]),
+					create_test_solver_with_routes("s3", vec![]),
 					Compatibility::Incompatible, // score = -1.0
 				),
 			];
@@ -991,23 +1181,23 @@ mod tests {
 			let selector = SolverSelector::new();
 			let solvers = vec![
 				(
-					create_test_solver("s1", vec![]),
+					create_test_solver_with_routes("s1", vec![]),
 					Compatibility::Compatible, // score = 1.0
 				),
 				(
-					create_test_solver("s2", vec![]),
+					create_test_solver_with_routes("s2", vec![]),
 					Compatibility::Compatible, // score = 1.0
 				),
 				(
-					create_test_solver("s3", vec![]),
+					create_test_solver_with_routes("s3", vec![]),
 					Compatibility::Compatible, // score = 1.0
 				),
 				(
-					create_test_solver("s4", vec![]),
+					create_test_solver_with_routes("s4", vec![]),
 					Compatibility::Unknown, // score = 0.0
 				),
 				(
-					create_test_solver("s5", vec![]),
+					create_test_solver_with_routes("s5", vec![]),
 					Compatibility::Unknown, // score = 0.0
 				),
 			];
@@ -1030,8 +1220,14 @@ mod tests {
 		fn test_sample_size_larger_than_available() {
 			let selector = SolverSelector::new();
 			let solvers = vec![
-				(create_test_solver("s1", vec![]), Compatibility::Compatible),
-				(create_test_solver("s2", vec![]), Compatibility::Compatible),
+				(
+					create_test_solver_with_routes("s1", vec![]),
+					Compatibility::Compatible,
+				),
+				(
+					create_test_solver_with_routes("s2", vec![]),
+					Compatibility::Compatible,
+				),
 			];
 
 			let options = SolverOptions {
@@ -1052,15 +1248,24 @@ mod tests {
 		async fn test_basic_filtering() {
 			let service = SolverFilterService::new();
 			let solvers = vec![
-				create_test_solver(
+				create_test_solver_with_routes(
 					"compatible",
 					vec![(1, "0xA0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1B")],
 				),
-				create_test_solver(
+				create_test_solver_with_routes(
 					"incompatible",
 					vec![(2, "0xB0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1C")],
 				),
-				create_test_solver("unknown", vec![]),
+				{
+					// Create solver with auto-discovery source but empty routes (data not fetched yet)
+					let mut unknown_solver = create_test_solver_with_routes("unknown", vec![]);
+					unknown_solver.metadata.supported_assets =
+						oif_types::solvers::SupportedAssets::Routes {
+							routes: vec![],
+							source: oif_types::solvers::AssetSource::AutoDiscovered,
+						};
+					unknown_solver
+				},
 			];
 
 			let request = create_test_request(
@@ -1086,11 +1291,20 @@ mod tests {
 		async fn test_exclude_unknown_compatibility() {
 			let service = SolverFilterService::new();
 			let solvers = vec![
-				create_test_solver(
+				create_test_solver_with_routes(
 					"compatible",
 					vec![(1, "0xA0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1B")],
 				),
-				create_test_solver("unknown", vec![]),
+				{
+					// Create solver with auto-discovery source but empty routes (data not fetched yet)
+					let mut unknown_solver = create_test_solver_with_routes("unknown", vec![]);
+					unknown_solver.metadata.supported_assets =
+						oif_types::solvers::SupportedAssets::Routes {
+							routes: vec![],
+							source: oif_types::solvers::AssetSource::AutoDiscovered,
+						};
+					unknown_solver
+				},
 			];
 
 			let request = create_test_request(
@@ -1113,9 +1327,9 @@ mod tests {
 		async fn test_include_exclude_filters() {
 			let service = SolverFilterService::new();
 			let solvers = vec![
-				create_test_solver("solver1", vec![]),
-				create_test_solver("solver2", vec![]),
-				create_test_solver("solver3", vec![]),
+				create_test_solver_with_routes("solver1", vec![]),
+				create_test_solver_with_routes("solver2", vec![]),
+				create_test_solver_with_routes("solver3", vec![]),
 			];
 
 			let request = create_test_request(
@@ -1142,11 +1356,11 @@ mod tests {
 		async fn test_no_viable_solvers() {
 			let service = SolverFilterService::new();
 			let solvers = vec![
-				create_test_solver(
+				create_test_solver_with_routes(
 					"incompatible1",
 					vec![(2, "0x3333333333333333333333333333333333333333")],
 				),
-				create_test_solver(
+				create_test_solver_with_routes(
 					"incompatible2",
 					vec![(3, "0x4444444444444444444444444444444444444444")],
 				),
@@ -1169,15 +1383,15 @@ mod tests {
 		async fn test_solver_selection_integration() {
 			let service = SolverFilterService::new();
 			let solvers = vec![
-				create_test_solver(
+				create_test_solver_with_routes(
 					"compatible",
 					vec![(1, "0xA0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1B")],
 				),
-				create_test_solver(
+				create_test_solver_with_routes(
 					"incompatible",
 					vec![(2, "0xB0b86a33E6842d3c5d5b8c5e8d6e77d6Cc9e7a1C")],
 				), // Different network
-				create_test_solver("network_only", vec![]), // No asset metadata
+				create_test_solver_with_routes("network_only", vec![]), // No asset metadata
 			];
 
 			let request = create_test_request(
@@ -1231,11 +1445,11 @@ mod tests {
 			let selector = SolverSelector::new();
 			let solvers = vec![
 				(
-					create_test_solver("known", vec![]),
+					create_test_solver_with_routes("known", vec![]),
 					Compatibility::Compatible,
 				),
 				(
-					create_test_solver("unknown", vec![]),
+					create_test_solver_with_routes("unknown", vec![]),
 					Compatibility::Unknown,
 				),
 			];

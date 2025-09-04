@@ -4,11 +4,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::AssetRoute;
-
 use super::{
-	AssetSource, HealthCheckResult, Solver, SolverError, SolverMetadata, SolverMetrics,
-	SolverStatus,
+	HealthCheckResult, Solver, SolverError, SolverMetadata, SolverMetrics, SolverStatus,
+	SupportedAssets,
 };
 
 /// Storage representation of a solver
@@ -38,10 +36,8 @@ pub struct SolverMetadataStorage {
 	pub name: Option<String>,
 	pub description: Option<String>,
 	pub version: Option<String>,
-	pub supported_routes: Vec<AssetRoute>,
-	pub assets_source: AssetSource,
+	pub supported_assets: SupportedAssets,
 	pub headers: Option<HashMap<String, String>>,
-	pub config: HashMap<String, serde_json::Value>,
 }
 
 /// Storage-compatible solver metrics
@@ -165,10 +161,8 @@ impl From<SolverMetadata> for SolverMetadataStorage {
 			name: metadata.name,
 			description: metadata.description,
 			version: metadata.version,
-			supported_routes: metadata.supported_routes,
-			assets_source: metadata.assets_source,
+			supported_assets: metadata.supported_assets,
 			headers: metadata.headers,
-			config: metadata.config,
 		}
 	}
 }
@@ -179,10 +173,8 @@ impl From<SolverMetadataStorage> for SolverMetadata {
 			name: storage.name,
 			description: storage.description,
 			version: storage.version,
-			supported_routes: storage.supported_routes,
-			assets_source: storage.assets_source,
+			supported_assets: storage.supported_assets,
 			headers: storage.headers,
-			config: storage.config,
 		}
 	}
 }

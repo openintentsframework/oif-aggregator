@@ -39,6 +39,108 @@ pub struct RouteConfig {
 	pub metadata: Option<serde_json::Value>,
 }
 
+/// Configuration for what assets/routes a solver supports
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct SupportedAssetsConfig {
+	/// List of assets or routes depending on the type
+	pub assets: Vec<AssetOrRouteConfig>,
+	/// How to interpret the assets list
+	#[serde(rename = "type")]
+	pub asset_type: AssetType,
+}
+
+/// How to interpret the assets list
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "lowercase")]
+pub enum AssetType {
+	/// Treat as individual assets (any-to-any within list)
+	Assets,
+	/// Treat as explicit routes (origin->destination pairs)
+	Routes,
+}
+
+/// Either an asset or a route configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum AssetOrRouteConfig {
+	/// Single asset (for assets mode)
+	Asset(AssetConfig),
+	/// Route pair (for routes mode)  
+	Route(RouteConfig),
+}
+
+/// Asset configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AssetConfig {
+	pub chain_id: u64,
+	pub address: String,
+	pub symbol: Option<String>,
+}
+
+/// Convert from config AssetConfig to domain Asset
+impl TryFrom<AssetConfig> for crate::models::Asset {
+	type Error = String;
+
+	fn try_from(config: AssetConfig) -> Result<Self, Self::Error> {
+		let symbol = config.symbol.unwrap_or_else(|| "UNKNOWN".to_string());
+		let name = symbol.clone();
+
+		Ok(crate::models::Asset {
+			address: config.address,
+			symbol,
+			name,
+			decimals: 18, // Default to 18 decimals (most common)
+			chain_id: config.chain_id,
+		})
+	}
+}
+
+/// Convert from config SupportedAssetsConfig to domain SupportedAssets
+impl TryFrom<SupportedAssetsConfig> for crate::solvers::SupportedAssets {
+	type Error = String;
+
+	fn try_from(config: SupportedAssetsConfig) -> Result<Self, Self::Error> {
+		match config.asset_type {
+			AssetType::Assets => {
+				let mut assets = Vec::new();
+				for asset_or_route in config.assets {
+					match asset_or_route {
+						AssetOrRouteConfig::Asset(asset_config) => {
+							let asset = crate::models::Asset::try_from(asset_config)?;
+							assets.push(asset);
+						},
+						AssetOrRouteConfig::Route(_) => {
+							return Err("Found route config in assets mode".to_string());
+						},
+					}
+				}
+				Ok(crate::solvers::SupportedAssets::Assets {
+					assets,
+					source: crate::solvers::AssetSource::Config,
+				})
+			},
+			AssetType::Routes => {
+				let mut routes = Vec::new();
+				for asset_or_route in config.assets {
+					match asset_or_route {
+						AssetOrRouteConfig::Route(route_config) => {
+							let route = crate::models::AssetRoute::try_from(route_config)?;
+							routes.push(route);
+						},
+						AssetOrRouteConfig::Asset(_) => {
+							return Err("Found asset config in routes mode".to_string());
+						},
+					}
+				}
+				Ok(crate::solvers::SupportedAssets::Routes {
+					routes,
+					source: crate::solvers::AssetSource::Config,
+				})
+			},
+		}
+	}
+}
+
 /// Convert from config RouteConfig to domain AssetRoute
 impl TryFrom<RouteConfig> for AssetRoute {
 	type Error = String;
@@ -157,12 +259,7 @@ pub struct SolverConfig {
 	/// API version
 	pub version: Option<String>,
 
-	/// Supported routes (origin -> destination asset pairs)
-	/// Uses user-friendly format with chain IDs and addresses
-	pub supported_routes: Option<Vec<RouteConfig>>,
-
-	/// Solver-specific configuration
-	pub config: Option<HashMap<String, serde_json::Value>>,
+	pub supported_assets: Option<SupportedAssetsConfig>,
 }
 
 /// Adapter configuration
@@ -217,8 +314,7 @@ impl SolverConfig {
 			name: None,
 			description: None,
 			version: None,
-			supported_routes: None,
-			config: None,
+			supported_assets: None,
 		}
 	}
 
@@ -233,7 +329,18 @@ impl SolverConfig {
 	}
 
 	pub fn with_routes(mut self, routes: Vec<RouteConfig>) -> Self {
-		self.supported_routes = Some(routes);
+		self.supported_assets = Some(SupportedAssetsConfig {
+			assets: routes.into_iter().map(AssetOrRouteConfig::Route).collect(),
+			asset_type: AssetType::Routes,
+		});
+		self
+	}
+
+	pub fn with_assets(mut self, assets: Vec<AssetConfig>) -> Self {
+		self.supported_assets = Some(SupportedAssetsConfig {
+			assets: assets.into_iter().map(AssetOrRouteConfig::Asset).collect(),
+			asset_type: AssetType::Assets,
+		});
 		self
 	}
 
@@ -343,28 +450,19 @@ impl TryFrom<SolverConfig> for Solver {
 			solver = solver.with_version(version);
 		}
 
-		if let Some(route_configs) = config.supported_routes {
-			// Convert RouteConfig to AssetRoute using TryFrom
-			let routes: Result<Vec<AssetRoute>, _> = route_configs
-				.into_iter()
-				.map(AssetRoute::try_from)
-				.collect();
+		if let Some(assets_config) = config.supported_assets {
+			// Convert to domain SupportedAssets using TryFrom
+			let supported_assets = crate::solvers::SupportedAssets::try_from(assets_config)
+				.map_err(|e| SolverValidationError::InvalidConfiguration {
+					reason: format!("Invalid supported_assets configuration: {}", e),
+				})?;
 
-			let routes = routes.map_err(|e| SolverValidationError::InvalidConfiguration {
-				reason: format!("Invalid route in supported_routes: {}", e),
-			})?;
-
-			solver = solver.with_routes(routes);
+			// Set the supported_assets directly
+			solver.metadata.supported_assets = supported_assets;
 		}
 
 		if let Some(headers) = config.headers {
 			solver = solver.with_headers(headers);
-		}
-
-		if let Some(config_map) = config.config {
-			for (key, value) in config_map {
-				solver = solver.with_config(key, value);
-			}
 		}
 
 		// Validate the constructed solver
@@ -438,12 +536,37 @@ mod tests {
 		// Convert to domain Solver
 		let solver = Solver::try_from(config).unwrap();
 
-		assert_eq!(solver.metadata.supported_routes.len(), 1);
+		// Check that it's in routes mode with 1 route
+		match &solver.metadata.supported_assets {
+			crate::solvers::SupportedAssets::Routes { routes, .. } => {
+				assert_eq!(routes.len(), 1);
+				let route = &routes[0];
+				assert_eq!(route.origin_chain_id().unwrap(), 1);
+				assert_eq!(route.destination_chain_id().unwrap(), 137);
+			},
+			_ => panic!("Expected routes mode"),
+		}
 		assert!(solver.has_route_info());
+	}
 
-		let route = &solver.metadata.supported_routes[0];
-		assert_eq!(route.origin_chain_id().unwrap(), 1);
-		assert_eq!(route.destination_chain_id().unwrap(), 137);
+	#[test]
+	fn test_solver_config_without_supported_assets() {
+		let config = SolverConfig::new(
+			"test-solver".to_string(),
+			"oif-v1".to_string(),
+			"https://api.test.com".to_string(),
+		);
+
+		let solver = Solver::try_from(config).unwrap();
+
+		// When no supported_assets is provided, should default to auto-discovery
+		match &solver.metadata.supported_assets {
+			crate::solvers::SupportedAssets::Routes { routes, source } => {
+				assert_eq!(routes.len(), 0);
+				assert_eq!(source, &crate::solvers::AssetSource::AutoDiscovered);
+			},
+			_ => panic!("Expected routes mode with auto-discovery"),
+		}
 	}
 
 	#[test]

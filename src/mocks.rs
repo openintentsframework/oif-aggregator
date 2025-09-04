@@ -16,11 +16,11 @@ use oif_types::adapters::{
 		Settlement, SettlementType, SignatureType, SubmitOrderRequest, SubmitOrderResponse,
 	},
 	traits::SolverAdapter,
-	AdapterResult, AdapterValidationError,
+	AdapterResult, AdapterValidationError, SupportedAssetsData,
 };
 use oif_types::serde_json::{json, Value};
 use oif_types::Solver;
-use oif_types::{models::AssetRoute, InteropAddress, SolverRuntimeConfig, U256};
+use oif_types::{Asset, InteropAddress, SolverRuntimeConfig, U256};
 
 /// Simple mock adapter for examples and testing
 #[derive(Debug, Clone)]
@@ -210,36 +210,40 @@ impl SolverAdapter for MockDemoAdapter {
 		})
 	}
 
-	async fn get_supported_routes(
+	async fn get_supported_assets(
 		&self,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<AssetRoute>> {
-		// Mock cross-chain routes for testing
-		use oif_types::models::InteropAddress;
-
-		let eth_mainnet =
-			InteropAddress::from_chain_and_address(1, "0x0000000000000000000000000000000000000000")
-				.unwrap();
-		let usdc_optimism = InteropAddress::from_chain_and_address(
-			10,
-			"0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
-		)
-		.unwrap();
-
-		Ok(vec![
-			AssetRoute::with_symbols(
-				eth_mainnet.clone(),
+	) -> AdapterResult<SupportedAssetsData> {
+		// Mock assets for testing (using assets mode)
+		// Support assets that match the test fixtures
+		let assets = vec![
+			// Native ETH on Ethereum
+			Asset::new(
+				"0x0000000000000000000000000000000000000000".to_string(),
 				"ETH".to_string(),
-				usdc_optimism.clone(),
-				"USDC".to_string(),
+				"Ethereum".to_string(),
+				18,
+				1,
 			),
-			AssetRoute::with_symbols(
-				usdc_optimism,
-				"USDC".to_string(),
-				eth_mainnet,
-				"ETH".to_string(),
+			// WETH on Ethereum (matches test fixtures)
+			Asset::new(
+				"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
+				"WETH".to_string(),
+				"Wrapped Ethereum".to_string(),
+				18,
+				1,
 			),
-		])
+			// USDC on Ethereum (matches test fixtures)
+			Asset::new(
+				"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0".to_string(),
+				"USDC".to_string(),
+				"USD Coin".to_string(),
+				6,
+				1,
+			),
+		];
+
+		Ok(SupportedAssetsData::Assets(assets))
 	}
 
 	async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> {
@@ -383,10 +387,10 @@ impl SolverAdapter for MockTestAdapter {
 		})
 	}
 
-	async fn get_supported_routes(
+	async fn get_supported_assets(
 		&self,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<AssetRoute>> {
+	) -> AdapterResult<SupportedAssetsData> {
 		if self.should_fail {
 			return Err(oif_types::AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {
@@ -394,7 +398,9 @@ impl SolverAdapter for MockTestAdapter {
 				},
 			));
 		}
-		Ok(vec![])
+
+		// Return empty assets mode for test adapter
+		Ok(SupportedAssetsData::Assets(vec![]))
 	}
 
 	async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> {
@@ -404,11 +410,40 @@ impl SolverAdapter for MockTestAdapter {
 
 #[allow(dead_code)]
 pub fn mock_solver() -> Solver {
+	// Create assets that match the test fixtures for immediate compatibility
+	let assets = vec![
+		// Native ETH on Ethereum
+		Asset::new(
+			"0x0000000000000000000000000000000000000000".to_string(),
+			"ETH".to_string(),
+			"Ethereum".to_string(),
+			18,
+			1,
+		),
+		// WETH on Ethereum (matches test fixtures)
+		Asset::new(
+			"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
+			"WETH".to_string(),
+			"Wrapped Ethereum".to_string(),
+			18,
+			1,
+		),
+		// USDC on Ethereum (matches test fixtures)
+		Asset::new(
+			"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0".to_string(),
+			"USDC".to_string(),
+			"USD Coin".to_string(),
+			6,
+			1,
+		),
+	];
+
 	Solver::new(
 		"mock-demo-solver".to_string(),
 		"mock-demo-v1".to_string(),
 		"http://localhost:8080".to_string(),
 	)
+	.with_assets(assets)
 }
 
 #[allow(dead_code)]

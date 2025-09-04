@@ -8,7 +8,7 @@ use oif_types::adapters::AdapterQuote;
 use oif_types::{
 	Adapter, Asset, AssetRoute, GetQuoteRequest, GetQuoteResponse, SolverRuntimeConfig,
 };
-use oif_types::{AdapterError, AdapterResult, SolverAdapter};
+use oif_types::{AdapterError, AdapterResult, SolverAdapter, SupportedAssetsData};
 use reqwest::{
 	header::{HeaderMap, HeaderValue},
 	Client,
@@ -505,12 +505,12 @@ impl SolverAdapter for AcrossAdapter {
 		}
 	}
 
-	async fn get_supported_routes(
+	async fn get_supported_assets(
 		&self,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<AssetRoute>> {
+	) -> AdapterResult<SupportedAssetsData> {
 		debug!(
-			"Across adapter getting supported routes via solver: {}",
+			"Across adapter getting supported routes for solver: {}",
 			config.solver_id
 		);
 
@@ -568,13 +568,13 @@ impl SolverAdapter for AcrossAdapter {
 		}
 
 		info!(
-			"Across adapter converted {} Across routes to {} asset routes for solver {}",
+			"Across adapter converted {} Across routes to {} asset routes for solver {} (using routes mode)",
 			routes_count,
 			asset_routes.len(),
 			config.solver_id
 		);
 
-		Ok(asset_routes)
+		Ok(SupportedAssetsData::Routes(asset_routes))
 	}
 }
 

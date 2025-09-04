@@ -6,7 +6,7 @@ use oif_types::constants::limits::{
 	DEFAULT_ORDER_RETENTION_DAYS, DEFAULT_RETRY_DELAY_MS,
 };
 use oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS;
-use oif_types::solvers::RouteConfig;
+use oif_types::solvers::config::SupportedAssetsConfig;
 use oif_types::SecretString;
 use oif_types::SolverConfig as DomainSolverConfig;
 use serde::{Deserialize, Serialize};
@@ -47,8 +47,7 @@ pub struct SolverConfig {
 	// Optional descriptive metadata
 	pub name: Option<String>,
 	pub description: Option<String>,
-	// Optional domain metadata for discoverability
-	pub supported_routes: Option<Vec<RouteConfig>>,
+	pub supported_assets: Option<SupportedAssetsConfig>,
 }
 
 /// Convert from settings SolverConfig to domain SolverConfig
@@ -63,10 +62,7 @@ impl From<SolverConfig> for DomainSolverConfig {
 			name: settings_config.name,
 			description: settings_config.description,
 			version: None,
-			supported_routes: settings_config
-				.supported_routes
-				.map(|routes| routes.into_iter().collect()),
-			config: None,
+			supported_assets: settings_config.supported_assets,
 		}
 	}
 }
@@ -310,5 +306,40 @@ impl Settings {
 			.as_ref()
 			.map(|m| m.order_retention_days)
 			.unwrap_or(DEFAULT_ORDER_RETENTION_DAYS)
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_config_to_domain_without_supported_assets() {
+		let settings_config = SolverConfig {
+			solver_id: "test-solver".to_string(),
+			adapter_id: "oif-v1".to_string(),
+			endpoint: "https://api.test.com".to_string(),
+			enabled: true,
+			headers: None,
+			name: Some("Test Solver".to_string()),
+			description: None,
+			supported_assets: None, // No supported_assets defined
+		};
+
+		// Convert to domain config
+		let domain_config = DomainSolverConfig::from(settings_config);
+		assert!(domain_config.supported_assets.is_none());
+
+		// Convert to Solver
+		let solver = oif_types::solvers::Solver::try_from(domain_config).unwrap();
+
+		// Should use auto-discovery default
+		match &solver.metadata.supported_assets {
+			oif_types::solvers::SupportedAssets::Routes { routes, source } => {
+				assert_eq!(routes.len(), 0);
+				assert_eq!(source, &oif_types::solvers::AssetSource::AutoDiscovered);
+			},
+			_ => panic!("Expected routes mode with auto-discovery"),
+		}
 	}
 }

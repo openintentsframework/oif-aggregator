@@ -142,7 +142,62 @@ Define external solvers that the aggregator will query:
 
 **Supported Adapters**:
 - `oif-v1` - Standard OIF protocol
+- `across-v1` - Across protocol
 - Custom adapters can be implemented
+
+#### Supported Assets Configuration
+
+Solvers can define their asset support in two modes:
+
+**Assets Mode** - Simple any-to-any within asset list (including same-chain):
+```json
+{
+  "solver_id": "oif-solver",
+  "adapter_id": "oif-v1",
+  "endpoint": "https://api.solver.com",
+  "enabled": true,
+  "supported_assets": {
+    "type": "assets",
+    "assets": [
+      {
+        "chain_id": 1,
+        "address": "0xA0b86a33E6441e3A1Fa1E0c3e1b6f8c5d6f8e9a0",
+        "symbol": "USDC"
+      },
+      {
+        "chain_id": 137,
+        "address": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+        "symbol": "USDC"
+      }
+    ]
+  }
+}
+```
+
+**Routes Mode** - Precise origin→destination pairs:
+```json
+{
+  "solver_id": "across-solver",
+  "adapter_id": "across-v1",
+  "endpoint": "https://api.across.to",
+  "enabled": true,
+  "supported_assets": {
+    "type": "routes",
+    "assets": [
+      {
+        "origin_chain_id": 1,
+        "origin_token_address": "0xA0b86a33E6441e3A1Fa1E0c3e1b6f8c5d6f8e9a0",
+        "origin_token_symbol": "USDC",
+        "destination_chain_id": 137,
+        "destination_token_address": "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174",
+        "destination_token_symbol": "USDC"
+      }
+    ]
+  }
+}
+```
+
+**Auto-Discovery**: If `supported_assets` is omitted or empty, the aggregator will auto-discover assets/routes from the solver's API.
 
 ### Aggregation Configuration
 

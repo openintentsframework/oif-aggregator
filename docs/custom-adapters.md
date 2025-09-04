@@ -27,7 +27,7 @@ graph LR
     C --> E[submit_order]
     C --> F[health_check]
     C --> G[get_order_details]
-    C --> H[get_supported_routes]
+    C --> H[get_supported_assets]
     
     B --> J[Adapter Registry]
     J --> K[OIF Aggregator]
@@ -154,16 +154,40 @@ impl SolverAdapter for MyCustomAdapter {
         todo!("Implement order details fetching logic")
     }
 
-    async fn get_supported_routes(
+    async fn get_supported_assets(
         &self,
         config: &SolverRuntimeConfig,
-    ) -> AdapterResult<Vec<AssetRoute>> {
-        // 1. Fetch supported routes from solver endpoint
-        // 2. Convert to Vec<AssetRoute> format
-        todo!("Implement routes fetching logic")
+    ) -> AdapterResult<SupportedAssetsData> {
+        // Choose your mode:
+        
+        // Option 1: Assets mode (any-to-any, including same-chain)
+        let assets = vec![/* fetch from API */];
+        Ok(SupportedAssetsData::Assets(assets))
+        
+        // Option 2: Routes mode (precise origin->destination pairs)
+        let routes = vec![/* fetch from API */];
+        Ok(SupportedAssetsData::Routes(routes))
     }
 }
 ```
+
+### 🎯 Choosing Assets vs Routes Mode
+
+**Use Assets Mode When:**
+- ✅ Your solver supports any-to-any conversions within asset list
+- ✅ You want to support same-chain swaps
+- ✅ Route list would be very large (O(N²) explosion)
+- ✅ Example: DEX aggregators, OIF protocol
+
+**Use Routes Mode When:**
+- ✅ Your solver has specific supported routes
+- ✅ Not all asset pairs are supported
+- ✅ You want precise compatibility checking
+- ✅ Example: Bridge protocols, Across protocol
+
+**Auto-Discovery vs Manual Configuration:**
+- **Auto-Discovery**: Omit `supported_assets` - adapter fetches from API
+- **Manual Config**: Define `supported_assets` - use static configuration
 
 ## 📝 Registration and Configuration
 

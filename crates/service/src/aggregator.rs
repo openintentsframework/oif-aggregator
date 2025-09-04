@@ -1199,10 +1199,10 @@ mod tests {
 			Ok(!self.should_fail)
 		}
 
-		async fn get_supported_routes(
+		async fn get_supported_assets(
 			&self,
 			_config: &oif_types::SolverRuntimeConfig,
-		) -> oif_types::AdapterResult<Vec<oif_types::AssetRoute>> {
+		) -> oif_types::AdapterResult<oif_types::adapters::SupportedAssetsData> {
 			if self.should_fail {
 				return Err(oif_types::AdapterError::from(
 					oif_types::adapters::AdapterValidationError::InvalidConfiguration {
@@ -1210,7 +1210,7 @@ mod tests {
 					},
 				));
 			}
-			Ok(vec![])
+			Ok(oif_types::adapters::SupportedAssetsData::Routes(vec![]))
 		}
 	}
 

@@ -8,7 +8,6 @@ use oif_service::{
 	IntegrityTrait, JobProcessor, JobProcessorConfig, SolverFilterService, SolverFilterTrait,
 	SolverService, SolverServiceTrait,
 };
-use oif_types::solvers::AssetSource;
 
 // Core domain types - the most commonly used types
 pub use oif_types::{
@@ -227,13 +226,8 @@ where
 		let mut solver =
 			Solver::try_from(domain_config).expect("Failed to convert valid config to solver");
 
-		// Set runtime status and discovery source
+		// Set runtime status (source is already set in the conversion)
 		solver.status = SolverStatus::Active;
-		solver.metadata.assets_source = if solver.metadata.supported_routes.is_empty() {
-			AssetSource::AutoDiscovered
-		} else {
-			AssetSource::Config
-		};
 
 		solver
 	}

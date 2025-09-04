@@ -27,7 +27,7 @@ impl GenericJobHandler<SolverFetchAssetsParams> for SolverFetchAssetsHandler {
 
 		// Delegate to the solver service which contains the business logic
 		self.solver_service
-			.fetch_and_update_routes(&params.solver_id)
+			.fetch_and_update_assets(&params.solver_id)
 			.await
 			.map_err(|e| match e {
 				crate::solver_repository::SolverServiceError::Storage(msg) => {
@@ -49,9 +49,8 @@ mod tests {
 	use crate::solver_repository::SolverService;
 	use oif_adapters::AdapterRegistry;
 	use oif_storage::{MemoryStore, Storage};
-	use oif_types::solvers::{AssetSource, SolverMetadata, SolverMetrics};
+	use oif_types::solvers::{AssetSource, SolverMetadata, SolverMetrics, SupportedAssets};
 	use oif_types::{Solver, SolverStatus};
-	use std::collections::HashMap;
 
 	/// Helper to create a test solver
 	fn create_test_solver() -> Solver {
@@ -64,10 +63,11 @@ mod tests {
 				name: Some("Test Solver".to_string()),
 				description: Some("Test solver for unit testing".to_string()),
 				version: None,
-				supported_routes: Vec::new(),
-				assets_source: AssetSource::AutoDiscovered, // Test solver for auto-discovery
+				supported_assets: SupportedAssets::Routes {
+					routes: Vec::new(),
+					source: AssetSource::AutoDiscovered,
+				},
 				headers: None,
-				config: HashMap::new(),
 			},
 			created_at: chrono::Utc::now(),
 			last_seen: None,

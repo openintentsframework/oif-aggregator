@@ -40,7 +40,8 @@ pub use adapters::{
 	QuotePreference, RequestedOutput, SettlementType, SignatureType,
 };
 pub use models::{
-	Asset, AssetRoute, AssetRouteResponse, InteropAddress, Lock, Network, SecretString, U256,
+	Asset, AssetRoute, AssetRouteResponse, InteropAddress, Lock, Network, SecretString,
+	SupportedAssetsData, U256,
 };
 
 pub use orders::{

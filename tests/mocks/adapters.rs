@@ -221,10 +221,10 @@ impl SolverAdapter for MockDemoAdapter {
 		})
 	}
 
-	async fn get_supported_routes(
+	async fn get_supported_assets(
 		&self,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<AssetRoute>> {
+	) -> AdapterResult<oif_types::adapters::SupportedAssetsData> {
 		// Mock cross-chain routes for testing
 		use oif_types::models::InteropAddress;
 
@@ -237,7 +237,7 @@ impl SolverAdapter for MockDemoAdapter {
 		)
 		.unwrap();
 
-		Ok(vec![
+		Ok(oif_types::adapters::SupportedAssetsData::Routes(vec![
 			AssetRoute::with_symbols(
 				eth_mainnet.clone(),
 				"ETH".to_string(),
@@ -250,7 +250,7 @@ impl SolverAdapter for MockDemoAdapter {
 				eth_mainnet,
 				"ETH".to_string(),
 			),
-		])
+		]))
 	}
 
 	async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> {
@@ -410,10 +410,10 @@ impl SolverAdapter for MockTestAdapter {
 		})
 	}
 
-	async fn get_supported_routes(
+	async fn get_supported_assets(
 		&self,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<AssetRoute>> {
+	) -> AdapterResult<oif_types::adapters::SupportedAssetsData> {
 		if self.should_fail {
 			return Err(oif_types::AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {
@@ -421,7 +421,7 @@ impl SolverAdapter for MockTestAdapter {
 				},
 			));
 		}
-		Ok(vec![])
+		Ok(oif_types::adapters::SupportedAssetsData::Routes(vec![]))
 	}
 
 	async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> {
@@ -726,10 +726,10 @@ impl SolverAdapter for TimingControlledAdapter {
 		Ok(true)
 	}
 
-	async fn get_supported_routes(
+	async fn get_supported_assets(
 		&self,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<AssetRoute>> {
-		Ok(vec![])
+	) -> AdapterResult<oif_types::adapters::SupportedAssetsData> {
+		Ok(oif_types::adapters::SupportedAssetsData::Routes(vec![]))
 	}
 }

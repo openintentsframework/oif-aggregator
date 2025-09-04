@@ -423,6 +423,69 @@
         },
         "additionalProperties": false
       },
+      "AssetRouteResponse": {
+        "type": "object",
+        "description": "API response format for asset routes with separate chain ID and address fields\n\nThis provides a more readable format for API consumers compared to the\ninternal InteropAddress format used in the domain model.",
+        "required": [
+          "originChainId",
+          "originTokenAddress",
+          "destinationChainId",
+          "destinationTokenAddress"
+        ],
+        "properties": {
+          "destinationChainId": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Destination chain ID",
+            "minimum": 0
+          },
+          "destinationTokenAddress": {
+            "type": "string",
+            "description": "Destination token contract address"
+          },
+          "destinationTokenSymbol": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional destination token symbol for readability (e.g., \"WETH\", \"USDC\")"
+          },
+          "metadata": {
+            "description": "Optional route-specific metadata (fees, limits, execution time, etc.)"
+          },
+          "originChainId": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Origin chain ID",
+            "minimum": 0
+          },
+          "originTokenAddress": {
+            "type": "string",
+            "description": "Origin token contract address"
+          },
+          "originTokenSymbol": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional origin token symbol for readability (e.g., \"WETH\", \"USDC\")"
+          }
+        },
+        "example": {
+          "destinationChainId": 10,
+          "destinationTokenAddress": "0x4200000000000000000000000000000000000006",
+          "destinationTokenSymbol": "WETH",
+          "metadata": {
+            "estimatedFee": "0.001",
+            "estimatedTime": 120,
+            "isNative": false,
+            "source": "across-api"
+          },
+          "originChainId": 1,
+          "originTokenAddress": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+          "originTokenSymbol": "WETH"
+        }
+      },
       "AvailableInput": {
         "type": "object",
         "description": "Available input with lock information and user",
@@ -890,6 +953,9 @@
             "type": "string",
             "description": "HMAC-SHA256 integrity checksum for quote verification\nThis ensures the quote originated from the aggregator service"
           },
+          "metadata": {
+            "description": "Adapter-specific metadata for additional context and execution details\nThis field allows each adapter to include protocol-specific information\nthat consumers might need for order execution or additional context"
+          },
           "orders": {
             "type": "array",
             "items": {
@@ -1232,10 +1298,7 @@
             "$ref": "#/components/schemas/SolverStatus"
           },
           "supportedAssets": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Asset"
-            }
+            "$ref": "#/components/schemas/SupportedAssetsResponse"
           }
         },
         "additionalProperties": false,
@@ -1248,22 +1311,20 @@
           "name": "Example DeFi Solver",
           "solverId": "example-solver",
           "status": "active",
-          "supportedAssets": [
-            {
-              "address": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
-              "chainId": 1,
-              "decimals": 6,
-              "name": "USD Coin",
-              "symbol": "USDC"
-            },
-            {
-              "address": "0x01000002147a69C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-              "chainId": 1,
-              "decimals": 18,
-              "name": "Wrapped Ether",
-              "symbol": "WETH"
-            }
-          ]
+          "supportedAssets": {
+            "routes": [
+              {
+                "destinationChainId": 10,
+                "destinationTokenAddress": "0x4200000000000000000000000000000000000006",
+                "destinationTokenSymbol": "WETH",
+                "originChainId": 1,
+                "originTokenAddress": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+                "originTokenSymbol": "WETH"
+              }
+            ],
+            "source": "autoDiscovered",
+            "type": "routes"
+          }
         }
       },
       "SolverSelection": {
@@ -1371,15 +1432,19 @@
               "name": "Example DeFi Solver",
               "solverId": "example-solver",
               "status": "active",
-              "supportedAssets": [
-                {
-                  "address": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
-                  "chainId": 1,
-                  "decimals": 6,
-                  "name": "USD Coin",
-                  "symbol": "USDC"
-                }
-              ]
+              "supportedAssets": {
+                "assets": [
+                  {
+                    "address": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                    "chainId": 1,
+                    "decimals": 6,
+                    "name": "USD Coin",
+                    "symbol": "USDC"
+                  }
+                ],
+                "source": "autoDiscovered",
+                "type": "assets"
+              }
             },
             {
               "adapterId": "uniswap-adapter-v1",
@@ -1390,15 +1455,20 @@
               "name": "Uniswap V3 Solver",
               "solverId": "uniswap-solver",
               "status": "active",
-              "supportedAssets": [
-                {
-                  "address": "0x01000002147a69C02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-                  "chainId": 1,
-                  "decimals": 18,
-                  "name": "Wrapped Ether",
-                  "symbol": "WETH"
-                }
-              ]
+              "supportedAssets": {
+                "routes": [
+                  {
+                    "destinationChainId": 137,
+                    "destinationTokenAddress": "0x7ceB23fD6bC0adD59E62ac25578270cFf1b9f619",
+                    "destinationTokenSymbol": "WETH",
+                    "originChainId": 1,
+                    "originTokenAddress": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+                    "originTokenSymbol": "WETH"
+                  }
+                ],
+                "source": "config",
+                "type": "routes"
+              }
             }
           ],
           "totalSolvers": 2
@@ -1423,6 +1493,63 @@
           "backend": "memory",
           "healthy": true
         }
+      },
+      "SupportedAssetsResponse": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Asset-based: supports any-to-any within asset list (including same-chain)",
+            "required": [
+              "assets",
+              "source",
+              "type"
+            ],
+            "properties": {
+              "assets": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/Asset"
+                }
+              },
+              "source": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "assets"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Route-based: supports specific origin->destination pairs",
+            "required": [
+              "routes",
+              "source",
+              "type"
+            ],
+            "properties": {
+              "routes": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AssetRouteResponse"
+                }
+              },
+              "source": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "routes"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Supported assets response format for API"
       },
       "U256": {
         "type": "string",

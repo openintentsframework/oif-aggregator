@@ -106,12 +106,27 @@ pub enum SolverStatus {
 	Initializing,
 }
 
-/// Source of supported assets configuration
+/// 🆕 HYBRID: What assets/routes a solver supports
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum SupportedAssets {
+	/// Asset-based: supports any-to-any within asset list (including same-chain)
+	Assets {
+		assets: Vec<Asset>,
+		source: AssetSource,
+	},
+	/// Route-based: supports specific origin->destination pairs
+	Routes {
+		routes: Vec<AssetRoute>,
+		source: AssetSource,
+	},
+}
+
+/// Source of the support data
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum AssetSource {
-	/// Assets are manually defined in configuration
+	/// Data is manually defined in configuration
 	Config,
-	/// Assets are auto-discovered from solver API
+	/// Data is auto-discovered from solver API
 	AutoDiscovered,
 }
 
@@ -127,18 +142,11 @@ pub struct SolverMetadata {
 	/// Version of the solver API
 	pub version: Option<String>,
 
-	/// Supported asset conversion routes (origin -> destination pairs)
-	/// Provides precise compatibility checking for cross-chain operations
-	pub supported_routes: Vec<AssetRoute>,
-
-	/// Source of the supported routes (config vs auto-discovered)
-	pub assets_source: AssetSource,
+	/// What assets/routes this solver supports
+	pub supported_assets: SupportedAssets,
 
 	/// Custom HTTP headers for requests
 	pub headers: Option<HashMap<String, String>>,
-
-	/// Solver-specific configuration
-	pub config: HashMap<String, serde_json::Value>,
 }
 
 /// Performance and health metrics
@@ -321,32 +329,47 @@ impl Solver {
 
 	/// Check if solver supports a specific chain
 	pub fn supports_chain(&self, chain_id: u64) -> bool {
-		self.metadata.supported_routes.iter().any(|r| {
-			r.origin_chain_id().unwrap_or(0) == chain_id
-				|| r.destination_chain_id().unwrap_or(0) == chain_id
-		})
+		match &self.metadata.supported_assets {
+			SupportedAssets::Assets { assets, .. } => {
+				assets.iter().any(|asset| asset.chain_id == chain_id)
+			},
+			SupportedAssets::Routes { routes, .. } => routes.iter().any(|r| {
+				r.origin_chain_id().unwrap_or(0) == chain_id
+					|| r.destination_chain_id().unwrap_or(0) == chain_id
+			}),
+		}
 	}
 
 	/// Check if solver supports a specific asset by symbol
 	pub fn supports_asset_symbol(&self, symbol: &str) -> bool {
-		self.metadata.supported_routes.iter().any(|r| {
-			r.origin_token_symbol
-				.as_ref()
-				.is_some_and(|s| s.eq_ignore_ascii_case(symbol))
-				|| r.destination_token_symbol
+		match &self.metadata.supported_assets {
+			SupportedAssets::Assets { assets, .. } => assets
+				.iter()
+				.any(|asset| asset.symbol.eq_ignore_ascii_case(symbol)),
+			SupportedAssets::Routes { routes, .. } => routes.iter().any(|r| {
+				r.origin_token_symbol
 					.as_ref()
 					.is_some_and(|s| s.eq_ignore_ascii_case(symbol))
-		})
+					|| r.destination_token_symbol
+						.as_ref()
+						.is_some_and(|s| s.eq_ignore_ascii_case(symbol))
+			}),
+		}
 	}
 
 	/// Check if solver supports a specific asset on a specific chain
 	pub fn supports_asset_on_chain(&self, chain_id: u64, address: &str) -> bool {
-		self.metadata.supported_routes.iter().any(|r| {
-			(r.origin_chain_id().unwrap_or(0) == chain_id
-				&& r.origin_address().eq_ignore_ascii_case(address))
-				|| (r.destination_chain_id().unwrap_or(0) == chain_id
-					&& r.destination_address().eq_ignore_ascii_case(address))
-		})
+		match &self.metadata.supported_assets {
+			SupportedAssets::Assets { assets, .. } => assets.iter().any(|asset| {
+				asset.chain_id == chain_id && asset.address.eq_ignore_ascii_case(address)
+			}),
+			SupportedAssets::Routes { routes, .. } => routes.iter().any(|r| {
+				(r.origin_chain_id().unwrap_or(0) == chain_id
+					&& r.origin_address().eq_ignore_ascii_case(address))
+					|| (r.destination_chain_id().unwrap_or(0) == chain_id
+						&& r.destination_address().eq_ignore_ascii_case(address))
+			}),
+		}
 	}
 
 	/// Check if solver supports a specific asset
@@ -356,33 +379,71 @@ impl Solver {
 
 	/// Check if solver supports a specific asset route
 	pub fn supports_route(&self, origin: &InteropAddress, destination: &InteropAddress) -> bool {
-		self.metadata
-			.supported_routes
-			.iter()
-			.any(|route| route.matches(origin, destination))
+		match &self.metadata.supported_assets {
+			SupportedAssets::Assets { assets, .. } => {
+				// Check if both origin and destination assets are supported
+				let origin_chain_id = match origin.extract_chain_id() {
+					Ok(chain_id) => chain_id,
+					Err(_) => return false,
+				};
+				let dest_chain_id = match destination.extract_chain_id() {
+					Ok(chain_id) => chain_id,
+					Err(_) => return false,
+				};
+
+				let origin_supported = assets.iter().any(|asset| {
+					asset.chain_id == origin_chain_id
+						&& asset.address.eq_ignore_ascii_case(&origin.to_string())
+				});
+				let dest_supported = assets.iter().any(|asset| {
+					asset.chain_id == dest_chain_id
+						&& asset.address.eq_ignore_ascii_case(&destination.to_string())
+				});
+
+				// Both assets must be supported (same-chain is allowed by default now)
+				origin_supported && dest_supported
+			},
+			SupportedAssets::Routes { routes, .. } => routes
+				.iter()
+				.any(|route| route.matches(origin, destination)),
+		}
 	}
 
 	/// Check if solver has route information available
 	pub fn has_route_info(&self) -> bool {
-		!self.metadata.supported_routes.is_empty()
+		match &self.metadata.supported_assets {
+			SupportedAssets::Assets { assets, .. } => !assets.is_empty(),
+			SupportedAssets::Routes { routes, .. } => !routes.is_empty(),
+		}
 	}
 
 	/// Get all routes for a specific origin asset
 	pub fn routes_from_asset(&self, origin: &InteropAddress) -> Vec<&AssetRoute> {
-		self.metadata
-			.supported_routes
-			.iter()
-			.filter(|route| route.origin_asset == *origin)
-			.collect()
+		match &self.metadata.supported_assets {
+			SupportedAssets::Assets { .. } => {
+				// For assets mode, we don't have explicit routes
+				// This method is mainly used for routes mode
+				Vec::new()
+			},
+			SupportedAssets::Routes { routes, .. } => routes
+				.iter()
+				.filter(|route| route.origin_asset == *origin)
+				.collect(),
+		}
 	}
 
 	/// Get all routes to a specific destination asset
 	pub fn routes_to_asset(&self, destination: &InteropAddress) -> Vec<&AssetRoute> {
-		self.metadata
-			.supported_routes
-			.iter()
-			.filter(|route| route.destination_asset == *destination)
-			.collect()
+		match &self.metadata.supported_assets {
+			SupportedAssets::Assets { .. } => {
+				// For assets mode, we don't have explicit routes
+				Vec::new()
+			},
+			SupportedAssets::Routes { routes, .. } => routes
+				.iter()
+				.filter(|route| route.destination_asset == *destination)
+				.collect(),
+		}
 	}
 
 	/// Get solver priority score (higher is better)
@@ -426,18 +487,23 @@ impl Solver {
 	}
 
 	pub fn with_routes(mut self, routes: Vec<AssetRoute>) -> Self {
-		self.metadata.supported_routes = routes;
-		// routes_source is now tracked via assets_source
+		self.metadata.supported_assets = SupportedAssets::Routes {
+			routes,
+			source: AssetSource::Config,
+		};
+		self
+	}
+
+	pub fn with_assets(mut self, assets: Vec<Asset>) -> Self {
+		self.metadata.supported_assets = SupportedAssets::Assets {
+			assets,
+			source: AssetSource::Config,
+		};
 		self
 	}
 
 	pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
 		self.metadata.headers = Some(headers);
-		self
-	}
-
-	pub fn with_config(mut self, key: String, value: serde_json::Value) -> Self {
-		self.metadata.config.insert(key, value);
 		self
 	}
 }
@@ -448,10 +514,11 @@ impl Default for SolverMetadata {
 			name: None,
 			description: None,
 			version: None,
-			supported_routes: Vec::new(),
-			assets_source: AssetSource::Config, // Default to config-based until determined
+			supported_assets: SupportedAssets::Routes {
+				routes: Vec::new(),
+				source: AssetSource::AutoDiscovered, // Default to auto-discovery
+			},
 			headers: None,
-			config: HashMap::new(),
 		}
 	}
 }

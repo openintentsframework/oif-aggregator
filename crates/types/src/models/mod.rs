@@ -17,3 +17,12 @@ pub use lock::Lock;
 pub use network::Network;
 pub use secret_string::SecretString;
 pub use u256::U256;
+
+/// Data returned by adapters for supported assets/routes (without source info)
+#[derive(Debug, Clone, PartialEq)]
+pub enum SupportedAssetsData {
+	/// Asset-based: supports any-to-any within asset list (including same-chain)
+	Assets(Vec<Asset>),
+	/// Route-based: supports specific origin->destination pairs
+	Routes(Vec<AssetRoute>),
+}
