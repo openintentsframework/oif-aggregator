@@ -722,13 +722,13 @@ mod tests {
 		let adapter = AcrossAdapter::with_default_config().unwrap();
 		let config = SolverRuntimeConfig {
 			solver_id: "test-across".to_string(),
-			endpoint: "https://api.across.to".to_string(),
+			endpoint: "https://app.across.to".to_string(),
 			headers: None,
 		};
 
 		// Test URL construction (this is what the health check method would use)
 		let expected_url = format!("{}/available-routes", config.endpoint);
-		assert_eq!(expected_url, "https://api.across.to/available-routes");
+		assert_eq!(expected_url, "https://app.across.to/available-routes");
 
 		// Verify adapter configuration
 		assert_eq!(adapter.id(), "across-v1");

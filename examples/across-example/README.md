@@ -274,13 +274,13 @@ docker-compose logs oif-aggregator
 **Across solver showing as unhealthy?**
 ```bash
 # Check if Across API is accessible
-curl https://api.across.to/available-routes
+curl https://app.across.to/available-routes
 
 # Verify aggregator logs
 docker-compose logs oif-aggregator | grep across
 
 # Test connectivity from container
-docker-compose exec oif-aggregator curl https://api.across.to/available-routes
+docker-compose exec oif-aggregator curl https://app.across.to/available-routes
 ```
 
 **Getting "UnsupportedOperation" for orders?**
