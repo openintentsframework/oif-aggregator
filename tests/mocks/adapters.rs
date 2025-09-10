@@ -23,13 +23,11 @@ use oif_types::adapters::{
 	AdapterResult, AdapterValidationError,
 };
 use oif_types::serde_json::json;
-use oif_types::{models::Asset, models::Network, InteropAddress, SolverRuntimeConfig, U256};
+use oif_types::{models::AssetRoute, InteropAddress, SolverRuntimeConfig, U256};
 
 /// Simple mock adapter for examples and testing
 #[derive(Debug, Clone)]
 pub struct MockDemoAdapter {
-	pub id: String,
-	pub name: String,
 	pub adapter: oif_types::Adapter,
 }
 
@@ -37,8 +35,6 @@ impl MockDemoAdapter {
 	/// Create a new mock demo adapter
 	pub fn new() -> Self {
 		Self {
-			id: "mock-demo-v1".to_string(),
-			name: "Mock Demo Adapter".to_string(),
 			adapter: oif_types::Adapter {
 				adapter_id: "mock-demo-v1".to_string(),
 				name: "Mock Demo Adapter".to_string(),
@@ -53,8 +49,6 @@ impl MockDemoAdapter {
 	#[allow(dead_code)]
 	pub fn with_config(id: String, name: String) -> Self {
 		Self {
-			id: id.clone(),
-			name: name.clone(),
 			adapter: oif_types::Adapter {
 				adapter_id: id,
 				name: name.clone(),
@@ -74,14 +68,6 @@ impl Default for MockDemoAdapter {
 
 #[async_trait]
 impl SolverAdapter for MockDemoAdapter {
-	fn adapter_id(&self) -> &str {
-		&self.id
-	}
-
-	fn adapter_name(&self) -> &str {
-		&self.name
-	}
-
 	fn adapter_info(&self) -> &oif_types::Adapter {
 		&self.adapter
 	}
@@ -144,7 +130,7 @@ impl SolverAdapter for MockDemoAdapter {
 					"orderType": "swap",
 					"inputAsset": available_input.asset.to_hex(),
 					"outputAsset": requested_output.asset.to_hex(),
-					"mockProvider": self.name
+					"mockProvider": self.adapter.name
 				}),
 			}],
 			details: QuoteDetails {
@@ -153,7 +139,8 @@ impl SolverAdapter for MockDemoAdapter {
 			},
 			valid_until: Some(Utc::now().timestamp() as u64 + 300),
 			eta: Some(30),
-			provider: format!("{} Provider", self.name),
+			provider: format!("{} Provider", self.adapter.name),
+			metadata: None,
 		};
 
 		Ok(GetQuoteResponse {
@@ -237,45 +224,43 @@ impl SolverAdapter for MockDemoAdapter {
 	async fn get_supported_assets(
 		&self,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Asset>> {
-		Ok(vec![
-			Asset::new(
-				"0x0000000000000000000000000000000000000000".to_string(),
+	) -> AdapterResult<oif_types::adapters::SupportedAssetsData> {
+		// Mock cross-chain routes for testing
+		use oif_types::models::InteropAddress;
+
+		let eth_mainnet =
+			InteropAddress::from_chain_and_address(1, "0x0000000000000000000000000000000000000000")
+				.unwrap();
+		let usdc_optimism = InteropAddress::from_chain_and_address(
+			10,
+			"0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+		)
+		.unwrap();
+
+		Ok(oif_types::adapters::SupportedAssetsData::Routes(vec![
+			AssetRoute::with_symbols(
+				eth_mainnet.clone(),
 				"ETH".to_string(),
-				"Ethereum".to_string(),
-				18,
-				1,
-			),
-			Asset::new(
-				"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0".to_string(),
+				usdc_optimism.clone(),
 				"USDC".to_string(),
-				"USD Coin".to_string(),
-				6,
-				1,
 			),
-		])
+			AssetRoute::with_symbols(
+				usdc_optimism,
+				"USDC".to_string(),
+				eth_mainnet,
+				"ETH".to_string(),
+			),
+		]))
 	}
 
 	async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> {
 		Ok(true)
-	}
-
-	async fn get_supported_networks(
-		&self,
-		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Network>> {
-		Ok(vec![
-			Network::new(1, Some("Ethereum".to_string()), Some(false)),
-			Network::new(137, Some("Polygon".to_string()), Some(false)),
-		])
 	}
 }
 
 /// Simple test adapter that can be configured to succeed or fail
 #[derive(Debug, Clone)]
 pub struct MockTestAdapter {
-	pub id: String,
-	pub name: String,
 	pub should_fail: bool,
 	pub adapter: oif_types::Adapter,
 }
@@ -283,8 +268,6 @@ pub struct MockTestAdapter {
 impl MockTestAdapter {
 	pub fn new() -> Self {
 		Self {
-			id: "mock-test-v1".to_string(),
-			name: "Mock Test Adapter".to_string(),
 			should_fail: false,
 			adapter: oif_types::Adapter {
 				adapter_id: "mock-test-v1".to_string(),
@@ -299,8 +282,6 @@ impl MockTestAdapter {
 	#[allow(dead_code)]
 	pub fn with_failure() -> Self {
 		Self {
-			id: "mock-test-v1".to_string(),
-			name: "Mock Test Adapter".to_string(),
 			should_fail: true,
 			adapter: oif_types::Adapter {
 				adapter_id: "mock-test-v1".to_string(),
@@ -321,14 +302,6 @@ impl Default for MockTestAdapter {
 
 #[async_trait]
 impl SolverAdapter for MockTestAdapter {
-	fn adapter_id(&self) -> &str {
-		&self.id
-	}
-
-	fn adapter_name(&self) -> &str {
-		&self.name
-	}
-
 	fn adapter_info(&self) -> &oif_types::Adapter {
 		&self.adapter
 	}
@@ -440,7 +413,7 @@ impl SolverAdapter for MockTestAdapter {
 	async fn get_supported_assets(
 		&self,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Asset>> {
+	) -> AdapterResult<oif_types::adapters::SupportedAssetsData> {
 		if self.should_fail {
 			return Err(oif_types::AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {
@@ -448,25 +421,11 @@ impl SolverAdapter for MockTestAdapter {
 				},
 			));
 		}
-		Ok(vec![])
+		Ok(oif_types::adapters::SupportedAssetsData::Routes(vec![]))
 	}
 
 	async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> {
 		Ok(!self.should_fail)
-	}
-
-	async fn get_supported_networks(
-		&self,
-		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Network>> {
-		if self.should_fail {
-			return Err(oif_types::AdapterError::from(
-				AdapterValidationError::InvalidConfiguration {
-					reason: "Mock adapter configured to fail".to_string(),
-				},
-			));
-		}
-		Ok(vec![])
 	}
 }
 
@@ -499,8 +458,6 @@ impl CallTracker {
 /// Useful for testing timeout behavior and solver selection strategies
 #[derive(Debug, Clone)]
 pub struct TimingControlledAdapter {
-	pub id: String,
-	pub name: String,
 	pub adapter: oif_types::Adapter,
 	pub response_delay_ms: u64,
 	pub should_fail: bool,
@@ -534,8 +491,6 @@ impl TimingControlledAdapter {
 		let name = format!("Timing Controlled Adapter {}", id);
 
 		Self {
-			id: adapter_id.clone(),
-			name: name.clone(),
 			adapter: oif_types::Adapter {
 				adapter_id: adapter_id.clone(),
 				name: name.clone(),
@@ -560,14 +515,6 @@ impl TimingControlledAdapter {
 
 #[async_trait]
 impl SolverAdapter for TimingControlledAdapter {
-	fn adapter_id(&self) -> &str {
-		&self.id
-	}
-
-	fn adapter_name(&self) -> &str {
-		&self.name
-	}
-
 	fn adapter_info(&self) -> &oif_types::Adapter {
 		&self.adapter
 	}
@@ -586,13 +533,17 @@ impl SolverAdapter for TimingControlledAdapter {
 		if self.should_fail {
 			return Err(oif_types::AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {
-					reason: format!("Adapter {} configured to fail", self.id),
+					reason: format!("Adapter {} configured to fail", self.adapter.adapter_id),
 				},
 			));
 		}
 
 		// Create a realistic quote response
-		let quote_id = format!("{}-quote-{}", self.id, Utc::now().timestamp());
+		let quote_id = format!(
+			"{}-quote-{}",
+			self.adapter.adapter_id,
+			Utc::now().timestamp()
+		);
 
 		let available_input = request
 			.available_inputs
@@ -644,7 +595,7 @@ impl SolverAdapter for TimingControlledAdapter {
 				primary_type: "Order".to_string(),
 				message: oif_types::serde_json::json!({
 					"orderType": "swap",
-					"adapter": self.id,
+					"adapter": self.adapter.adapter_id,
 					"delay_ms": self.response_delay_ms
 				}),
 			}],
@@ -654,7 +605,8 @@ impl SolverAdapter for TimingControlledAdapter {
 			},
 			valid_until: Some(Utc::now().timestamp() as u64 + 300),
 			eta: Some(self.response_delay_ms / 10), // ETA in seconds
-			provider: format!("{} Provider", self.name),
+			provider: format!("{} Provider", self.adapter.name),
+			metadata: None,
 		};
 
 		Ok(GetQuoteResponse {
@@ -674,12 +626,16 @@ impl SolverAdapter for TimingControlledAdapter {
 		if self.should_fail {
 			return Err(oif_types::AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {
-					reason: format!("Adapter {} configured to fail", self.id),
+					reason: format!("Adapter {} configured to fail", self.adapter.adapter_id),
 				},
 			));
 		}
 
-		let order_id = format!("{}-order-{}", self.id, Utc::now().timestamp());
+		let order_id = format!(
+			"{}-order-{}",
+			self.adapter.adapter_id,
+			Utc::now().timestamp()
+		);
 		Ok(SubmitOrderResponse {
 			status: "success".to_string(),
 			order_id: Some(order_id.clone()),
@@ -721,7 +677,7 @@ impl SolverAdapter for TimingControlledAdapter {
 		if self.should_fail {
 			return Err(oif_types::AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {
-					reason: format!("Adapter {} configured to fail", self.id),
+					reason: format!("Adapter {} configured to fail", self.adapter.adapter_id),
 				},
 			));
 		}
@@ -770,21 +726,10 @@ impl SolverAdapter for TimingControlledAdapter {
 		Ok(true)
 	}
 
-	async fn get_supported_networks(
-		&self,
-		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<oif_types::models::Network>> {
-		Ok(vec![oif_types::models::Network {
-			chain_id: 1,
-			name: Some("Ethereum Mainnet".to_string()),
-			is_testnet: Some(false),
-		}])
-	}
-
 	async fn get_supported_assets(
 		&self,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<oif_types::models::Asset>> {
-		Ok(vec![])
+	) -> AdapterResult<oif_types::adapters::SupportedAssetsData> {
+		Ok(oif_types::adapters::SupportedAssetsData::Routes(vec![]))
 	}
 }

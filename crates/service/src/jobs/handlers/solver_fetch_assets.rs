@@ -23,7 +23,7 @@ impl SolverFetchAssetsHandler {
 #[async_trait]
 impl GenericJobHandler<SolverFetchAssetsParams> for SolverFetchAssetsHandler {
 	async fn handle(&self, params: SolverFetchAssetsParams) -> JobResult<()> {
-		debug!("Starting asset fetch for solver: {}", params.solver_id);
+		debug!("Starting route fetch for solver: {}", params.solver_id);
 
 		// Delegate to the solver service which contains the business logic
 		self.solver_service
@@ -38,7 +38,7 @@ impl GenericJobHandler<SolverFetchAssetsParams> for SolverFetchAssetsHandler {
 				},
 			})?;
 
-		debug!("Asset fetch completed for solver: {}", params.solver_id);
+		debug!("Route fetch completed for solver: {}", params.solver_id);
 		Ok(())
 	}
 }
@@ -49,9 +49,8 @@ mod tests {
 	use crate::solver_repository::SolverService;
 	use oif_adapters::AdapterRegistry;
 	use oif_storage::{MemoryStore, Storage};
-	use oif_types::solvers::{AssetSource, SolverMetadata, SolverMetrics};
+	use oif_types::solvers::{AssetSource, SolverMetadata, SolverMetrics, SupportedAssets};
 	use oif_types::{Solver, SolverStatus};
-	use std::collections::HashMap;
 
 	/// Helper to create a test solver
 	fn create_test_solver() -> Solver {
@@ -64,10 +63,11 @@ mod tests {
 				name: Some("Test Solver".to_string()),
 				description: Some("Test solver for unit testing".to_string()),
 				version: None,
-				supported_assets: vec![],
-				assets_source: AssetSource::AutoDiscovered, // Test solver for auto-discovery
+				supported_assets: SupportedAssets::Routes {
+					routes: Vec::new(),
+					source: AssetSource::AutoDiscovered,
+				},
 				headers: None,
-				config: HashMap::new(),
 			},
 			created_at: chrono::Utc::now(),
 			last_seen: None,

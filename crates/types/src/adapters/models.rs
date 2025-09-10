@@ -101,6 +101,11 @@ pub struct AdapterQuote {
 	pub quote_id: String,
 	/// Quote provider identifier
 	pub provider: String,
+	/// Adapter-specific metadata for additional context and execution details
+	/// This field allows each adapter to include protocol-specific information
+	/// that consumers might need for order execution or additional context
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub metadata: Option<serde_json::Value>,
 }
 
 /// Quote details matching the request structure

@@ -1,13 +1,11 @@
 //! Core adapter traits for user implementations
 
 use super::{AdapterResult, SolverRuntimeConfig};
-use crate::{
-	adapters::{
-		models::{SubmitOrderRequest, SubmitOrderResponse},
-		GetOrderResponse,
-	},
-	models::{Asset, Network},
+use crate::adapters::{
+	models::{SubmitOrderRequest, SubmitOrderResponse},
+	AdapterError, GetOrderResponse,
 };
+use crate::models::SupportedAssetsData;
 use crate::{Adapter, GetQuoteRequest, GetQuoteResponse};
 use async_trait::async_trait;
 use std::fmt::Debug;
@@ -18,14 +16,14 @@ use std::fmt::Debug;
 /// Users can create custom adapters by implementing this trait.
 #[async_trait]
 pub trait SolverAdapter: Send + Sync + Debug {
-	/// Get adapter ID (for registration and solver matching)
-	fn adapter_id(&self) -> &str;
-
-	/// Get adapter name (human-readable)
-	fn adapter_name(&self) -> &str;
-
 	/// Get adapter configuration information
+	/// This is the only required method - others have default implementations
 	fn adapter_info(&self) -> &Adapter;
+
+	/// Get adapter ID (for registration and solver matching)
+	fn id(&self) -> &str {
+		&self.adapter_info().adapter_id
+	}
 
 	/// Get quotes from the solver using runtime configuration
 	/// Adapters can choose to handle multi-input/output or process simple swaps
@@ -36,11 +34,19 @@ pub trait SolverAdapter: Send + Sync + Debug {
 	) -> AdapterResult<GetQuoteResponse>;
 
 	/// Submit an order to the solver using runtime configuration
+	///
+	/// Default implementation returns UnsupportedOperation error.
+	/// Override this method if your adapter supports order submission.
 	async fn submit_order(
 		&self,
-		order: &SubmitOrderRequest,
-		config: &SolverRuntimeConfig,
-	) -> AdapterResult<SubmitOrderResponse>;
+		_order: &SubmitOrderRequest,
+		_config: &SolverRuntimeConfig,
+	) -> AdapterResult<SubmitOrderResponse> {
+		Err(AdapterError::UnsupportedOperation {
+			operation: "submit_order".to_string(),
+			adapter_id: self.id().to_string(),
+		})
+	}
 
 	/// Health check for the solver using runtime configuration
 	async fn health_check(&self, config: &SolverRuntimeConfig) -> AdapterResult<bool>;
@@ -49,27 +55,32 @@ pub trait SolverAdapter: Send + Sync + Debug {
 	///
 	/// This method retrieves comprehensive information about an order including
 	/// transaction status, gas usage, fees, and any additional metadata from the solver.
+	///
+	/// Default implementation returns UnsupportedOperation error.
+	/// Override this method if your adapter supports order tracking.
 	async fn get_order_details(
 		&self,
-		order_id: &str,
-		config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetOrderResponse>;
+		_order_id: &str,
+		_config: &SolverRuntimeConfig,
+	) -> AdapterResult<GetOrderResponse> {
+		Err(AdapterError::UnsupportedOperation {
+			operation: "get_order_details".to_string(),
+			adapter_id: self.id().to_string(),
+		})
+	}
 
-	/// Get the list of blockchain networks supported by this adapter
+	/// Get what assets/routes this adapter supports
 	///
-	/// Returns the networks (chains) that this adapter can process transactions on.
-	/// Each network includes chain ID, name, and testnet status.
-	async fn get_supported_networks(
+	/// Each adapter chooses its own mode:
+	/// - Assets mode: Simple any-to-any within asset list (including same-chain)
+	/// - Routes mode: Precise origin->destination pairs
+	///
+	/// All adapters must implement this method to provide support information.
+	/// The service layer will automatically set the source as AutoDiscovered.
+	async fn get_supported_assets(
 		&self,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Network>>;
-
-	/// Get the list of assets supported on a specific network
-	///
-	/// Returns the tokens/assets that this adapter can handle on the given network.
-	/// Each asset includes contract address, symbol, name, decimals, and chain ID.
-	async fn get_supported_assets(&self, config: &SolverRuntimeConfig)
-		-> AdapterResult<Vec<Asset>>;
+	) -> AdapterResult<SupportedAssetsData>;
 
 	/// Get human-readable name for this adapter
 	fn name(&self) -> &str {

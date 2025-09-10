@@ -1,0 +1,55 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 4000
+  },
+  "solvers": {
+    "across-solver-testnet": {
+      "solver_id": "across-solver-testnet",
+      "adapter_id": "across-v1",
+      "endpoint": "https://testnet.across.to/api",
+      "timeout_ms": 2000,
+      "enabled": true,
+      "max_retries": 1,
+      "headers": null,
+      "name": "Across Solver Testnet",
+      "description": "Across Solver Testnet"
+    },
+    "across-solver-mainnet": {
+      "solver_id": "across-solver-mainnet",
+      "adapter_id": "across-v1",
+      "endpoint": "https://app.across.to/api",
+      "timeout_ms": 2000,
+      "enabled": true,
+      "max_retries": 1,
+      "headers": null,
+      "name": "Across Solver Mainnet",
+      "description": "Across Solver Mainnet"
+    }
+  },
+  "aggregation": {
+    "global_timeout_ms": 5000,
+    "per_solver_timeout_ms": 3000,
+    "max_concurrent_solvers": 10,
+    "max_retries_per_solver": 2,
+    "retry_delay_ms": 100
+  },
+  "environment": {
+    "rate_limiting": {
+      "enabled": true,
+      "requests_per_minute": 60,
+      "burst_size": 10
+    }
+  },
+  "logging": {
+    "level": "info",
+    "format": "pretty",
+    "structured": false
+  },
+  "security": {
+    "integrity_secret": {
+      "type": "env",
+      "value": "INTEGRITY_SECRET"
+    }
+  }
+}

@@ -8,7 +8,6 @@ use oif_service::{
 	IntegrityTrait, JobProcessor, JobProcessorConfig, SolverFilterService, SolverFilterTrait,
 	SolverService, SolverServiceTrait,
 };
-use oif_types::{solvers::AssetSource, Asset};
 
 // Core domain types - the most commonly used types
 pub use oif_types::{
@@ -220,44 +219,14 @@ where
 
 	/// Convert solver configuration to Solver domain object
 	fn solver_from_config(&self, solver_config: &oif_config::settings::SolverConfig) -> Solver {
-		let mut solver = Solver::new(
-			solver_config.solver_id.clone(),
-			solver_config.adapter_id.clone(),
-			solver_config.endpoint.clone(),
-		);
+		// Convert config layer SolverConfig to domain layer SolverConfig
+		let domain_config: oif_types::SolverConfig = solver_config.clone().into();
 
-		// Populate metadata
-		solver.metadata.name = solver_config
-			.name
-			.clone()
-			.or_else(|| Some(solver_config.solver_id.clone()));
-		solver.metadata.headers = solver_config.headers.clone();
-		if let Some(desc) = &solver_config.description {
-			solver.metadata.description = Some(desc.clone());
-		}
-		if let Some(assets) = &solver_config.supported_assets {
-			solver.metadata.supported_assets = assets
-				.iter()
-				.map(|a| {
-					Asset::new(
-						a.address.clone(),
-						a.symbol.clone(),
-						a.name.clone(),
-						a.decimals,
-						a.chain_id,
-					)
-				})
-				.collect();
-			// Set source based on whether config has assets
-			solver.metadata.assets_source = if assets.is_empty() {
-				AssetSource::AutoDiscovered
-			} else {
-				AssetSource::Config
-			};
-		} else {
-			// No assets in config, will be auto-discovered
-			solver.metadata.assets_source = AssetSource::AutoDiscovered;
-		}
+		// Convert domain SolverConfig to domain Solver using TryFrom
+		let mut solver =
+			Solver::try_from(domain_config).expect("Failed to convert valid config to solver");
+
+		// Set runtime status (source is already set in the conversion)
 		solver.status = SolverStatus::Active;
 
 		solver
@@ -364,39 +333,6 @@ where
 		// Initialize adapter registry early for validation
 		builder.ensure_adapter_registry_initialized();
 
-		// Load solvers from configuration into the provided storage
-		for solver_config in settings.enabled_solvers().values() {
-			let mut solver = Solver::new(
-				solver_config.solver_id.clone(),
-				solver_config.adapter_id.clone(),
-				solver_config.endpoint.clone(),
-			);
-
-			// Update metadata with configuration details
-			solver.metadata.name = Some(solver_config.solver_id.clone());
-			solver.metadata.headers = solver_config.headers.clone();
-			solver.status = SolverStatus::Active;
-
-			// Validate solver (including adapter validation)
-			if let Err(validation_error) = solver.validate() {
-				panic!(
-					"Solver '{}' validation failed: {}",
-					solver.solver_id, validation_error
-				);
-			}
-
-			// Validate adapter exists
-			if let Err(adapter_error) = builder.validate_solver_adapter(&solver) {
-				panic!("{}", adapter_error);
-			}
-
-			builder
-				.storage
-				.create_solver(solver)
-				.await
-				.expect("Failed to add solver to storage");
-		}
-
 		builder
 	}
 	/// Add a solver to the aggregator
@@ -491,14 +427,14 @@ where
 				.take()
 				.expect("Adapter registry should be initialized at this point"),
 		);
-		// Use base repository listing for solvers
-		let solvers = self
+		// Check solver count for logging
+		let solver_count = self
 			.storage
-			.list_all_solvers()
+			.count_solvers()
 			.await
-			.map_err(|e| format!("Failed to get solvers: {}", e))?;
+			.map_err(|e| format!("Failed to get solver count: {}", e))?;
 
-		info!("Successfully initialized with {} solver(s)", solvers.len());
+		info!("Successfully initialized with {} solver(s)", solver_count);
 
 		// Get integrity secret wrapped in SecretString for secure handling
 		let integrity_secret = settings
@@ -517,7 +453,7 @@ where
 		let solver_filter_service =
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>;
 		let aggregator_service = Arc::new(AggregatorService::with_config(
-			solvers.clone(),
+			Arc::clone(&storage_arc),
 			Arc::clone(&adapter_registry),
 			Arc::clone(&integrity_service),
 			Arc::clone(&solver_filter_service),

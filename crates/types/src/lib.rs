@@ -39,7 +39,10 @@ pub use adapters::{
 	AdapterQuote, AvailableInput, GetQuoteRequest, GetQuoteResponse, QuoteDetails, QuoteOrder,
 	QuotePreference, RequestedOutput, SettlementType, SignatureType,
 };
-pub use models::{Asset, InteropAddress, Lock, Network, SecretString, U256};
+pub use models::{
+	Asset, AssetRoute, AssetRouteResponse, InteropAddress, Lock, Network, SecretString,
+	SupportedAssetsData, U256,
+};
 
 pub use orders::{
 	Order, OrderError, OrderRequest, OrderResponse, OrderStatus, OrderStorage,

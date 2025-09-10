@@ -38,8 +38,9 @@ fn create_test_services(
 
 	let solver_filter_service = Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>;
 
+	let storage = Arc::new(MemoryStore::new()) as Arc<dyn Storage>;
 	let aggregator_service = Arc::new(AggregatorService::with_config(
-		vec![], // empty solvers for tests
+		Arc::clone(&storage),
 		Arc::clone(&adapter_registry),
 		Arc::clone(&integrity_service),
 		solver_filter_service,

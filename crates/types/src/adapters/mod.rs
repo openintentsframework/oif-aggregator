@@ -6,6 +6,7 @@ pub mod errors;
 pub mod models;
 pub mod traits;
 
+pub use crate::models::SupportedAssetsData;
 pub use errors::{AdapterError, AdapterFactoryError, AdapterValidationError};
 pub use models::{
 	AdapterQuote, AssetAmount, AvailableInput, GetOrderResponse, GetQuoteRequest, GetQuoteResponse,

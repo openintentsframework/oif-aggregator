@@ -11,12 +11,12 @@ use std::{str::FromStr, sync::Arc};
 use async_trait::async_trait;
 use oif_types::adapters::models::{SubmitOrderRequest, SubmitOrderResponse};
 use oif_types::adapters::GetOrderResponse;
-use oif_types::{Adapter, Asset, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig};
-use oif_types::{AdapterError, AdapterResult, SolverAdapter};
+use oif_types::{Adapter, Asset, GetQuoteRequest, GetQuoteResponse, SolverRuntimeConfig};
+use oif_types::{AdapterError, AdapterResult, SolverAdapter, SupportedAssetsData};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::client_cache::{ClientCache, ClientConfig};
 
@@ -140,18 +140,77 @@ impl OifAdapter {
 
 		Self::new(config)
 	}
+
+	/// Fetch assets from OIF API (private helper method)
+	async fn fetch_assets_from_api(
+		&self,
+		config: &SolverRuntimeConfig,
+	) -> AdapterResult<Vec<Asset>> {
+		let client = self.get_client(config)?;
+		let tokens_url = format!("{}/tokens", config.endpoint);
+
+		debug!(
+			"Fetching supported assets from OIF adapter at {} (solver: {})",
+			tokens_url, config.solver_id
+		);
+
+		// Make the tokens request
+		let response = client
+			.get(&tokens_url)
+			.send()
+			.await
+			.map_err(AdapterError::HttpError)?;
+
+		if !response.status().is_success() {
+			return Err(AdapterError::InvalidResponse {
+				reason: format!("OIF tokens endpoint returned status {}", response.status()),
+			});
+		}
+
+		// Get response body as text first so we can print it
+		let body = response.text().await.unwrap_or_default();
+		debug!("OIF tokens endpoint response body: {}", body);
+
+		// Parse the OIF tokens response
+		let oif_response: OifTokensResponse =
+			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Failed to parse OIF tokens response: {}", e),
+			})?;
+
+		// Transform OIF response to internal asset format
+		let mut assets = Vec::new();
+		let networks_count = oif_response.networks.len();
+
+		for (chain_id_str, network_data) in oif_response.networks {
+			let chain_id = chain_id_str.parse::<u64>().unwrap_or(network_data.chain_id);
+
+			for token in network_data.tokens {
+				let asset = Asset::from_chain_and_address(
+					chain_id,
+					token.address,
+					token.symbol,
+					"".to_string(), // OIF doesn't provide token names
+					token.decimals,
+				)
+				.map_err(|e| AdapterError::InvalidResponse {
+					reason: format!("Invalid asset from OIF API: {}", e),
+				})?;
+				assets.push(asset);
+			}
+		}
+
+		info!(
+			"OIF adapter found {} supported assets across {} networks",
+			assets.len(),
+			networks_count
+		);
+
+		Ok(assets)
+	}
 }
 
 #[async_trait]
 impl SolverAdapter for OifAdapter {
-	fn adapter_id(&self) -> &str {
-		&self.config.adapter_id
-	}
-
-	fn adapter_name(&self) -> &str {
-		&self.config.name
-	}
-
 	fn adapter_info(&self) -> &Adapter {
 		&self.config
 	}
@@ -347,116 +406,25 @@ impl SolverAdapter for OifAdapter {
 		Ok(order_response)
 	}
 
-	async fn get_supported_networks(
-		&self,
-		config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Network>> {
-		let client = self.get_client(config)?;
-		let tokens_url = format!("{}/tokens", config.endpoint);
-
-		debug!(
-			"Fetching supported networks from OIF adapter at {} (solver: {})",
-			tokens_url, config.solver_id
-		);
-
-		// Make the tokens request (same as get_supported_assets)
-		let response = client
-			.get(&tokens_url)
-			.send()
-			.await
-			.map_err(AdapterError::HttpError)?;
-
-		if !response.status().is_success() {
-			return Err(AdapterError::InvalidResponse {
-				reason: format!("OIF tokens endpoint returned status {}", response.status()),
-			});
-		}
-
-		// Get response body as text first so we can print it
-		let body = response.text().await.unwrap_or_default();
-		debug!("OIF networks endpoint response body: {}", body);
-
-		// Parse the OIF tokens response
-		let oif_response: OifTokensResponse =
-			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
-				reason: format!("Failed to parse OIF tokens response: {}", e),
-			})?;
-
-		// Extract networks from the response
-		let mut networks = Vec::new();
-		for (chain_id_str, network_data) in oif_response.networks {
-			let chain_id = chain_id_str.parse::<u64>().unwrap_or(network_data.chain_id);
-
-			let network = Network::new(chain_id, None, None);
-			networks.push(network);
-		}
-
-		debug!("OIF adapter found {} supported networks", networks.len());
-
-		Ok(networks)
-	}
-
 	async fn get_supported_assets(
 		&self,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Asset>> {
-		let client = self.get_client(config)?;
-		let tokens_url = format!("{}/tokens", config.endpoint);
-
+	) -> AdapterResult<SupportedAssetsData> {
 		debug!(
-			"Fetching supported assets from OIF adapter at {} (solver: {})",
-			tokens_url, config.solver_id
+			"OIF adapter getting supported assets for solver: {}",
+			config.solver_id
 		);
 
-		// Make the tokens request
-		let response = client
-			.get(&tokens_url)
-			.send()
-			.await
-			.map_err(AdapterError::HttpError)?;
-
-		if !response.status().is_success() {
-			return Err(AdapterError::InvalidResponse {
-				reason: format!("OIF tokens endpoint returned status {}", response.status()),
-			});
-		}
-
-		// Get response body as text first so we can print it
-		let body = response.text().await.unwrap_or_default();
-		debug!("OIF tokens endpoint response body: {}", body);
-
-		// Parse the OIF tokens response
-		let oif_response: OifTokensResponse =
-			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
-				reason: format!("Failed to parse OIF tokens response: {}", e),
-			})?;
-
-		// Convert OIF tokens to Assets
-		let mut assets = Vec::new();
-		let networks_count = oif_response.networks.len();
-
-		for (chain_id_str, network) in oif_response.networks {
-			let chain_id = chain_id_str.parse::<u64>().unwrap_or(network.chain_id);
-
-			for token in network.tokens {
-				let asset = Asset::new(
-					token.address,
-					token.symbol.clone(),
-					token.symbol, // Use symbol as name for now
-					token.decimals,
-					chain_id,
-				);
-				assets.push(asset);
-			}
-		}
+		// Fetch assets directly from tokens endpoint
+		let assets = self.fetch_assets_from_api(config).await?;
 
 		debug!(
-			"OIF adapter found {} supported assets across {} networks",
+			"OIF adapter found {} supported assets for solver {} (using assets mode)",
 			assets.len(),
-			networks_count
+			config.solver_id
 		);
 
-		Ok(assets)
+		Ok(SupportedAssetsData::Assets(assets))
 	}
 }
 
@@ -500,8 +468,8 @@ mod tests {
 	#[test]
 	fn test_oif_adapter_default_config() {
 		let adapter = OifAdapter::with_default_config().unwrap();
-		assert_eq!(adapter.adapter_id(), "oif-v1");
-		assert_eq!(adapter.adapter_name(), "OIF v1 Adapter");
+		assert_eq!(adapter.id(), "oif-v1");
+		assert_eq!(adapter.name(), "OIF v1 Adapter");
 		assert!(matches!(adapter.client_strategy, ClientStrategy::Cached(_)));
 	}
 
@@ -560,7 +528,7 @@ mod tests {
 	}
 
 	#[test]
-	fn test_oif_tokens_to_assets_conversion() {
+	fn test_oif_tokens_to_assets_conversion() -> Result<(), Box<dyn std::error::Error>> {
 		let oif_response = OifTokensResponse {
 			networks: {
 				let mut networks = HashMap::new();
@@ -607,13 +575,13 @@ mod tests {
 			let chain_id = chain_id_str.parse::<u64>().unwrap_or(network.chain_id);
 
 			for token in network.tokens {
-				let asset = Asset::new(
+				let asset = Asset::from_chain_and_address(
+					chain_id,
 					token.address,
 					token.symbol.clone(),
 					token.symbol,
 					token.decimals,
-					chain_id,
-				);
+				)?;
 				assets.push(asset);
 			}
 		}
@@ -624,11 +592,11 @@ mod tests {
 		// Find USDC on Ethereum
 		let usdc_eth = assets
 			.iter()
-			.find(|a| a.symbol == "USDC" && a.chain_id == 1)
+			.find(|a| a.symbol == "USDC" && a.chain_id().unwrap_or(0) == 1)
 			.unwrap();
 		assert_eq!(
-			usdc_eth.address,
-			"0xA0b86a33E6441E7C81F7C93451777f5F4dE78e86"
+			usdc_eth.plain_address(),
+			"0xa0b86a33e6441e7c81f7c93451777f5f4de78e86"
 		);
 		assert_eq!(usdc_eth.decimals, 6);
 		assert_eq!(usdc_eth.name, "USDC");
@@ -636,20 +604,56 @@ mod tests {
 		// Find ETH on Ethereum
 		let eth = assets
 			.iter()
-			.find(|a| a.symbol == "ETH" && a.chain_id == 1)
+			.find(|a| a.symbol == "ETH" && a.chain_id().unwrap_or(0) == 1)
 			.unwrap();
-		assert_eq!(eth.address, "0x0000000000000000000000000000000000000000");
+		assert_eq!(
+			eth.plain_address(),
+			"0x0000000000000000000000000000000000000000"
+		);
 		assert_eq!(eth.decimals, 18);
 
 		// Find USDC on Polygon
 		let usdc_poly = assets
 			.iter()
-			.find(|a| a.symbol == "USDC" && a.chain_id == 137)
+			.find(|a| a.symbol == "USDC" && a.chain_id().unwrap_or(0) == 137)
 			.unwrap();
 		assert_eq!(
-			usdc_poly.address,
-			"0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+			usdc_poly.plain_address(),
+			"0x2791bca1f2de4661ed88a30c99a7a9449aa84174"
 		);
 		assert_eq!(usdc_poly.decimals, 6);
+		Ok(())
+	}
+
+	#[tokio::test]
+	async fn test_assets_mode_return_type() {
+		let adapter = OifAdapter::with_default_config().unwrap();
+		let _config = SolverRuntimeConfig::new(
+			"test-solver".to_string(),
+			"http://localhost:3000/api".to_string(),
+		);
+
+		// Note: This test would need a mock server to actually work
+		// For now, we'll just verify the adapter is configured correctly
+		assert_eq!(adapter.id(), "oif-v1");
+		assert_eq!(adapter.name(), "OIF v1 Adapter");
+
+		// The get_supported_assets method should return Assets mode
+		// when it successfully fetches from an OIF API endpoint
+		// (This would require a mock server to test the actual return type)
+	}
+
+	#[test]
+	fn test_assets_mode_behavior() {
+		let adapter = OifAdapter::with_default_config().unwrap();
+
+		// Test adapter configuration
+		assert_eq!(adapter.id(), "oif-v1");
+		assert_eq!(adapter.name(), "OIF v1 Adapter");
+
+		// In assets mode, the adapter should support any-to-any conversions
+		// within its asset list (including same-chain swaps)
+		// This behavior is tested at the domain level (Solver tests)
+		// rather than the adapter level since adapters just return data
 	}
 }

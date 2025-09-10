@@ -27,7 +27,7 @@ use utoipa::ToSchema;
 const CAIP_EIP155: [u8; 2] = [0x00, 0x00]; // Alternative EIP-155 (default for this system)
 
 /// ERC-7930 Interoperable Address
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct InteropAddress {
 	version: u8,              // Version number (e.g., 1) - 1 byte per ERC-7930

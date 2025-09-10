@@ -3,12 +3,8 @@
 //! This adapter uses an optimized client cache for connection pooling and keep-alive.
 
 use async_trait::async_trait;
-use oif_types::adapters::{
-	models::{SubmitOrderRequest, SubmitOrderResponse},
-	GetOrderResponse,
-};
-use oif_types::{Adapter, Asset, GetQuoteRequest, GetQuoteResponse, Network, SolverRuntimeConfig};
-use oif_types::{AdapterError, AdapterResult, SolverAdapter};
+use oif_types::{Adapter, GetQuoteRequest, GetQuoteResponse, SolverRuntimeConfig};
+use oif_types::{AdapterError, AdapterResult, SolverAdapter, SupportedAssetsData};
 use reqwest::{
 	header::{HeaderMap, HeaderValue},
 	Client,
@@ -123,14 +119,6 @@ impl LifiAdapter {
 
 #[async_trait]
 impl SolverAdapter for LifiAdapter {
-	fn adapter_id(&self) -> &str {
-		&self.config.adapter_id
-	}
-
-	fn adapter_name(&self) -> &str {
-		&self.config.name
-	}
-
 	fn adapter_info(&self) -> &Adapter {
 		&self.config
 	}
@@ -150,45 +138,8 @@ impl SolverAdapter for LifiAdapter {
 		unimplemented!()
 	}
 
-	async fn submit_order(
-		&self,
-		order: &SubmitOrderRequest,
-		config: &SolverRuntimeConfig,
-	) -> AdapterResult<SubmitOrderResponse> {
-		debug!(
-			"LiFi adapter submitting order: {:?} via solver: {}",
-			order, config.solver_id
-		);
-		unimplemented!()
-	}
-
 	async fn health_check(&self, config: &SolverRuntimeConfig) -> AdapterResult<bool> {
 		debug!("LiFi adapter health check for solver: {}", config.solver_id);
-
-		unimplemented!()
-	}
-
-	async fn get_order_details(
-		&self,
-		order_id: &str,
-		config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetOrderResponse> {
-		debug!(
-			"LiFi adapter getting order details for: {} via solver: {}",
-			order_id, config.solver_id
-		);
-
-		unimplemented!()
-	}
-
-	async fn get_supported_networks(
-		&self,
-		config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Network>> {
-		debug!(
-			"LiFi adapter getting supported networks via solver: {}",
-			config.solver_id
-		);
 
 		unimplemented!()
 	}
@@ -196,13 +147,15 @@ impl SolverAdapter for LifiAdapter {
 	async fn get_supported_assets(
 		&self,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Asset>> {
+	) -> AdapterResult<SupportedAssetsData> {
 		debug!(
-			"LiFi adapter getting supported assets via solver: {}",
+			"LiFi adapter getting supported assets for solver: {}",
 			config.solver_id
 		);
 
-		unimplemented!()
+		// TODO: Implement LiFi asset/route fetching
+		// For now, return empty assets mode
+		Ok(SupportedAssetsData::Assets(Vec::new()))
 	}
 }
 
@@ -246,8 +199,8 @@ mod tests {
 	#[test]
 	fn test_lifi_adapter_default_config() {
 		let adapter = LifiAdapter::with_default_config().unwrap();
-		assert_eq!(adapter.adapter_id(), "lifi-v1");
-		assert_eq!(adapter.adapter_name(), "LiFi v1 Adapter");
+		assert_eq!(adapter.id(), "lifi-v1");
+		assert_eq!(adapter.name(), "LiFi v1 Adapter");
 		assert!(matches!(adapter.client_strategy, ClientStrategy::Cached(_)));
 	}
 }

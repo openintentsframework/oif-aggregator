@@ -16,14 +16,14 @@ use crate::mocks::api_fixtures::INTEGRITY_SECRET;
 #[test]
 fn test_adapter_registry_creation() {
 	let registry = AdapterRegistry::new();
-	// Registry starts with default adapters (OIF and LiFi)
+	// Registry starts with default adapters (OIF, LiFi, Across)
 	assert!(registry.get_all().is_empty());
 }
 
 #[test]
 fn test_adapter_registry_with_defaults() {
 	let registry = AdapterRegistry::with_defaults();
-	// Should have default OIF and LiFi adapters
+	// Should have default OIF, LiFi and Across adapters
 	assert!(registry.get_all().len() >= 2);
 }
 
@@ -81,8 +81,17 @@ async fn test_aggregation_service_creation() {
 		"test-secret",
 	)));
 
+	// Create storage and populate with solvers
+	let storage = Arc::new(oif_storage::MemoryStore::new()) as Arc<dyn oif_storage::Storage>;
+	for solver in solvers {
+		storage
+			.create_solver(solver)
+			.await
+			.expect("Failed to create test solver");
+	}
+
 	let service = AggregatorService::new(
-		solvers,
+		storage,
 		adapter_registry,
 		integrity_service,
 		Arc::new(oif_service::SolverFilterService::new())

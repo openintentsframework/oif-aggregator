@@ -13,7 +13,7 @@
 //!
 //! ```rust,no_run
 //! use oif_adapters::{ClientCache, SolverAdapter, AdapterResult};
-//! use oif_types::{Adapter, SolverRuntimeConfig, GetQuoteRequest, GetQuoteResponse, Asset, Network};
+//! use oif_types::{Adapter, SolverRuntimeConfig, GetQuoteRequest, GetQuoteResponse, SupportedAssetsData};
 //! use oif_types::adapters::{models::{SubmitOrderRequest, SubmitOrderResponse}, GetOrderResponse};
 //! use async_trait::async_trait;
 //! use std::sync::Arc;
@@ -43,21 +43,16 @@
 //!
 //! #[async_trait]
 //! impl SolverAdapter for MyCustomAdapter {
-//!     fn adapter_id(&self) -> &str { &self.config.adapter_id }
-//!     fn adapter_name(&self) -> &str { &self.config.name }
 //!     fn adapter_info(&self) -> &Adapter { &self.config }
-//!     
+//!
 //!     async fn get_quotes(&self, _request: &GetQuoteRequest, config: &SolverRuntimeConfig) -> AdapterResult<GetQuoteResponse> {
 //!         let _client = self.get_client(config)?; // ← Optimized cached client
 //!         // Your implementation here
 //!         todo!()
 //!     }
 //!     
-//!     async fn submit_order(&self, _order: &SubmitOrderRequest, _config: &SolverRuntimeConfig) -> AdapterResult<SubmitOrderResponse> { todo!() }
 //!     async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> { todo!() }
-//!     async fn get_order_details(&self, _order_id: &str, _config: &SolverRuntimeConfig) -> AdapterResult<GetOrderResponse> { todo!() }
-//!     async fn get_supported_networks(&self, _config: &SolverRuntimeConfig) -> AdapterResult<Vec<Network>> { todo!() }
-//!     async fn get_supported_assets(&self, _config: &SolverRuntimeConfig) -> AdapterResult<Vec<Asset>> { todo!() }
+//!     async fn get_supported_assets(&self, _config: &SolverRuntimeConfig) -> AdapterResult<SupportedAssetsData> { todo!() }
 //! }
 //! ```
 //!
@@ -99,10 +94,12 @@
 
 use std::sync::Arc;
 
+pub mod across_adapter;
 pub mod client_cache;
 pub mod lifi_adapter;
 pub mod oif_adapter;
 
+pub use across_adapter::AcrossAdapter;
 pub use lifi_adapter::LifiAdapter;
 pub use oif_adapter::OifAdapter;
 pub use oif_types::{AdapterError, AdapterResult, SolverAdapter};
@@ -142,6 +139,11 @@ impl AdapterRegistry {
 			let _ = registry.register(Box::new(lifi_adapter));
 		}
 
+		// Add default Across adapter
+		if let Ok(across_adapter) = AcrossAdapter::with_default_config() {
+			let _ = registry.register(Box::new(across_adapter));
+		}
+
 		registry
 	}
 
@@ -152,7 +154,7 @@ impl AdapterRegistry {
 
 	/// Register an adapter (uses the adapter's own ID)
 	pub fn register(&mut self, adapter: Box<dyn SolverAdapter>) -> Result<(), String> {
-		let adapter_id = adapter.adapter_id().to_string();
+		let adapter_id = adapter.id().to_string();
 
 		// Check for duplicate IDs
 		if self.adapters.contains_key(&adapter_id) {

@@ -6,21 +6,21 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use oif_types::adapters::models::{SolMandateOutput, StandardOrder};
 use oif_types::chrono::Utc;
 
 use oif_types::adapters::{
 	models::{
 		AdapterQuote, AssetAmount, AvailableInput, GetOrderResponse, GetQuoteRequest,
 		GetQuoteResponse, OrderResponse, OrderStatus, QuoteDetails, QuoteOrder, RequestedOutput,
-		Settlement, SettlementType, SignatureType, SubmitOrderRequest, SubmitOrderResponse,
+		Settlement, SettlementType, SignatureType, SolMandateOutput, StandardOrder,
+		SubmitOrderRequest, SubmitOrderResponse,
 	},
 	traits::SolverAdapter,
-	AdapterResult, AdapterValidationError,
+	AdapterError, AdapterResult, AdapterValidationError, SupportedAssetsData,
 };
 use oif_types::serde_json::{json, Value};
 use oif_types::Solver;
-use oif_types::{models::Asset, models::Network, InteropAddress, SolverRuntimeConfig, U256};
+use oif_types::{Asset, InteropAddress, SolverRuntimeConfig, U256};
 
 /// Simple mock adapter for examples and testing
 #[derive(Debug, Clone)]
@@ -57,14 +57,6 @@ impl Default for MockDemoAdapter {
 
 #[async_trait]
 impl SolverAdapter for MockDemoAdapter {
-	fn adapter_id(&self) -> &str {
-		&self.id
-	}
-
-	fn adapter_name(&self) -> &str {
-		&self.name
-	}
-
 	fn adapter_info(&self) -> &oif_types::Adapter {
 		&self.adapter
 	}
@@ -137,6 +129,7 @@ impl SolverAdapter for MockDemoAdapter {
 			valid_until: Some(Utc::now().timestamp() as u64 + 300),
 			eta: Some(30),
 			provider: format!("{} Provider", self.name),
+			metadata: None,
 		};
 
 		Ok(GetQuoteResponse {
@@ -220,37 +213,50 @@ impl SolverAdapter for MockDemoAdapter {
 	async fn get_supported_assets(
 		&self,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Asset>> {
-		Ok(vec![
-			Asset::new(
+	) -> AdapterResult<SupportedAssetsData> {
+		// Mock assets for testing (using assets mode)
+		// Support assets that match the test fixtures
+		let assets = vec![
+			// Native ETH on Ethereum
+			Asset::from_chain_and_address(
+				1,
 				"0x0000000000000000000000000000000000000000".to_string(),
 				"ETH".to_string(),
 				"Ethereum".to_string(),
 				18,
+			)
+			.map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Invalid mock asset: {}", e),
+			})?,
+			// WETH on Ethereum (matches test fixtures)
+			Asset::from_chain_and_address(
 				1,
-			),
-			Asset::new(
-				"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0".to_string(),
+				"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
+				"WETH".to_string(),
+				"Wrapped Ethereum".to_string(),
+				18,
+			)
+			.map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Invalid mock asset: {}", e),
+			})?,
+			// USDC on Ethereum (matches test fixtures)
+			Asset::from_chain_and_address(
+				1,
+				"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0".to_string(),
 				"USDC".to_string(),
 				"USD Coin".to_string(),
 				6,
-				1,
-			),
-		])
+			)
+			.map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Invalid mock asset: {}", e),
+			})?,
+		];
+
+		Ok(SupportedAssetsData::Assets(assets))
 	}
 
 	async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> {
 		Ok(true)
-	}
-
-	async fn get_supported_networks(
-		&self,
-		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Network>> {
-		Ok(vec![
-			Network::new(1, Some("Ethereum".to_string()), Some(false)),
-			Network::new(137, Some("Polygon".to_string()), Some(false)),
-		])
 	}
 }
 
@@ -260,13 +266,23 @@ pub struct MockTestAdapter {
 	pub id: String,
 	pub name: String,
 	pub should_fail: bool,
+	pub adapter_info: oif_types::Adapter,
 }
 
 impl MockTestAdapter {
 	pub fn new() -> Self {
+		let id = "mock-test-v1".to_string();
+		let name = "Mock Test Adapter".to_string();
+
 		Self {
-			id: "mock-test-v1".to_string(),
-			name: "Mock Test Adapter".to_string(),
+			adapter_info: oif_types::Adapter::new(
+				id.clone(),
+				"Mock Test Adapter for testing".to_string(),
+				name.clone(),
+				"1.0.0".to_string(),
+			),
+			id,
+			name,
 			should_fail: false,
 		}
 	}
@@ -280,16 +296,8 @@ impl Default for MockTestAdapter {
 
 #[async_trait]
 impl SolverAdapter for MockTestAdapter {
-	fn adapter_id(&self) -> &str {
-		&self.id
-	}
-
-	fn adapter_name(&self) -> &str {
-		&self.name
-	}
-
 	fn adapter_info(&self) -> &oif_types::Adapter {
-		todo!("Mock adapters don't need full adapter info")
+		&self.adapter_info
 	}
 
 	async fn get_quotes(
@@ -391,7 +399,7 @@ impl SolverAdapter for MockTestAdapter {
 	async fn get_supported_assets(
 		&self,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Asset>> {
+	) -> AdapterResult<SupportedAssetsData> {
 		if self.should_fail {
 			return Err(oif_types::AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {
@@ -399,35 +407,55 @@ impl SolverAdapter for MockTestAdapter {
 				},
 			));
 		}
-		Ok(vec![])
+
+		// Return empty assets mode for test adapter
+		Ok(SupportedAssetsData::Assets(vec![]))
 	}
 
 	async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> {
 		Ok(!self.should_fail)
 	}
-
-	async fn get_supported_networks(
-		&self,
-		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Vec<Network>> {
-		if self.should_fail {
-			return Err(oif_types::AdapterError::from(
-				AdapterValidationError::InvalidConfiguration {
-					reason: "Mock adapter configured to fail".to_string(),
-				},
-			));
-		}
-		Ok(vec![])
-	}
 }
 
 #[allow(dead_code)]
 pub fn mock_solver() -> Solver {
+	// Create assets that match the test fixtures for immediate compatibility
+	let assets = vec![
+		// Native ETH on Ethereum
+		Asset::from_chain_and_address(
+			1,
+			"0x0000000000000000000000000000000000000000".to_string(),
+			"ETH".to_string(),
+			"Ethereum".to_string(),
+			18,
+		)
+		.expect("Valid ETH asset"),
+		// WETH on Ethereum (matches test fixtures)
+		Asset::from_chain_and_address(
+			1,
+			"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
+			"WETH".to_string(),
+			"Wrapped Ethereum".to_string(),
+			18,
+		)
+		.expect("Valid WETH asset"),
+		// USDC on Ethereum (matches test fixtures)
+		Asset::from_chain_and_address(
+			1,
+			"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0".to_string(),
+			"USDC".to_string(),
+			"USD Coin".to_string(),
+			6,
+		)
+		.expect("Valid USDC asset"),
+	];
+
 	Solver::new(
 		"mock-demo-solver".to_string(),
 		"mock-demo-v1".to_string(),
 		"http://localhost:8080".to_string(),
 	)
+	.with_assets(assets)
 }
 
 #[allow(dead_code)]
