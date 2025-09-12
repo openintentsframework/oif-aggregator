@@ -186,9 +186,14 @@ impl OifAdapter {
 
 	/// Properly construct URL by joining base endpoint with path
 	fn build_url(&self, base_url: &str, path: &str) -> AdapterResult<String> {
-		let base = Url::parse(base_url).map_err(|e| AdapterError::InvalidResponse {
+		let mut base = Url::parse(base_url).map_err(|e| AdapterError::InvalidResponse {
 			reason: format!("Invalid base URL '{}': {}", base_url, e),
 		})?;
+
+		// Ensure the base URL is treated as a directory by ensuring it ends with a slash
+		if !base.path().ends_with('/') {
+			base.set_path(&format!("{}/", base.path()));
+		}
 
 		let joined = base.join(path).map_err(|e| AdapterError::InvalidResponse {
 			reason: format!(
@@ -962,6 +967,16 @@ mod tests {
 		// Test with complex path
 		let result = adapter.build_url(base_url, "orders/123").unwrap();
 		assert_eq!(result, "https://api.example.com/orders/123");
+
+		// Test with path in base URL (the problematic case)
+		let base_with_path = "http://127.0.0.1:3000/api";
+		let result = adapter.build_url(base_with_path, "tokens").unwrap();
+		assert_eq!(result, "http://127.0.0.1:3000/api/tokens");
+
+		// Test with path in base URL and trailing slash
+		let base_with_path_slash = "http://127.0.0.1:3000/api/";
+		let result = adapter.build_url(base_with_path_slash, "tokens").unwrap();
+		assert_eq!(result, "http://127.0.0.1:3000/api/tokens");
 
 		// Test invalid URL
 		let result = adapter.build_url("invalid://::url", "tokens");
