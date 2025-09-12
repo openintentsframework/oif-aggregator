@@ -371,6 +371,7 @@ impl AcrossAdapter {
 			quote_id,
 			provider: format!("Across Protocol v{}", self.config.version),
 			metadata: Some(metadata),
+			cost: None,
 		})
 	}
 }
@@ -886,6 +887,7 @@ mod tests {
 			solver_id: "test-across".to_string(),
 			endpoint: "https://app.across.to".to_string(),
 			headers: None,
+			adapter_metadata: None,
 		};
 
 		// Test URL construction (this is what the health check method would use)
@@ -1097,6 +1099,7 @@ mod tests {
 			solver_id: "test-across".to_string(),
 			endpoint: "https://api.across.to".to_string(),
 			headers: None,
+			adapter_metadata: None,
 		};
 
 		// Create the adapter and convert the response

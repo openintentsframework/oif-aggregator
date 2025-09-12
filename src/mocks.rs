@@ -130,6 +130,7 @@ impl SolverAdapter for MockDemoAdapter {
 			eta: Some(30),
 			provider: format!("{} Provider", self.name),
 			metadata: None,
+			cost: None,
 		};
 
 		Ok(GetQuoteResponse {

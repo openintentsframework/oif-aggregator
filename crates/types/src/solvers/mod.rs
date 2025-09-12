@@ -87,6 +87,9 @@ pub struct Solver {
 
 	/// Custom HTTP headers for requests
 	pub headers: Option<HashMap<String, String>>,
+
+	/// Adapter-specific metadata (JSON configuration for adapter customization)
+	pub adapter_metadata: Option<serde_json::Value>,
 }
 
 /// Solver operational status
@@ -195,6 +198,7 @@ impl Solver {
 			last_seen: None,
 			metrics: SolverMetrics::new(),
 			headers: None,
+			adapter_metadata: None,
 		}
 	}
 
@@ -498,6 +502,11 @@ impl Solver {
 
 	pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
 		self.metadata.headers = Some(headers);
+		self
+	}
+
+	pub fn with_adapter_metadata(mut self, adapter_metadata: serde_json::Value) -> Self {
+		self.adapter_metadata = Some(adapter_metadata);
 		self
 	}
 }

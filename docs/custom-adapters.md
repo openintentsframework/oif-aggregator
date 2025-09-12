@@ -239,6 +239,9 @@ Add your solver to `config/config.json`:
         "Authorization": "Bearer your-api-key",
         "X-Custom-Header": "value"
       },
+      "adapter_metadata": {
+        "custom_feature": true
+      },
       "name": "My Custom Solver",
       "description": "Integration with My Custom Solver"
     }
@@ -246,14 +249,70 @@ Add your solver to `config/config.json`:
 }
 ```
 
+### 3. Adapter Metadata Configuration
+
+The `adapter_metadata` field allows you to pass custom JSON configuration to your adapter implementation, enabling flexible customization without code changes.
+
+```rust
+#[async_trait]
+impl SolverAdapter for MyCustomAdapter {
+    async fn get_quotes(
+        &self,
+        request: &GetQuoteRequest,
+        config: &SolverRuntimeConfig,
+    ) -> AdapterResult<GetQuoteResponse> {
+        // Access optional adapter metadata
+        if let Some(metadata) = &config.adapter_metadata {
+            // Parse your custom configuration
+            let timeout = metadata.get("timeout_ms")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(5000);
+                
+            // Use in your adapter logic
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_millis(timeout))
+                .build()?;
+        }
+        
+        // Your implementation here...
+        todo!()
+    }
+}
+```
+
+**Configuration Example:**
+```json
+{
+  "solvers": {
+    "my-solver": {
+      "solver_id": "my-solver",
+      "adapter_id": "my-custom-v1", 
+      "endpoint": "https://api.mysolver.com/v1",
+      "enabled": true,
+      "adapter_metadata": {
+        "timeout_ms": 10000,
+        "retry_attempts": 3,
+        "auth": {
+          "type": "api_key",
+          "header": "X-API-Key"
+        }
+      }
+    }
+  }
+}
+```
+
+The metadata can contain any JSON structure your adapter needs - authentication settings, performance tuning, feature flags, protocol-specific configuration, etc.
+
 ## 🔧 Advanced Features
 
-### Caching Support
+### HTTP Client Caching
+
+The OIF Aggregator provides an optimized HTTP client cache for performance:
 
 ```rust
 use oif_adapters::{ClientCache, ClientConfig};
 use std::sync::Arc;
-use std::time::Duration;
 
 #[derive(Debug)]
 pub struct MyCustomAdapter {
@@ -266,44 +325,49 @@ impl MyCustomAdapter {
         Self {
             adapter_info: Adapter::new(
                 "my-custom-v1".to_string(),
-                "Custom adapter with caching".to_string(),
+                "Custom adapter with caching".to_string(), 
                 "My Custom Adapter".to_string(),
                 "1.0.0".to_string(),
             ),
-            cache: ClientCache::for_adapter(), // Default adapter cache with 5-minute TTL
+            cache: ClientCache::for_adapter(),
         }
     }
     
     /// Get optimized HTTP client with connection pooling and keep-alive
     fn get_client(&self, solver_config: &SolverRuntimeConfig) -> AdapterResult<Arc<reqwest::Client>> {
-        // ClientConfig is automatically created from SolverRuntimeConfig
         let client_config = ClientConfig::from(solver_config);
         self.cache.get_client(&client_config)
     }
 }
-
-// Alternative: Custom TTL
-impl MyCustomAdapter {
-    pub fn with_custom_cache_ttl() -> Self {
-        Self {
-            adapter_info: Adapter::new(
-                "my-custom-v1".to_string(),
-                "Custom adapter with custom TTL".to_string(),
-                "My Custom Adapter".to_string(),
-                "1.0.0".to_string(),
-            ),
-            cache: ClientCache::with_ttl(Duration::from_secs(300)), // 5 minutes
-        }
-    }
-}
 ```
+
+**Benefits:**
+- Connection pooling and keep-alive
+- Automatic client reuse and cleanup
+- Authentication header support
+- Thread-safe concurrent access
 
 ## 🔗 Related Documentation
 
 - **[Configuration Guide](configuration.md)** - How to configure solvers
 - **[API Documentation](api/)** - Complete API reference
 - **[Quotes & Aggregation Guide](quotes-and-aggregation.md)** - Understanding the aggregation process
+- **[OIF Adapter Guide](oif-adapter.md)** - Complete guide for OIF adapter with JWT authentication
+
+## 📚 Reference Implementations
+
+Check these existing adapters for real-world examples:
+
+**`crates/adapters/src/oif_adapter.rs`** - See [OIF Adapter Guide](oif-adapter.md)
+- ✅ JWT authentication with `adapter_metadata` 
+- ✅ Client caching with authentication support  
+- ✅ Structured configuration parsing
+- ✅ Token management and refresh logic
+
+**`crates/adapters/src/across_adapter.rs`**
+- ✅ Routes-based asset discovery
+- ✅ Complex response transformation  
 
 ---
 
-**Need Help?** Check the existing adapters in `crates/adapters/src/` for reference implementations, or open an issue on GitHub for specific questions.
+**Need Help?** Check the reference implementations above for production-ready code examples, or open an issue on GitHub for specific questions.

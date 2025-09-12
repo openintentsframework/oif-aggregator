@@ -141,6 +141,7 @@ impl SolverAdapter for MockDemoAdapter {
 			eta: Some(30),
 			provider: format!("{} Provider", self.adapter.name),
 			metadata: None,
+			cost: None,
 		};
 
 		Ok(GetQuoteResponse {
@@ -607,6 +608,7 @@ impl SolverAdapter for TimingControlledAdapter {
 			eta: Some(self.response_delay_ms / 10), // ETA in seconds
 			provider: format!("{} Provider", self.adapter.name),
 			metadata: None,
+			cost: None,
 		};
 
 		Ok(GetQuoteResponse {

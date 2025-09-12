@@ -43,7 +43,10 @@ pub struct SolverConfig {
 	pub adapter_id: String,
 	pub endpoint: String,
 	pub enabled: bool,
+	/// Static headers for requests
 	pub headers: Option<HashMap<String, String>>,
+	/// Adapter-specific metadata (JSON configuration for adapter customization)
+	pub adapter_metadata: Option<serde_json::Value>,
 	// Optional descriptive metadata
 	pub name: Option<String>,
 	pub description: Option<String>,
@@ -59,6 +62,7 @@ impl From<SolverConfig> for DomainSolverConfig {
 			endpoint: settings_config.endpoint,
 			enabled: settings_config.enabled,
 			headers: settings_config.headers,
+			adapter_metadata: settings_config.adapter_metadata,
 			name: settings_config.name,
 			description: settings_config.description,
 			version: None,
@@ -321,6 +325,7 @@ mod tests {
 			endpoint: "https://api.test.com".to_string(),
 			enabled: true,
 			headers: None,
+			adapter_metadata: None,
 			name: Some("Test Solver".to_string()),
 			description: None,
 			supported_assets: None, // No supported_assets defined

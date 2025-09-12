@@ -1092,6 +1092,7 @@ mod tests {
 				eta: Some(30),
 				provider: format!("{} Provider", self.id),
 				metadata: None,
+				cost: None,
 			};
 
 			Ok(oif_types::GetQuoteResponse {

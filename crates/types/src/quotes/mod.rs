@@ -392,6 +392,7 @@ mod tests {
 			eta: Some(300),
 			provider: "Test Provider".to_string(),
 			metadata: Some(json!({"test_key": "test_value"})),
+			cost: None,
 		};
 
 		let solver_id = "test-solver".to_string();

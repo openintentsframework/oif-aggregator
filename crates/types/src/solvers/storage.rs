@@ -22,6 +22,7 @@ pub struct SolverStorage {
 	pub metadata: SolverMetadataStorage,
 	pub metrics: SolverMetricsStorage,
 	pub headers: Option<HashMap<String, String>>,
+	pub adapter_metadata: Option<serde_json::Value>,
 
 	// Storage-specific metadata
 	pub version: u32,
@@ -86,6 +87,7 @@ impl From<Solver> for SolverStorage {
 			last_seen: solver.last_seen,
 			metrics: SolverMetricsStorage::from(solver.metrics),
 			headers: solver.headers,
+			adapter_metadata: solver.adapter_metadata,
 			version: 1,
 			last_updated: Utc::now(),
 		}
@@ -106,6 +108,7 @@ impl TryFrom<SolverStorage> for Solver {
 			last_seen: storage.last_seen,
 			metrics: storage.metrics.try_into()?,
 			headers: storage.headers,
+			adapter_metadata: storage.adapter_metadata,
 		})
 	}
 }
@@ -324,5 +327,44 @@ mod tests {
 		// Manually set old timestamp
 		storage.last_updated = Utc::now() - chrono::Duration::days(2);
 		assert!(storage.is_stale(24)); // 24 hours threshold
+	}
+
+	#[test]
+	fn test_adapter_metadata_storage() {
+		// Create test metadata
+		let test_metadata = serde_json::json!({
+			"auth": {
+				"type": "jwt_self_register",
+				"client_id": "env:TEST_CLIENT_ID",
+				"client_secret": "env:TEST_CLIENT_SECRET"
+			},
+			"retry_attempts": 3,
+			"timeout_ms": 5000
+		});
+
+		// Create solver with adapter metadata
+		let solver = create_test_solver().with_adapter_metadata(test_metadata.clone());
+
+		// Convert to storage
+		let storage = SolverStorage::from(solver);
+		assert_eq!(storage.adapter_metadata, Some(test_metadata.clone()));
+
+		// Convert back to domain
+		let domain_solver = Solver::try_from(storage).unwrap();
+		assert_eq!(domain_solver.adapter_metadata, Some(test_metadata));
+	}
+
+	#[test]
+	fn test_no_adapter_metadata_storage() {
+		// Create solver without adapter metadata
+		let solver = create_test_solver();
+
+		// Convert to storage
+		let storage = SolverStorage::from(solver);
+		assert_eq!(storage.adapter_metadata, None);
+
+		// Convert back to domain
+		let domain_solver = Solver::try_from(storage).unwrap();
+		assert_eq!(domain_solver.adapter_metadata, None);
 	}
 }

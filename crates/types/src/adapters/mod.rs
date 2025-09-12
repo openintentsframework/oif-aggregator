@@ -34,6 +34,9 @@ pub struct SolverRuntimeConfig {
 
 	/// Optional custom HTTP headers for requests
 	pub headers: Option<HashMap<String, String>>,
+
+	/// Adapter-specific metadata (JSON configuration for adapter customization)
+	pub adapter_metadata: Option<serde_json::Value>,
 }
 
 impl SolverRuntimeConfig {
@@ -43,12 +46,19 @@ impl SolverRuntimeConfig {
 			solver_id,
 			endpoint,
 			headers: None,
+			adapter_metadata: None,
 		}
 	}
 
 	/// Create runtime config with optional headers
 	pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
 		self.headers = Some(headers);
+		self
+	}
+
+	/// Create runtime config with optional adapter metadata
+	pub fn with_adapter_metadata(mut self, adapter_metadata: serde_json::Value) -> Self {
+		self.adapter_metadata = Some(adapter_metadata);
 		self
 	}
 }
@@ -59,6 +69,7 @@ impl From<&crate::solvers::Solver> for SolverRuntimeConfig {
 			solver_id: solver.solver_id.clone(),
 			endpoint: solver.endpoint.clone(),
 			headers: solver.headers.clone(),
+			adapter_metadata: solver.adapter_metadata.clone(),
 		}
 	}
 }

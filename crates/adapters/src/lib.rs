@@ -105,7 +105,7 @@ pub use oif_adapter::OifAdapter;
 pub use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 
 // Re-export client cache infrastructure for external adapters
-pub use client_cache::{adapter_client_cache, ClientCache, ClientConfig};
+pub use client_cache::{adapter_client_cache, AuthConfig, ClientCache, ClientConfig};
 
 /// Simple registry for solver adapters
 pub struct AdapterRegistry {

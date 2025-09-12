@@ -251,6 +251,9 @@ pub struct SolverConfig {
 	/// Custom HTTP headers for requests
 	pub headers: Option<HashMap<String, String>>,
 
+	/// Adapter-specific metadata (JSON configuration for adapter customization)
+	pub adapter_metadata: Option<serde_json::Value>,
+
 	/// Optional human-readable name
 	pub name: Option<String>,
 
@@ -312,6 +315,7 @@ impl SolverConfig {
 			endpoint,
 			enabled: true,
 			headers: None,
+			adapter_metadata: None,
 			name: None,
 			description: None,
 			version: None,
@@ -347,6 +351,11 @@ impl SolverConfig {
 
 	pub fn with_headers(mut self, headers: HashMap<String, String>) -> Self {
 		self.headers = Some(headers);
+		self
+	}
+
+	pub fn with_adapter_metadata(mut self, adapter_metadata: serde_json::Value) -> Self {
+		self.adapter_metadata = Some(adapter_metadata);
 		self
 	}
 
@@ -464,6 +473,10 @@ impl TryFrom<SolverConfig> for Solver {
 
 		if let Some(headers) = config.headers {
 			solver = solver.with_headers(headers);
+		}
+
+		if let Some(adapter_metadata) = config.adapter_metadata {
+			solver = solver.with_adapter_metadata(adapter_metadata);
 		}
 
 		// Validate the constructed solver

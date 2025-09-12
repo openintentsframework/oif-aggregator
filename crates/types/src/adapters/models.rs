@@ -78,7 +78,7 @@ pub enum QuotePreference {
 /// Response containing quote options following UII standard
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct GetQuoteResponse {
 	/// Available quotes
 	pub quotes: Vec<AdapterQuote>,
@@ -87,7 +87,7 @@ pub struct GetQuoteResponse {
 /// A quote option following UII standard (adapter-specific)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 pub struct AdapterQuote {
 	/// Array of EIP-712 compliant orders
 	pub orders: Vec<QuoteOrder>,
@@ -106,6 +106,9 @@ pub struct AdapterQuote {
 	/// that consumers might need for order execution or additional context
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub metadata: Option<serde_json::Value>,
+	/// Cost information for a quote
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub cost: Option<QuoteCost>,
 }
 
 /// Quote details matching the request structure
@@ -117,6 +120,41 @@ pub struct QuoteDetails {
 	pub requested_outputs: Vec<RequestedOutput>,
 	/// Available inputs for this quote
 	pub available_inputs: Vec<AvailableInput>,
+}
+
+/// Named amount used for cost components.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct CostComponent {
+	/// Human-readable component name (e.g., "base-price", "gas-fill", "gas-claim", "buffer-gas", "buffer-rates", "commission")
+	pub name: String,
+	/// Amount as a decimal string in the chosen currency units (e.g., USDC). String avoids precision loss across differing decimals.
+	pub amount: String,
+	/// Amount as a wei string. (if Apply)
+	#[serde(rename = "amountWei")]
+	pub amount_wei: Option<String>,
+}
+
+/// Cost information for a quote
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[serde(rename_all = "camelCase")]
+pub struct QuoteCost {
+	/// Display currency for cost components (e.g., "USDC", "USD").
+	pub currency: String,
+	/// Individual components that sum to the subtotal.
+	pub components: Vec<CostComponent>,
+	/// Commission fee in basis points applied over subtotal.
+	#[serde(rename = "commissionBps")]
+	pub commission_bps: u32,
+	/// Commission amount as a decimal string in the same currency.
+	#[serde(rename = "commissionAmount")]
+	pub commission_amount: String,
+	/// Subtotal before commission, as a decimal string.
+	pub subtotal: String,
+	/// Total price including commission, as a decimal string.
+	pub total: String,
 }
 
 /// EIP-712 compliant order structure

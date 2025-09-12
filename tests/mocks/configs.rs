@@ -72,6 +72,7 @@ impl MockConfigs {
 			description: Some("Test solver for unit testing".to_string()),
 			endpoint: "http://localhost:8080".to_string(),
 			headers: Some(HashMap::new()),
+			adapter_metadata: None,
 			supported_assets: None,
 			enabled: true,
 		}
@@ -100,7 +101,7 @@ impl SolverConfigBuilder {
 				description: Some("Test solver".to_string()),
 				endpoint: "http://localhost:8080".to_string(),
 				headers: Some(HashMap::new()),
-
+				adapter_metadata: None,
 				supported_assets: None,
 				enabled: true,
 			},
