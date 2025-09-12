@@ -52,7 +52,7 @@ struct AuthConfig {
 	auth_enabled: Option<bool>,
 	/// Client name for registration (defaults to "OIF Aggregator - {solver_id}")
 	client_name: Option<String>,
-	/// Requested scopes (defaults to ["read", "write"])
+	/// Requested scopes (defaults to ["read-orders", "create-orders"])
 	scopes: Option<Vec<String>>,
 	/// Token expiry in hours (defaults to 24)
 	expiry_hours: Option<u32>,
@@ -198,7 +198,7 @@ impl OifAdapter {
 
 		// Create register request using solver_id as client_id and configurable options
 		let default_client_name = format!("OIF Aggregator - {}", config.solver_id);
-		let default_scopes = vec!["read".to_string(), "write".to_string()];
+		let default_scopes = vec!["read-orders".to_string(), "create-orders".to_string()];
 
 		let register_request = JwtRegisterRequest {
 			client_id: config.solver_id.clone(),
