@@ -115,7 +115,7 @@ The OIF Adapter uses the aggregator's `ClientCache` system for optimal performan
 
 ```rust
 // Automatic client caching with JWT token awareness
-let client = self.cache.get_authenticated_client(config, jwt_token.as_deref())?;
+let client = self.cache.get_configured_client(config)?;
 
 // Benefits:
 // - Connection pooling (up to 10 idle connections per host)
