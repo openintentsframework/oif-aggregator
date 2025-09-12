@@ -3,7 +3,7 @@
 //! Provides per-solver client instances with connection pooling and keep-alive optimization.
 
 use dashmap::DashMap;
-use oif_types::{AdapterError, AdapterResult, SolverRuntimeConfig};
+use oif_types::{AdapterError, AdapterResult, SecretString, SolverRuntimeConfig};
 use reqwest::{Client, ClientBuilder};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -14,6 +14,8 @@ use tracing::{debug, warn};
 pub struct ClientConfig {
 	/// Base endpoint for the solver
 	pub base_url: String,
+	/// Solver identifier for cache differentiation
+	pub solver_id: String,
 	/// Maximum number of idle connections per host
 	pub max_idle_per_host: usize,
 	/// Connection keep-alive timeout
@@ -24,14 +26,61 @@ pub struct ClientConfig {
 
 impl From<&SolverRuntimeConfig> for ClientConfig {
 	fn from(solver_config: &SolverRuntimeConfig) -> Self {
+		let mut headers = vec![
+			("User-Agent".to_string(), "OIF-Aggregator/1.0".to_string()),
+			("Content-Type".to_string(), "application/json".to_string()),
+			("X-Adapter-Type".to_string(), "OIF-v1".to_string()),
+		];
+
+		// Add headers from solver config
+		if let Some(solver_headers) = &solver_config.headers {
+			for (key, value) in solver_headers {
+				headers.push((key.clone(), value.clone()));
+			}
+		}
+
 		Self {
 			base_url: solver_config.endpoint.clone(),
+			solver_id: solver_config.solver_id.clone(),
 			max_idle_per_host: 10,         // Default: 10 idle connections per host
 			keep_alive_timeout_ms: 90_000, // Default: 90 seconds keep-alive
-			headers: vec![
-				("User-Agent".to_string(), "OIF-Aggregator/1.0".to_string()),
-				("Content-Type".to_string(), "application/json".to_string()),
-			],
+			headers,
+		}
+	}
+}
+
+/// Authentication configuration for HTTP clients
+#[derive(Debug, Clone)]
+pub enum AuthConfig {
+	/// No authentication
+	None,
+	/// Bearer token authentication (JWT, OAuth2, etc.)
+	Bearer { token: SecretString },
+	/// API Key authentication with custom header
+	ApiKey { header: String, key: SecretString },
+	/// Custom authentication with multiple headers and cache key
+	Custom {
+		headers: Vec<(String, String)>,
+		cache_key: Option<String>,
+	},
+}
+
+impl AuthConfig {
+	/// Create JWT Bearer authentication
+	pub fn jwt(token: Option<&str>) -> Self {
+		match token {
+			Some(t) => Self::Bearer {
+				token: SecretString::from(t),
+			},
+			None => Self::None,
+		}
+	}
+
+	/// Create API Key authentication
+	pub fn api_key(header: &str, key: &str) -> Self {
+		Self::ApiKey {
+			header: header.to_string(),
+			key: SecretString::from(key),
 		}
 	}
 }
@@ -133,6 +182,44 @@ impl ClientCache {
 
 		Ok(client_arc)
 	}
+
+	/// Get or create a client with authentication configuration
+	pub fn get_client_with_auth(
+		&self,
+		solver_config: &SolverRuntimeConfig,
+		auth_config: &AuthConfig,
+	) -> AdapterResult<Arc<Client>> {
+		let mut config = ClientConfig::from(solver_config);
+
+		// Apply authentication configuration
+		match auth_config {
+			AuthConfig::None => {
+				// No authentication - use base config
+			},
+			AuthConfig::Bearer { token } => {
+				config.headers.push((
+					"Authorization".to_string(),
+					format!("Bearer {}", token.expose_secret()),
+				));
+			},
+			AuthConfig::ApiKey { header, key } => {
+				config
+					.headers
+					.push((header.clone(), key.expose_secret().to_string()));
+			},
+			AuthConfig::Custom {
+				headers,
+				cache_key: _,
+			} => {
+				config.headers.extend(headers.clone());
+			},
+		}
+
+		// Use existing get_client logic - cache differentiation now by solver_id
+		self.get_client(&config)
+	}
+
+	// Using solver_id for cache differentiation - no additional hashing or encoding needed
 
 	/// Create an optimized HTTP client for the given configuration
 	fn create_optimized_client(&self, config: &ClientConfig) -> AdapterResult<Client> {
@@ -252,6 +339,7 @@ mod tests {
 			solver_id: "test-solver".to_string(),
 			endpoint: "https://api.example.com".to_string(),
 			headers: None,
+			adapter_metadata: None,
 		};
 
 		let client_config = ClientConfig::from(&solver_config);
@@ -267,6 +355,7 @@ mod tests {
 
 		let config = ClientConfig {
 			base_url: "https://test.com".to_string(),
+			solver_id: "test-solver".to_string(),
 			max_idle_per_host: 5,
 			keep_alive_timeout_ms: 60_000,
 			headers: vec![],
@@ -287,6 +376,7 @@ mod tests {
 
 		let config = ClientConfig {
 			base_url: "https://test-ttl.com".to_string(),
+			solver_id: "test-ttl-solver".to_string(),
 			max_idle_per_host: 5,
 			keep_alive_timeout_ms: 60_000,
 			headers: vec![],
@@ -312,6 +402,7 @@ mod tests {
 		let cache = Arc::new(ClientCache::with_ttl(Duration::from_millis(100)));
 		let config = ClientConfig {
 			base_url: "https://concurrent-test.com".to_string(),
+			solver_id: "concurrent-test-solver".to_string(),
 			max_idle_per_host: 5,
 			keep_alive_timeout_ms: 60_000,
 			headers: vec![],
@@ -369,6 +460,7 @@ mod tests {
 		// Both caches should share the same underlying DashMap
 		let config = ClientConfig {
 			base_url: "https://clone-test.com".to_string(),
+			solver_id: "cache-clone-solver".to_string(),
 			max_idle_per_host: 5,
 			keep_alive_timeout_ms: 60_000,
 			headers: vec![],
@@ -382,5 +474,87 @@ mod tests {
 
 		// Should be the same Arc instance since they share the same DashMap
 		assert!(Arc::ptr_eq(&client1, &client2));
+	}
+
+	#[tokio::test]
+	async fn test_jwt_authenticated_client_caching() {
+		let cache = ClientCache::new();
+		let solver_config = SolverRuntimeConfig::new(
+			"test-jwt-solver".to_string(),
+			"https://jwt-test.com".to_string(),
+		);
+
+		// Test with JWT token
+		let jwt_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.signature";
+
+		// Get client twice with same JWT token
+		let auth1 = AuthConfig::jwt(Some(jwt_token));
+		let client1 = cache.get_client_with_auth(&solver_config, &auth1).unwrap();
+		let client2 = cache.get_client_with_auth(&solver_config, &auth1).unwrap();
+
+		// Should reuse the same client (same token = same cache entry)
+		assert!(Arc::ptr_eq(&client1, &client2));
+
+		// Test with different JWT token
+		let different_jwt_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.different.signature";
+		let auth2 = AuthConfig::jwt(Some(different_jwt_token));
+		let client3 = cache.get_client_with_auth(&solver_config, &auth2).unwrap();
+
+		// Should be a different client (different token = different cache entry)
+		assert!(!Arc::ptr_eq(&client1, &client3));
+
+		// Test without JWT token
+		let auth3 = AuthConfig::jwt(None);
+		let client4 = cache.get_client_with_auth(&solver_config, &auth3).unwrap();
+
+		// Should be different from JWT clients (no token vs with token)
+		assert!(!Arc::ptr_eq(&client1, &client4));
+		assert!(!Arc::ptr_eq(&client3, &client4));
+	}
+
+	#[tokio::test]
+	async fn test_different_auth_strategies() {
+		let cache = ClientCache::new();
+		let solver_config = SolverRuntimeConfig::new(
+			"test-multi-auth-solver".to_string(),
+			"https://api.example.com".to_string(),
+		);
+
+		// Test API Key authentication
+		let api_key_auth = AuthConfig::api_key("X-API-Key", "secret-key-123");
+		let api_client = cache
+			.get_client_with_auth(&solver_config, &api_key_auth)
+			.unwrap();
+
+		// Test Bearer token authentication
+		let bearer_auth = AuthConfig::Bearer {
+			token: SecretString::from("bearer-token-789"),
+		};
+		let bearer_client = cache
+			.get_client_with_auth(&solver_config, &bearer_auth)
+			.unwrap();
+
+		// Test Custom headers authentication
+		let custom_auth = AuthConfig::Custom {
+			headers: vec![
+				("X-Auth-Token".to_string(), "custom-token-456".to_string()),
+				("X-Client-ID".to_string(), "test-client".to_string()),
+			],
+			cache_key: Some("custom:456".to_string()),
+		};
+		let custom_client = cache
+			.get_client_with_auth(&solver_config, &custom_auth)
+			.unwrap();
+
+		// All should be different clients due to different auth configurations
+		assert!(!Arc::ptr_eq(&api_client, &bearer_client));
+		assert!(!Arc::ptr_eq(&api_client, &custom_client));
+		assert!(!Arc::ptr_eq(&bearer_client, &custom_client));
+
+		// Same auth config should return same client
+		let api_client2 = cache
+			.get_client_with_auth(&solver_config, &api_key_auth)
+			.unwrap();
+		assert!(Arc::ptr_eq(&api_client, &api_client2));
 	}
 }

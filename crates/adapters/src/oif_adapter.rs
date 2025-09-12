@@ -9,16 +9,20 @@ use reqwest::{
 use std::{str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
+use dashmap::DashMap;
 use oif_types::adapters::models::{SubmitOrderRequest, SubmitOrderResponse};
 use oif_types::adapters::GetOrderResponse;
-use oif_types::{Adapter, Asset, GetQuoteRequest, GetQuoteResponse, SolverRuntimeConfig};
+use oif_types::{
+	Adapter, Asset, GetQuoteRequest, GetQuoteResponse, SecretString, SolverRuntimeConfig,
+};
 use oif_types::{AdapterError, AdapterResult, SolverAdapter, SupportedAssetsData};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
 use tracing::{debug, info, warn};
 
-use crate::client_cache::{ClientCache, ClientConfig};
+use crate::client_cache::ClientCache;
 
 /// OIF tokens response models
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +45,56 @@ struct OifToken {
 	decimals: u8,
 }
 
+/// JWT authentication configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AuthConfig {
+	/// Whether authentication is enabled
+	auth_enabled: Option<bool>,
+	/// Client name for registration (defaults to "OIF Aggregator - {solver_id}")
+	client_name: Option<String>,
+	/// Requested scopes (defaults to ["read", "write"])
+	scopes: Option<Vec<String>>,
+	/// Token expiry in hours (defaults to 24)
+	expiry_hours: Option<u32>,
+}
+
+/// JWT register request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct JwtRegisterRequest {
+	/// Client identifier (e.g., application name, user email)
+	pub client_id: String,
+	/// Optional client name for display purposes
+	pub client_name: Option<String>,
+	/// Requested scopes (if not provided, defaults to basic read permissions)
+	pub scopes: Option<Vec<String>>,
+	/// Optional custom token expiry in hours
+	pub expiry_hours: Option<u32>,
+}
+
+/// JWT register response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct JwtRegisterResponse {
+	/// The generated JWT token
+	pub token: SecretString,
+	/// Client identifier
+	pub client_id: String,
+	/// Token expiry time in Unix timestamp
+	pub expires_at: i64,
+	/// Granted scopes
+	pub scopes: Vec<String>,
+	/// Token type (always "Bearer")
+	pub token_type: String,
+}
+
+/// Cached JWT token information
+#[derive(Debug, Clone)]
+struct JwtTokenInfo {
+	/// The JWT token
+	token: SecretString,
+	/// When the token expires
+	expires_at: Option<DateTime<Utc>>,
+}
+
 /// Client strategy for the OIF adapter
 #[derive(Debug)]
 enum ClientStrategy {
@@ -55,6 +109,8 @@ enum ClientStrategy {
 pub struct OifAdapter {
 	config: Adapter,
 	client_strategy: ClientStrategy,
+	/// JWT token cache per solver
+	jwt_tokens: Arc<DashMap<String, JwtTokenInfo>>,
 }
 
 impl OifAdapter {
@@ -74,6 +130,7 @@ impl OifAdapter {
 		Ok(Self {
 			config,
 			client_strategy: ClientStrategy::Cached(cache),
+			jwt_tokens: Arc::new(DashMap::new()),
 		})
 	}
 
@@ -85,18 +142,228 @@ impl OifAdapter {
 		Ok(Self {
 			config,
 			client_strategy: ClientStrategy::OnDemand,
+			jwt_tokens: Arc::new(DashMap::new()),
 		})
 	}
 
-	/// Create a new HTTP client with OIF headers and specified timeout
-	fn create_client(solver_config: &SolverRuntimeConfig) -> AdapterResult<Arc<reqwest::Client>> {
+	/// Create default OIF adapter instance with optimization
+	pub fn with_default_config() -> AdapterResult<Self> {
+		let config = Adapter::new(
+			"oif-v1".to_string(),
+			"OIF v1 Protocol".to_string(),
+			"OIF v1 Adapter".to_string(),
+			"1.0.0".to_string(),
+		);
+
+		Self::new(config)
+	}
+
+	/// Parse authentication configuration from adapter metadata
+	fn parse_auth_config(&self, config: &SolverRuntimeConfig) -> Option<AuthConfig> {
+		config.adapter_metadata.as_ref().and_then(|metadata| {
+			// Look for auth config under the "auth" key within metadata
+			metadata
+				.get("auth")
+				.and_then(|auth_value| serde_json::from_value(auth_value.clone()).ok())
+		})
+	}
+
+	/// Check if a JWT token exists and is still valid
+	fn is_token_valid(&self, solver_id: &str) -> bool {
+		if let Some(token_info) = self.jwt_tokens.get(solver_id) {
+			if let Some(expires_at) = token_info.expires_at {
+				// Consider token invalid if it expires within the next 60 seconds
+				Utc::now() < expires_at - chrono::Duration::seconds(60)
+			} else {
+				// If no expiration info, assume token is valid
+				true
+			}
+		} else {
+			false
+		}
+	}
+
+	/// Register with OIF auth endpoint to get JWT token
+	async fn register_jwt(&self, config: &SolverRuntimeConfig) -> AdapterResult<JwtTokenInfo> {
+		let auth_config = self.parse_auth_config(config);
+		let register_url = format!("{}/register", config.endpoint);
+
+		// Create a basic HTTP client for auth requests (no cached headers to avoid circular dependency)
+		let client = Client::new();
+
+		debug!(
+			"Registering with OIF auth endpoint {} for solver {}",
+			register_url, config.solver_id
+		);
+
+		// Create register request using solver_id as client_id and configurable options
+		let default_client_name = format!("OIF Aggregator - {}", config.solver_id);
+		let default_scopes = vec!["read".to_string(), "write".to_string()];
+
+		let register_request = JwtRegisterRequest {
+			client_id: config.solver_id.clone(),
+			client_name: Some(
+				auth_config
+					.as_ref()
+					.and_then(|c| c.client_name.clone())
+					.unwrap_or(default_client_name),
+			),
+			scopes: Some(
+				auth_config
+					.as_ref()
+					.and_then(|c| c.scopes.clone())
+					.unwrap_or(default_scopes),
+			),
+			expiry_hours: Some(
+				auth_config
+					.as_ref()
+					.and_then(|c| c.expiry_hours)
+					.unwrap_or(24), // Default to 24 hours
+			),
+		};
+
+		let response = client
+			.post(&register_url)
+			.json(&register_request)
+			.send()
+			.await
+			.map_err(AdapterError::HttpError)?;
+
+		if !response.status().is_success() {
+			return Err(AdapterError::InvalidResponse {
+				reason: format!(
+					"OIF auth register endpoint returned status {}",
+					response.status()
+				),
+			});
+		}
+
+		let body = response.text().await.unwrap_or_default();
+
+		let register_response: JwtRegisterResponse =
+			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Failed to parse OIF auth register response: {}", e),
+			})?;
+
+		// Log non-sensitive parts of the response for debugging
+		debug!(
+			"OIF auth register successful for client_id: {}, expires_at: {}, scopes: {:?}, token_type: {}",
+			register_response.client_id,
+			register_response.expires_at,
+			register_response.scopes,
+			register_response.token_type
+		);
+
+		// Convert Unix timestamp to DateTime
+		let expires_at = if register_response.expires_at > 0 {
+			Some(
+				DateTime::<Utc>::from_timestamp(register_response.expires_at, 0).ok_or_else(
+					|| AdapterError::InvalidResponse {
+						reason: format!(
+							"Invalid expires_at timestamp: {}",
+							register_response.expires_at
+						),
+					},
+				)?,
+			)
+		} else {
+			None
+		};
+
+		let token_info = JwtTokenInfo {
+			token: register_response.token,
+			expires_at,
+		};
+
+		// Cache the token
+		self.jwt_tokens
+			.insert(config.solver_id.clone(), token_info.clone());
+
+		info!(
+			"Successfully registered JWT token for solver {} (expires: {:?}, scopes: {:?})",
+			config.solver_id, expires_at, register_response.scopes
+		);
+
+		Ok(token_info)
+	}
+
+	/// Get or refresh JWT token for a solver
+	async fn get_jwt_token(&self, config: &SolverRuntimeConfig) -> AdapterResult<Option<String>> {
+		// Check if auth is enabled
+		if let Some(auth_config) = self.parse_auth_config(config) {
+			if auth_config.auth_enabled.unwrap_or(false) {
+				// Check if we have a valid token
+				if !self.is_token_valid(&config.solver_id) {
+					debug!(
+						"JWT token missing or expired for solver {}, registering new token",
+						config.solver_id
+					);
+					let token_info = self.register_jwt(config).await?;
+					Ok(Some(token_info.token.expose_secret().to_string()))
+				} else {
+					// Return existing valid token
+					if let Some(token_info) = self.jwt_tokens.get(&config.solver_id) {
+						Ok(Some(token_info.token.expose_secret().to_string()))
+					} else {
+						Ok(None)
+					}
+				}
+			} else {
+				Ok(None) // Auth not enabled
+			}
+		} else {
+			Ok(None) // No auth config
+		}
+	}
+
+	/// Get a configured HTTP client (with or without authentication based on solver settings)
+	async fn get_configured_client(
+		&self,
+		config: &SolverRuntimeConfig,
+	) -> AdapterResult<Arc<reqwest::Client>> {
+		// Get JWT token if auth is enabled
+		let jwt_token = self.get_jwt_token(config).await?;
+
+		// Use generic authentication configuration
+		let auth_config = crate::client_cache::AuthConfig::jwt(jwt_token.as_deref());
+
+		// Use client cache with auth-aware support for connection pooling and reuse
+		match &self.client_strategy {
+			ClientStrategy::Cached(cache) => cache.get_client_with_auth(config, &auth_config),
+			ClientStrategy::OnDemand => {
+				// For on-demand strategy, create a basic client
+				self.create_basic_client_with_auth(config, jwt_token.as_deref())
+					.await
+			},
+		}
+	}
+
+	/// Create a basic HTTP client with optional auth headers (for OnDemand strategy)
+	async fn create_basic_client_with_auth(
+		&self,
+		config: &SolverRuntimeConfig,
+		jwt_token: Option<&str>,
+	) -> AdapterResult<Arc<reqwest::Client>> {
 		let mut headers = HeaderMap::new();
 		headers.insert("Content-Type", HeaderValue::from_static("application/json"));
 		headers.insert("User-Agent", HeaderValue::from_static("OIF-Aggregator/1.0"));
 		headers.insert("X-Adapter-Type", HeaderValue::from_static("OIF-v1"));
 
+		// Add JWT token if provided
+		if let Some(token) = jwt_token {
+			let auth_header_value = format!("Bearer {}", token);
+			headers.insert(
+				"Authorization",
+				HeaderValue::from_str(&auth_header_value).map_err(|_| {
+					AdapterError::InvalidResponse {
+						reason: "Failed to create Authorization header".to_string(),
+					}
+				})?,
+			);
+		}
+
 		// Add custom headers from the solver config
-		if let Some(solver_headers) = &solver_config.headers {
+		if let Some(solver_headers) = &config.headers {
 			for (key, value) in solver_headers {
 				if let (Ok(header_name), Ok(header_value)) = (
 					reqwest::header::HeaderName::from_str(key),
@@ -115,38 +382,12 @@ impl OifAdapter {
 		Ok(Arc::new(client))
 	}
 
-	/// Get an HTTP client for the given solver configuration
-	fn get_client(
-		&self,
-		solver_config: &SolverRuntimeConfig,
-	) -> AdapterResult<Arc<reqwest::Client>> {
-		match &self.client_strategy {
-			ClientStrategy::Cached(cache) => {
-				let client_config = ClientConfig::from(solver_config);
-				cache.get_client(&client_config)
-			},
-			ClientStrategy::OnDemand => Self::create_client(solver_config),
-		}
-	}
-
-	/// Create default OIF adapter instance with optimization
-	pub fn with_default_config() -> AdapterResult<Self> {
-		let config = Adapter::new(
-			"oif-v1".to_string(),
-			"OIF v1 Protocol".to_string(),
-			"OIF v1 Adapter".to_string(),
-			"1.0.0".to_string(),
-		);
-
-		Self::new(config)
-	}
-
 	/// Fetch assets from OIF API (private helper method)
 	async fn fetch_assets_from_api(
 		&self,
 		config: &SolverRuntimeConfig,
 	) -> AdapterResult<Vec<Asset>> {
-		let client = self.get_client(config)?;
+		let client = self.get_configured_client(config).await?;
 		let tokens_url = format!("{}/tokens", config.endpoint);
 
 		debug!(
@@ -229,7 +470,7 @@ impl SolverAdapter for OifAdapter {
 		);
 
 		let quote_url = format!("{}/quotes", config.endpoint);
-		let client = self.get_client(config)?;
+		let client = self.get_configured_client(config).await?;
 
 		let response = client
 			.post(quote_url)
@@ -246,7 +487,10 @@ impl SolverAdapter for OifAdapter {
 
 		// Get response body as text first so we can print it
 		let body = response.text().await.unwrap_or_default();
-		debug!("OIF quote endpoint response body: {}", body);
+		debug!(
+			"OIF quote endpoint responded successfully with {} bytes",
+			body.len()
+		);
 
 		// Parse the response body manually since we already consumed it
 		let quote_response: GetQuoteResponse =
@@ -268,7 +512,7 @@ impl SolverAdapter for OifAdapter {
 		);
 
 		let orders_url = format!("{}/orders", config.endpoint);
-		let client = self.get_client(config)?;
+		let client = self.get_configured_client(config).await?;
 
 		debug!(
 			"Submitting order to OIF adapter {} via solver {}",
@@ -294,7 +538,10 @@ impl SolverAdapter for OifAdapter {
 
 		// Get response body as text first so we can print it
 		let body = response.text().await.unwrap_or_default();
-		debug!("OIF order endpoint response body: {}", body);
+		debug!(
+			"OIF order endpoint responded successfully with {} bytes",
+			body.len()
+		);
 
 		// Parse the response body manually since we already consumed it
 		let order_response: SubmitOrderResponse =
@@ -319,7 +566,7 @@ impl SolverAdapter for OifAdapter {
 
 	async fn health_check(&self, config: &SolverRuntimeConfig) -> AdapterResult<bool> {
 		let tokens_url = format!("{}/tokens", config.endpoint);
-		let client = self.get_client(config)?;
+		let client = self.get_configured_client(config).await?;
 
 		debug!(
 			"Health checking OIF adapter at {} (solver: {}) via /tokens endpoint",
@@ -332,7 +579,10 @@ impl SolverAdapter for OifAdapter {
 				if is_healthy {
 					// Optionally validate the response format for more thorough health check
 					let body = response.text().await.unwrap_or_default();
-					debug!("OIF health check endpoint response body: {}", body);
+					debug!(
+						"OIF health check endpoint responded with {} bytes",
+						body.len()
+					);
 
 					match serde_json::from_str::<OifTokensResponse>(&body) {
 						Ok(_) => {
@@ -379,7 +629,7 @@ impl SolverAdapter for OifAdapter {
 		);
 
 		let order_url = format!("{}/orders/{}", config.endpoint, order_id);
-		let client = self.get_client(config)?;
+		let client = self.get_configured_client(config).await?;
 
 		let response = client
 			.get(order_url)
@@ -395,7 +645,10 @@ impl SolverAdapter for OifAdapter {
 
 		// Get response body as text first so we can print it
 		let body = response.text().await.unwrap_or_default();
-		debug!("OIF get order endpoint response body: {}", body);
+		debug!(
+			"OIF get order endpoint responded successfully with {} bytes",
+			body.len()
+		);
 
 		// Parse the response body manually since we already consumed it
 		let order_response: GetOrderResponse =
@@ -655,5 +908,163 @@ mod tests {
 		// within its asset list (including same-chain swaps)
 		// This behavior is tested at the domain level (Solver tests)
 		// rather than the adapter level since adapters just return data
+	}
+
+	#[test]
+	fn test_auth_config_parsing() {
+		let adapter = OifAdapter::with_default_config().unwrap();
+
+		// Test config with full auth configuration
+		let auth_metadata = serde_json::json!({
+			"auth": {
+				"auth_enabled": true,
+				"client_name": "Custom OIF Client",
+				"scopes": ["read", "write", "admin"],
+				"expiry_hours": 48
+			}
+		});
+		let config = SolverRuntimeConfig::new(
+			"test-solver".to_string(),
+			"https://api.example.com".to_string(),
+		)
+		.with_adapter_metadata(auth_metadata);
+
+		let auth_config = adapter.parse_auth_config(&config);
+		assert!(auth_config.is_some());
+		let auth_config = auth_config.unwrap();
+		assert_eq!(auth_config.auth_enabled, Some(true));
+		assert_eq!(
+			auth_config.client_name,
+			Some("Custom OIF Client".to_string())
+		);
+		assert_eq!(
+			auth_config.scopes,
+			Some(vec![
+				"read".to_string(),
+				"write".to_string(),
+				"admin".to_string()
+			])
+		);
+		assert_eq!(auth_config.expiry_hours, Some(48));
+
+		// Test config with minimal auth configuration
+		let minimal_auth_metadata = serde_json::json!({
+			"auth": {
+				"auth_enabled": true
+			}
+		});
+		let config_minimal = SolverRuntimeConfig::new(
+			"test-solver".to_string(),
+			"https://api.example.com".to_string(),
+		)
+		.with_adapter_metadata(minimal_auth_metadata);
+
+		let auth_config_minimal = adapter.parse_auth_config(&config_minimal);
+		assert!(auth_config_minimal.is_some());
+		let auth_config_minimal = auth_config_minimal.unwrap();
+		assert_eq!(auth_config_minimal.auth_enabled, Some(true));
+		assert_eq!(auth_config_minimal.client_name, None); // Should use default
+		assert_eq!(auth_config_minimal.scopes, None); // Should use default
+		assert_eq!(auth_config_minimal.expiry_hours, None); // Should use default
+
+		// Test config with auth disabled
+		let no_auth_metadata = serde_json::json!({
+			"auth": {
+				"auth_enabled": false
+			}
+		});
+		let config_no_auth = SolverRuntimeConfig::new(
+			"test-solver".to_string(),
+			"https://api.example.com".to_string(),
+		)
+		.with_adapter_metadata(no_auth_metadata);
+
+		let auth_config_no_auth = adapter.parse_auth_config(&config_no_auth);
+		assert!(auth_config_no_auth.is_some());
+		let auth_config_no_auth = auth_config_no_auth.unwrap();
+		assert_eq!(auth_config_no_auth.auth_enabled, Some(false));
+
+		// Test config with no metadata
+		let config_no_metadata = SolverRuntimeConfig::new(
+			"test-solver".to_string(),
+			"https://api.example.com".to_string(),
+		);
+		let auth_config_empty = adapter.parse_auth_config(&config_no_metadata);
+		assert!(auth_config_empty.is_none());
+
+		// Test config with metadata but no auth key
+		let non_auth_metadata = serde_json::json!({
+			"timeout_ms": 5000,
+			"retry_attempts": 3,
+			"other_config": "value"
+		});
+		let config_no_auth_key = SolverRuntimeConfig::new(
+			"test-solver".to_string(),
+			"https://api.example.com".to_string(),
+		)
+		.with_adapter_metadata(non_auth_metadata);
+		let auth_config_no_auth_key = adapter.parse_auth_config(&config_no_auth_key);
+		assert!(auth_config_no_auth_key.is_none());
+
+		// Test config with auth alongside other metadata
+		let mixed_metadata = serde_json::json!({
+			"timeout_ms": 5000,
+			"retry_attempts": 3,
+			"auth": {
+				"auth_enabled": true,
+				"expiry_hours": 12
+			},
+			"other_config": "value"
+		});
+		let config_mixed = SolverRuntimeConfig::new(
+			"test-solver".to_string(),
+			"https://api.example.com".to_string(),
+		)
+		.with_adapter_metadata(mixed_metadata);
+		let auth_config_mixed = adapter.parse_auth_config(&config_mixed);
+		assert!(auth_config_mixed.is_some());
+		let auth_config_mixed = auth_config_mixed.unwrap();
+		assert_eq!(auth_config_mixed.auth_enabled, Some(true));
+		assert_eq!(auth_config_mixed.expiry_hours, Some(12));
+	}
+
+	#[test]
+	fn test_jwt_token_validation() {
+		let adapter = OifAdapter::with_default_config().unwrap();
+
+		// Test invalid token (no token exists)
+		assert!(!adapter.is_token_valid("nonexistent-solver"));
+
+		// Test token with future expiration
+		let future_expiry = Utc::now() + chrono::Duration::hours(1);
+		let token_info = JwtTokenInfo {
+			token: SecretString::from("valid-token"),
+			expires_at: Some(future_expiry),
+		};
+		adapter
+			.jwt_tokens
+			.insert("test-solver".to_string(), token_info);
+		assert!(adapter.is_token_valid("test-solver"));
+
+		// Test token that expires soon (within 60 seconds)
+		let soon_expiry = Utc::now() + chrono::Duration::seconds(30);
+		let expiring_token_info = JwtTokenInfo {
+			token: SecretString::from("expiring-token"),
+			expires_at: Some(soon_expiry),
+		};
+		adapter
+			.jwt_tokens
+			.insert("expiring-solver".to_string(), expiring_token_info);
+		assert!(!adapter.is_token_valid("expiring-solver"));
+
+		// Test token with no expiration (should be valid)
+		let no_expiry_token_info = JwtTokenInfo {
+			token: SecretString::from("no-expiry-token"),
+			expires_at: None,
+		};
+		adapter
+			.jwt_tokens
+			.insert("no-expiry-solver".to_string(), no_expiry_token_info);
+		assert!(adapter.is_token_valid("no-expiry-solver"));
 	}
 }
