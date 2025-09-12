@@ -67,11 +67,9 @@ pub enum AuthConfig {
 
 impl AuthConfig {
 	/// Create JWT Bearer authentication
-	pub fn jwt(token: Option<&str>) -> Self {
+	pub fn jwt(token: Option<&SecretString>) -> Self {
 		match token {
-			Some(t) => Self::Bearer {
-				token: SecretString::from(t),
-			},
+			Some(t) => Self::Bearer { token: t.clone() },
 			None => Self::None,
 		}
 	}
@@ -485,10 +483,10 @@ mod tests {
 		);
 
 		// Test with JWT token
-		let jwt_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.signature";
+		let jwt_token = SecretString::from("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.test.signature");
 
 		// Get client twice with same JWT token
-		let auth1 = AuthConfig::jwt(Some(jwt_token));
+		let auth1 = AuthConfig::jwt(Some(&jwt_token));
 		let client1 = cache.get_client_with_auth(&solver_config, &auth1).unwrap();
 		let client2 = cache.get_client_with_auth(&solver_config, &auth1).unwrap();
 
@@ -496,8 +494,9 @@ mod tests {
 		assert!(Arc::ptr_eq(&client1, &client2));
 
 		// Test with different JWT token
-		let different_jwt_token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.different.signature";
-		let auth2 = AuthConfig::jwt(Some(different_jwt_token));
+		let different_jwt_token =
+			SecretString::from("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.different.signature");
+		let auth2 = AuthConfig::jwt(Some(&different_jwt_token));
 		let client3 = cache.get_client_with_auth(&solver_config, &auth2).unwrap();
 
 		// Should be a different client (different token = different cache entry)

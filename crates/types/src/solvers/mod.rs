@@ -59,7 +59,7 @@ impl HealthCheckResult {
 ///
 /// This represents a solver in the domain layer with business logic.
 /// It should be converted from SolverConfig and to SolverStorage/SolverResponse.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Solver {
 	/// Unique identifier for the solver
 	pub solver_id: String,

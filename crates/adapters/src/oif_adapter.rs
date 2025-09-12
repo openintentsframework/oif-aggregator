@@ -288,7 +288,10 @@ impl OifAdapter {
 	}
 
 	/// Get or refresh JWT token for a solver
-	async fn get_jwt_token(&self, config: &SolverRuntimeConfig) -> AdapterResult<Option<String>> {
+	async fn get_jwt_token(
+		&self,
+		config: &SolverRuntimeConfig,
+	) -> AdapterResult<Option<SecretString>> {
 		// Check if auth is enabled
 		if let Some(auth_config) = self.parse_auth_config(config) {
 			if auth_config.auth_enabled.unwrap_or(false) {
@@ -299,11 +302,11 @@ impl OifAdapter {
 						config.solver_id
 					);
 					let token_info = self.register_jwt(config).await?;
-					Ok(Some(token_info.token.expose_secret().to_string()))
+					Ok(Some(token_info.token))
 				} else {
 					// Return existing valid token
 					if let Some(token_info) = self.jwt_tokens.get(&config.solver_id) {
-						Ok(Some(token_info.token.expose_secret().to_string()))
+						Ok(Some(token_info.token.clone()))
 					} else {
 						Ok(None)
 					}
@@ -325,14 +328,14 @@ impl OifAdapter {
 		let jwt_token = self.get_jwt_token(config).await?;
 
 		// Use generic authentication configuration
-		let auth_config = crate::client_cache::AuthConfig::jwt(jwt_token.as_deref());
+		let auth_config = crate::client_cache::AuthConfig::jwt(jwt_token.as_ref());
 
 		// Use client cache with auth-aware support for connection pooling and reuse
 		match &self.client_strategy {
 			ClientStrategy::Cached(cache) => cache.get_client_with_auth(config, &auth_config),
 			ClientStrategy::OnDemand => {
 				// For on-demand strategy, create a basic client
-				self.create_basic_client_with_auth(config, jwt_token.as_deref())
+				self.create_basic_client_with_auth(config, jwt_token.as_ref())
 					.await
 			},
 		}
@@ -342,7 +345,7 @@ impl OifAdapter {
 	async fn create_basic_client_with_auth(
 		&self,
 		config: &SolverRuntimeConfig,
-		jwt_token: Option<&str>,
+		jwt_token: Option<&SecretString>,
 	) -> AdapterResult<Arc<reqwest::Client>> {
 		let mut headers = HeaderMap::new();
 		headers.insert("Content-Type", HeaderValue::from_static("application/json"));
@@ -351,7 +354,7 @@ impl OifAdapter {
 
 		// Add JWT token if provided
 		if let Some(token) = jwt_token {
-			let auth_header_value = format!("Bearer {}", token);
+			let auth_header_value = format!("Bearer {}", token.expose_secret());
 			headers.insert(
 				"Authorization",
 				HeaderValue::from_str(&auth_header_value).map_err(|_| {
