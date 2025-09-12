@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
 use tracing::{debug, info, warn};
+use url::Url;
 
 use crate::client_cache::ClientCache;
 
@@ -183,10 +184,26 @@ impl OifAdapter {
 		}
 	}
 
+	/// Properly construct URL by joining base endpoint with path
+	fn build_url(&self, base_url: &str, path: &str) -> AdapterResult<String> {
+		let base = Url::parse(base_url).map_err(|e| AdapterError::InvalidResponse {
+			reason: format!("Invalid base URL '{}': {}", base_url, e),
+		})?;
+
+		let joined = base.join(path).map_err(|e| AdapterError::InvalidResponse {
+			reason: format!(
+				"Failed to join URL path '{}' to base '{}': {}",
+				path, base_url, e
+			),
+		})?;
+
+		Ok(joined.to_string())
+	}
+
 	/// Register with OIF auth endpoint to get JWT token
 	async fn register_jwt(&self, config: &SolverRuntimeConfig) -> AdapterResult<JwtTokenInfo> {
 		let auth_config = self.parse_auth_config(config);
-		let register_url = format!("{}/register", config.endpoint);
+		let register_url = self.build_url(&config.endpoint, "register")?;
 
 		// Create a basic HTTP client for auth requests (no cached headers to avoid circular dependency)
 		let client = Client::new();
@@ -391,7 +408,7 @@ impl OifAdapter {
 		config: &SolverRuntimeConfig,
 	) -> AdapterResult<Vec<Asset>> {
 		let client = self.get_configured_client(config).await?;
-		let tokens_url = format!("{}/tokens", config.endpoint);
+		let tokens_url = self.build_url(&config.endpoint, "tokens")?;
 
 		debug!(
 			"Fetching supported assets from OIF adapter at {} (solver: {})",
@@ -472,7 +489,7 @@ impl SolverAdapter for OifAdapter {
 			request.requested_outputs.len()
 		);
 
-		let quote_url = format!("{}/quotes", config.endpoint);
+		let quote_url = self.build_url(&config.endpoint, "quotes")?;
 		let client = self.get_configured_client(config).await?;
 
 		let response = client
@@ -514,7 +531,7 @@ impl SolverAdapter for OifAdapter {
 			order.order, self.config.adapter_id, config.solver_id
 		);
 
-		let orders_url = format!("{}/orders", config.endpoint);
+		let orders_url = self.build_url(&config.endpoint, "orders")?;
 		let client = self.get_configured_client(config).await?;
 
 		debug!(
@@ -568,7 +585,7 @@ impl SolverAdapter for OifAdapter {
 	}
 
 	async fn health_check(&self, config: &SolverRuntimeConfig) -> AdapterResult<bool> {
-		let tokens_url = format!("{}/tokens", config.endpoint);
+		let tokens_url = self.build_url(&config.endpoint, "tokens")?;
 		let client = self.get_configured_client(config).await?;
 
 		debug!(
@@ -631,7 +648,8 @@ impl SolverAdapter for OifAdapter {
 			order_id, config.endpoint, config.solver_id
 		);
 
-		let order_url = format!("{}/orders/{}", config.endpoint, order_id);
+		let order_path = format!("orders/{}", order_id);
+		let order_url = self.build_url(&config.endpoint, &order_path)?;
 		let client = self.get_configured_client(config).await?;
 
 		let response = client
@@ -911,6 +929,43 @@ mod tests {
 		// within its asset list (including same-chain swaps)
 		// This behavior is tested at the domain level (Solver tests)
 		// rather than the adapter level since adapters just return data
+	}
+
+	#[test]
+	fn test_url_construction() {
+		let adapter = OifAdapter::new(Adapter::new(
+			"test-adapter".to_string(),
+			"Test adapter".to_string(),
+			"OIF v1".to_string(),
+			"1.0.0".to_string(),
+		))
+		.unwrap();
+
+		// Test basic URL construction
+		let base_url = "https://api.example.com";
+		let result = adapter.build_url(base_url, "tokens").unwrap();
+		assert_eq!(result, "https://api.example.com/tokens");
+
+		// Test with trailing slash - should handle gracefully
+		let base_with_slash = "https://api.example.com/";
+		let result = adapter.build_url(base_with_slash, "tokens").unwrap();
+		assert_eq!(result, "https://api.example.com/tokens");
+
+		// Test with leading slash in path - should handle gracefully
+		let result = adapter.build_url(base_url, "/tokens").unwrap();
+		assert_eq!(result, "https://api.example.com/tokens");
+
+		// Test with both trailing and leading slashes
+		let result = adapter.build_url(base_with_slash, "/tokens").unwrap();
+		assert_eq!(result, "https://api.example.com/tokens");
+
+		// Test with complex path
+		let result = adapter.build_url(base_url, "orders/123").unwrap();
+		assert_eq!(result, "https://api.example.com/orders/123");
+
+		// Test invalid URL
+		let result = adapter.build_url("invalid://::url", "tokens");
+		assert!(result.is_err());
 	}
 
 	#[test]
