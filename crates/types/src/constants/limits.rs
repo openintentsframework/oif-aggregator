@@ -10,7 +10,7 @@ pub const MAX_SOLVER_TIMEOUT_MS: u64 = 30_000; // 30s
 pub const MAX_GLOBAL_TIMEOUT_MS: u64 = 60_000; // 1 minute
 
 /// Default timeout for solver requests in milliseconds
-pub const DEFAULT_SOLVER_TIMEOUT_MS: u64 = 2_000; // 2s
+pub const DEFAULT_SOLVER_TIMEOUT_MS: u64 = 5_000; // 5s
 
 /// Maximum allowed retry attempts for solvers
 pub const MAX_SOLVER_RETRIES: u32 = 10;
@@ -28,7 +28,7 @@ pub const DEFAULT_RATE_LIMIT_BURST_SIZE: u32 = 100;
 pub const RATE_LIMIT_WINDOW_SECONDS: u64 = 60;
 
 /// Default global timeout for quote aggregation in milliseconds
-pub const DEFAULT_GLOBAL_TIMEOUT_MS: u64 = 5_000; // 5s
+pub const DEFAULT_GLOBAL_TIMEOUT_MS: u64 = 10_000; // 10s
 
 /// Default minimum quotes required for aggregation
 pub const DEFAULT_MIN_QUOTES: u64 = 30;
@@ -53,3 +53,7 @@ pub const DEFAULT_RETRY_DELAY_MS: u64 = 100;
 
 /// Default order retention days for cleanup job
 pub const DEFAULT_ORDER_RETENTION_DAYS: u32 = 10;
+
+/// Default behavior for including solvers with unknown compatibility
+/// Set to false for more predictable results - only include solvers with known compatibility
+pub const DEFAULT_INCLUDE_UNKNOWN_COMPATIBILITY: bool = false;

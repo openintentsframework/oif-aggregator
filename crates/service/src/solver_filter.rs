@@ -563,6 +563,13 @@ mod tests {
 		}
 	}
 
+	fn config_include_unknown() -> AggregationConfig {
+		AggregationConfig {
+			include_unknown_compatibility: true,
+			..Default::default()
+		}
+	}
+
 	mod compatibility_analyzer_tests {
 		use super::*;
 
@@ -1262,13 +1269,13 @@ mod tests {
 				vec![(999, "0x9999999999999999999999999999999999999999")], // Output on chain 999
 			);
 			let options = SolverOptions::default();
-			let config = default_config();
+			let config = config_include_unknown();
 
 			let result = service
 				.filter_solvers(&solvers, &request, &options, &config)
 				.await;
 
-			// Should include compatible and unknown (with default config)
+			// Should include compatible and unknown (with include_unknown config for tests)
 			assert_eq!(result.len(), 2);
 			let result_ids: Vec<String> = result.iter().map(|s| s.solver_id.clone()).collect();
 			assert!(result_ids.contains(&"compatible".to_string()));
@@ -1330,7 +1337,7 @@ mod tests {
 				exclude_solvers: Some(vec!["solver2".to_string()]),
 				..Default::default()
 			};
-			let config = default_config();
+			let config = config_include_unknown();
 
 			let result = service
 				.filter_solvers(&solvers, &request, &options, &config)

@@ -136,8 +136,8 @@ pub struct QuoteResponse {
     "totalQuotes": 1,
     "metadata": {
         "totalDurationMs": 1500,
-        "solverTimeoutMs": 2000,
-        "globalTimeoutMs": 4000,
+        "solverTimeoutMs": 5000,
+        "globalTimeoutMs": 10000,
         "earlyTermination": false,
         "totalSolversAvailable": 2,
         "solversQueried": 2,

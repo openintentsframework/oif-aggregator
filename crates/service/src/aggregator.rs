@@ -943,8 +943,8 @@ mod tests {
 	use super::*;
 	use oif_adapters::AdapterRegistry;
 	use oif_types::{
-		AssetRoute, AvailableInput, InteropAddress, QuoteDetails, QuoteRequest, RequestedOutput,
-		SecretString, SolverAdapter, U256,
+		constants::DEFAULT_GLOBAL_TIMEOUT_MS, AssetRoute, AvailableInput, InteropAddress,
+		QuoteDetails, QuoteRequest, RequestedOutput, SecretString, SolverAdapter, U256,
 	};
 
 	/// Simple mock adapter for testing success scenarios
@@ -1457,12 +1457,18 @@ mod tests {
 		];
 
 		let storage = create_test_storage_with_solvers(solvers).await;
-		AggregatorService::new(
+		// Use config that includes unknown solvers for testing mixed success/failure scenarios
+		let test_config = AggregationConfig {
+			include_unknown_compatibility: true,
+			..AggregationConfig::default()
+		};
+		AggregatorService::with_config(
 			storage,
 			Arc::new(create_test_adapter_registry()),
 			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
 				as Arc<dyn IntegrityTrait>,
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
+			test_config,
 		)
 	}
 
@@ -1480,12 +1486,18 @@ mod tests {
 		}
 
 		let storage = create_test_storage_with_solvers(solvers).await;
-		AggregatorService::new(
+		// Use config that includes unknown solvers for testing adapter not found errors
+		let test_config = AggregationConfig {
+			include_unknown_compatibility: true,
+			..AggregationConfig::default()
+		};
+		AggregatorService::with_config(
 			storage,
 			Arc::new(create_test_adapter_registry()),
 			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
 				as Arc<dyn IntegrityTrait>,
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
+			test_config,
 		)
 	}
 
@@ -1597,7 +1609,10 @@ mod tests {
 	async fn test_aggregator_creation() {
 		let aggregator = create_test_aggregator().await;
 		assert_eq!(aggregator.storage.count_solvers().await.unwrap(), 0);
-		assert_eq!(aggregator.config.global_timeout_ms, 5000); // DEFAULT_GLOBAL_TIMEOUT_MS
+		assert_eq!(
+			aggregator.config.global_timeout_ms,
+			DEFAULT_GLOBAL_TIMEOUT_MS
+		); // DEFAULT_GLOBAL_TIMEOUT_MS
 	}
 
 	#[tokio::test]

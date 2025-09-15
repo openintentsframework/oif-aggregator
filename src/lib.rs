@@ -366,11 +366,12 @@ where
 			.unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(log_level));
 
 		// Initialize tracing with the configuration
-		match settings.logging.format {
+		let logging_config = settings.get_logging();
+		match logging_config.format {
 			LogFormat::Json => {
 				let subscriber = tracing_subscriber::fmt().json().with_env_filter(env_filter);
 
-				if settings.logging.structured {
+				if logging_config.structured {
 					subscriber.with_target(true).with_thread_ids(true).init();
 				} else {
 					subscriber.init();
@@ -381,7 +382,7 @@ where
 					.pretty()
 					.with_env_filter(env_filter);
 
-				if settings.logging.structured {
+				if logging_config.structured {
 					subscriber.with_target(true).with_thread_ids(true).init();
 				} else {
 					subscriber.init();
@@ -392,7 +393,7 @@ where
 					.compact()
 					.with_env_filter(env_filter);
 
-				if settings.logging.structured {
+				if logging_config.structured {
 					subscriber.with_target(true).with_thread_ids(true).init();
 				} else {
 					subscriber.init();
@@ -403,8 +404,8 @@ where
 		info!(
 			"Logging configuration applied: level={}, format={:?}, structured={}",
 			settings.get_log_level(),
-			settings.logging.format,
-			settings.logging.structured
+			logging_config.format,
+			logging_config.structured
 		);
 
 		Ok(())
@@ -457,7 +458,7 @@ where
 			Arc::clone(&adapter_registry),
 			Arc::clone(&integrity_service),
 			Arc::clone(&solver_filter_service),
-			settings.aggregation.clone().into(),
+			settings.get_aggregation().into(),
 		)) as Arc<dyn oif_service::AggregatorTrait>;
 		let solver_service = Arc::new(SolverService::new(
 			Arc::clone(&storage_arc),
@@ -607,7 +608,7 @@ where
 		}
 
 		// Apply global rate limiting based on settings at the make_service level
-		let rate_cfg = &settings.environment.rate_limiting;
+		let rate_cfg = &settings.get_environment().rate_limiting;
 		if rate_cfg.enabled {
 			use std::time::Duration;
 			use tower::limit::RateLimitLayer;

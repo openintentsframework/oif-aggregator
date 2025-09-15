@@ -67,6 +67,19 @@ impl TestServer {
 		std::env::set_var("INTEGRITY_SECRET", super::api_fixtures::INTEGRITY_SECRET);
 
 		let mut settings = oif_config::Settings::default();
+		// Ensure aggregation settings exist and set include_unknown_compatibility for tests
+		if let Some(ref mut agg) = settings.aggregation {
+			agg.include_unknown_compatibility = Some(true);
+		} else {
+			settings.aggregation = Some(oif_config::AggregationSettings {
+				global_timeout_ms: None,
+				per_solver_timeout_ms: None,
+				max_concurrent_solvers: None,
+				max_retries_per_solver: None,
+				retry_delay_ms: None,
+				include_unknown_compatibility: Some(true),
+			});
+		}
 		settings.security.integrity_secret =
 			oif_config::ConfigurableValue::from_env("INTEGRITY_SECRET");
 
