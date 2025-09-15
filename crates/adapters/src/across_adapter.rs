@@ -16,6 +16,7 @@ use reqwest::{
 use serde_json;
 use std::{str::FromStr, sync::Arc};
 use tracing::{debug, info, warn};
+use url::Url;
 use uuid::Uuid;
 
 use crate::client_cache::{ClientCache, ClientConfig};
@@ -326,6 +327,27 @@ impl AcrossAdapter {
 		}
 	}
 
+	/// Properly construct URL by joining base endpoint with path
+	fn build_url(&self, base_url: &str, path: &str) -> AdapterResult<String> {
+		let mut base = Url::parse(base_url).map_err(|e| AdapterError::InvalidResponse {
+			reason: format!("Invalid base URL '{}': {}", base_url, e),
+		})?;
+
+		// Ensure the base URL is treated as a directory by ensuring it ends with a slash
+		if !base.path().ends_with('/') {
+			base.set_path(&format!("{}/", base.path()));
+		}
+
+		let joined = base.join(path).map_err(|e| AdapterError::InvalidResponse {
+			reason: format!(
+				"Failed to join URL path '{}' to base '{}': {}",
+				path, base_url, e
+			),
+		})?;
+
+		Ok(joined.to_string())
+	}
+
 	/// Create default Across adapter instance with optimization
 	pub fn with_default_config() -> AdapterResult<Self> {
 		let config = Adapter::new(
@@ -430,7 +452,7 @@ impl SolverAdapter for AcrossAdapter {
 
 		// Build query parameters for Across API
 		let client = self.get_client(config)?;
-		let quote_url = format!("{}/suggested-fees", config.endpoint);
+		let quote_url = self.build_url(&config.endpoint, "suggested-fees")?;
 
 		debug!(
 			"Fetching Across quote from {} (solver: {}) - {}:{} -> {}:{}",
@@ -445,7 +467,7 @@ impl SolverAdapter for AcrossAdapter {
 				("outputToken", output_token.as_str()),
 				("originChainId", &input_chain_id.to_string()),
 				("destinationChainId", &output_chain_id.to_string()),
-				("amount", &input.amount.to_string()),
+				("amount", &output.amount.to_string()),
 			])
 			.send()
 			.await
@@ -499,7 +521,7 @@ impl SolverAdapter for AcrossAdapter {
 		);
 
 		let client = self.get_client(config)?;
-		let routes_url = format!("{}/available-routes", config.endpoint);
+		let routes_url = self.build_url(&config.endpoint, "available-routes")?;
 
 		debug!(
 			"Performing Across adapter health check at {} (solver: {})",
@@ -557,7 +579,7 @@ impl SolverAdapter for AcrossAdapter {
 		);
 
 		let client = self.get_client(config)?;
-		let routes_url = format!("{}/available-routes", config.endpoint);
+		let routes_url = self.build_url(&config.endpoint, "available-routes")?;
 
 		debug!(
 			"Fetching supported routes from Across adapter at {} (solver: {})",
@@ -999,6 +1021,65 @@ mod tests {
 			destination_chain_id, output_token
 		);
 		println!("   Amount: {} wei", amount);
+	}
+
+	#[test]
+	fn test_url_construction() {
+		let adapter = AcrossAdapter::new(Adapter::new(
+			"test-adapter".to_string(),
+			"Test adapter".to_string(),
+			"Across v1".to_string(),
+			"1.0.0".to_string(),
+		))
+		.unwrap();
+
+		// Test basic URL construction
+		let base_url = "https://api.across.to";
+		let result = adapter.build_url(base_url, "suggested-fees").unwrap();
+		assert_eq!(result, "https://api.across.to/suggested-fees");
+
+		// Test with trailing slash - should handle gracefully
+		let base_with_slash = "https://api.across.to/";
+		let result = adapter
+			.build_url(base_with_slash, "suggested-fees")
+			.unwrap();
+		assert_eq!(result, "https://api.across.to/suggested-fees");
+
+		// Test with leading slash in path - should handle gracefully
+		let result = adapter.build_url(base_url, "/suggested-fees").unwrap();
+		assert_eq!(result, "https://api.across.to/suggested-fees");
+
+		// Test with both trailing and leading slashes
+		let result = adapter
+			.build_url(base_with_slash, "/suggested-fees")
+			.unwrap();
+		assert_eq!(result, "https://api.across.to/suggested-fees");
+
+		// Test with available-routes endpoint
+		let result = adapter.build_url(base_url, "available-routes").unwrap();
+		assert_eq!(result, "https://api.across.to/available-routes");
+
+		// Test with path in base URL (the problematic case)
+		let base_with_path = "http://127.0.0.1:3000/api";
+		let result = adapter.build_url(base_with_path, "suggested-fees").unwrap();
+		assert_eq!(result, "http://127.0.0.1:3000/api/suggested-fees");
+
+		// Test with path in base URL and trailing slash
+		let base_with_path_slash = "http://127.0.0.1:3000/api/";
+		let result = adapter
+			.build_url(base_with_path_slash, "suggested-fees")
+			.unwrap();
+		assert_eq!(result, "http://127.0.0.1:3000/api/suggested-fees");
+
+		// Test available-routes with base path
+		let result = adapter
+			.build_url(base_with_path, "available-routes")
+			.unwrap();
+		assert_eq!(result, "http://127.0.0.1:3000/api/available-routes");
+
+		// Test invalid URL
+		let result = adapter.build_url("invalid://::url", "suggested-fees");
+		assert!(result.is_err());
 	}
 
 	#[test]

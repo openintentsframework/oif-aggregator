@@ -81,8 +81,8 @@ The `solverOptions` object provides fine-grained control over solver selection a
 |-------|------|---------|-------|-------------|
 | `includeSolvers` | `array<string>` | All enabled | - | Specific solver IDs to include |
 | `excludeSolvers` | `array<string>` | None | - | Solver IDs to exclude from query |
-| `timeout` | `number` | 5000ms | 100ms - 60000ms | Global timeout for entire aggregation request |
-| `solverTimeout` | `number` | 2000ms | 100ms - 30000ms | Timeout per individual solver |
+| `timeout` | `number` | 10000ms | 100ms - 60000ms | Global timeout for entire aggregation request |
+| `solverTimeout` | `number` | 5000ms | 100ms - 30000ms | Timeout per individual solver |
 | `minQuotes` | `number` | 30 | 1+ | Minimum valid quotes required before responding |
 | `solverSelection` | `string` | "all" | "all", "sampled", "priority" | Strategy for selecting solvers |
 | `sampleSize` | `number` | 30 | 1+ | Max solvers to query in "sampled" mode |
@@ -235,8 +235,8 @@ The system enforces these validation rules for solver options:
     "totalQuotes": 1,
     "metadata": {
         "totalDurationMs": 8,
-        "solverTimeoutMs": 2000,
-        "globalTimeoutMs": 4000,
+        "solverTimeoutMs": 5000,
+        "globalTimeoutMs": 10000,
         "earlyTermination": false,
         "totalSolversAvailable": 1,
         "solversQueried": 1,
@@ -372,7 +372,7 @@ The following settings are configured in your `config.json` file and define the 
 | `max_concurrent_solvers` | Max parallel solver requests | 50 | 1-50 |
 | `max_retries_per_solver` | Retry attempts per failing solver | 2 | 0-3 |
 | `retry_delay_ms` | Delay between retry attempts | 100ms | 100-5000ms |
-| `include_unknown_compatibility` | Include solvers with unknown compatibility | `true` | boolean |
+| `include_unknown_compatibility` | Include solvers with unknown compatibility | `false` | boolean |
 
 
 ```json

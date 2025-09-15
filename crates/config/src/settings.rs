@@ -2,8 +2,9 @@
 
 use crate::{configurable_value::ConfigurableValue, ConfigurableValueError};
 use oif_types::constants::limits::{
-	DEFAULT_GLOBAL_TIMEOUT_MS, DEFAULT_MAX_CONCURRENT_SOLVERS, DEFAULT_MAX_RETRIES_PER_SOLVER,
-	DEFAULT_ORDER_RETENTION_DAYS, DEFAULT_RETRY_DELAY_MS,
+	DEFAULT_GLOBAL_TIMEOUT_MS, DEFAULT_INCLUDE_UNKNOWN_COMPATIBILITY,
+	DEFAULT_MAX_CONCURRENT_SOLVERS, DEFAULT_MAX_RETRIES_PER_SOLVER, DEFAULT_ORDER_RETENTION_DAYS,
+	DEFAULT_RATE_LIMIT_BURST_SIZE, DEFAULT_RATE_LIMIT_REQUESTS_PER_MINUTE, DEFAULT_RETRY_DELAY_MS,
 };
 use oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS;
 use oif_types::solvers::config::SupportedAssetsConfig;
@@ -16,13 +17,57 @@ use tracing::warn;
 /// Main application settings
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Settings {
-	pub server: ServerSettings,
+	#[serde(default = "default_server_settings")]
+	pub server: Option<ServerSettings>,
 	pub solvers: HashMap<String, SolverConfig>,
-	pub aggregation: AggregationSettings,
-	pub environment: EnvironmentSettings,
-	pub logging: LoggingSettings,
+	#[serde(default = "default_aggregation_settings")]
+	pub aggregation: Option<AggregationSettings>,
+	#[serde(default = "default_environment_settings")]
+	pub environment: Option<EnvironmentSettings>,
+	#[serde(default = "default_logging_settings")]
+	pub logging: Option<LoggingSettings>,
 	pub security: SecuritySettings,
 	pub maintenance: Option<MaintenanceSettings>,
+}
+
+/// Default server settings
+fn default_server_settings() -> Option<ServerSettings> {
+	Some(ServerSettings {
+		host: "0.0.0.0".to_string(),
+		port: 4000,
+	})
+}
+
+/// Default aggregation settings
+fn default_aggregation_settings() -> Option<AggregationSettings> {
+	Some(AggregationSettings {
+		global_timeout_ms: Some(DEFAULT_GLOBAL_TIMEOUT_MS),
+		per_solver_timeout_ms: Some(DEFAULT_SOLVER_TIMEOUT_MS),
+		max_concurrent_solvers: Some(DEFAULT_MAX_CONCURRENT_SOLVERS),
+		max_retries_per_solver: Some(DEFAULT_MAX_RETRIES_PER_SOLVER),
+		retry_delay_ms: Some(DEFAULT_RETRY_DELAY_MS),
+		include_unknown_compatibility: Some(DEFAULT_INCLUDE_UNKNOWN_COMPATIBILITY),
+	})
+}
+
+/// Default environment settings
+fn default_environment_settings() -> Option<EnvironmentSettings> {
+	Some(EnvironmentSettings {
+		rate_limiting: RateLimitSettings {
+			enabled: true,
+			requests_per_minute: DEFAULT_RATE_LIMIT_REQUESTS_PER_MINUTE,
+			burst_size: DEFAULT_RATE_LIMIT_BURST_SIZE,
+		},
+	})
+}
+
+/// Default logging settings
+fn default_logging_settings() -> Option<LoggingSettings> {
+	Some(LoggingSettings {
+		level: "info".to_string(),
+		format: LogFormat::Compact,
+		structured: false,
+	})
 }
 
 /// Server configuration
@@ -81,8 +126,8 @@ pub struct NetworkConfig {
 
 /// Aggregation behavior configuration
 ///
-/// All fields are optional - when not specified, sensible defaults from constants will be used.
-/// This allows users to override only the settings they care about.
+/// All fields are optional - when not specified in config file, sensible defaults from constants are used.
+/// Users can override any individual setting by providing explicit values in their config file.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct AggregationSettings {
 	/// Global aggregation timeout in milliseconds (1000-30000ms recommended)
@@ -100,7 +145,7 @@ pub struct AggregationSettings {
 	/// Delay between retry attempts in milliseconds (100-5000ms recommended)
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub retry_delay_ms: Option<u64>,
-	/// Whether to include solvers with unknown compatibility in results (default: true)
+	/// Whether to include solvers with unknown compatibility in results (default: false)
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub include_unknown_compatibility: Option<bool>,
 }
@@ -124,7 +169,7 @@ impl Default for AggregationConfig {
 			max_concurrent_solvers: DEFAULT_MAX_CONCURRENT_SOLVERS,
 			max_retries_per_solver: DEFAULT_MAX_RETRIES_PER_SOLVER,
 			retry_delay_ms: DEFAULT_RETRY_DELAY_MS,
-			include_unknown_compatibility: true, // Default to including unknown solvers
+			include_unknown_compatibility: DEFAULT_INCLUDE_UNKNOWN_COMPATIBILITY,
 		}
 	}
 }
@@ -145,7 +190,9 @@ impl From<AggregationSettings> for AggregationConfig {
 				.max_retries_per_solver
 				.unwrap_or(DEFAULT_MAX_RETRIES_PER_SOLVER),
 			retry_delay_ms: settings.retry_delay_ms.unwrap_or(DEFAULT_RETRY_DELAY_MS),
-			include_unknown_compatibility: settings.include_unknown_compatibility.unwrap_or(true),
+			include_unknown_compatibility: settings
+				.include_unknown_compatibility
+				.unwrap_or(DEFAULT_INCLUDE_UNKNOWN_COMPATIBILITY),
 		}
 	}
 }
@@ -211,31 +258,11 @@ pub struct MaintenanceSettings {
 impl Default for Settings {
 	fn default() -> Self {
 		Self {
-			server: ServerSettings {
-				host: "0.0.0.0".to_string(),
-				port: 4000,
-			},
+			server: default_server_settings(),
 			solvers: HashMap::new(),
-			aggregation: AggregationSettings {
-				global_timeout_ms: None,
-				per_solver_timeout_ms: None,
-				max_concurrent_solvers: None,
-				max_retries_per_solver: None,
-				retry_delay_ms: None,
-				include_unknown_compatibility: None,
-			},
-			environment: EnvironmentSettings {
-				rate_limiting: RateLimitSettings {
-					enabled: false,
-					requests_per_minute: 100,
-					burst_size: 10,
-				},
-			},
-			logging: LoggingSettings {
-				level: "info".to_string(),
-				format: LogFormat::Pretty,
-				structured: false,
-			},
+			aggregation: default_aggregation_settings(),
+			environment: default_environment_settings(),
+			logging: default_logging_settings(),
 			security: SecuritySettings {
 				integrity_secret: ConfigurableValue::from_env("INTEGRITY_SECRET"),
 			},
@@ -244,7 +271,139 @@ impl Default for Settings {
 	}
 }
 
+/// Configuration validation errors
+#[derive(Debug, thiserror::Error)]
+pub enum ConfigValidationError {
+	#[error("Critical configuration missing: {field}")]
+	MissingCriticalConfig { field: String },
+	#[error("Invalid configuration for {field}: {reason}")]
+	InvalidConfig { field: String, reason: String },
+	#[error("Security configuration error: {0}")]
+	SecurityError(#[from] ConfigurableValueError),
+}
+
 impl Settings {
+	/// Validate critical configuration and fail fast if anything is wrong
+	/// Call this at startup to ensure the app crashes early with clear error messages
+	pub fn validate(&self) -> Result<(), ConfigValidationError> {
+		// Validate critical required configs
+		if self.solvers.is_empty() {
+			return Err(ConfigValidationError::MissingCriticalConfig {
+				field: "solvers".to_string(),
+			});
+		}
+
+		// Validate enabled solvers exist
+		let enabled_count = self.solvers.values().filter(|s| s.enabled).count();
+		if enabled_count == 0 {
+			return Err(ConfigValidationError::InvalidConfig {
+				field: "solvers".to_string(),
+				reason: "No enabled solvers found. At least one solver must be enabled."
+					.to_string(),
+			});
+		}
+
+		// Validate security configuration can be resolved
+		self.security
+			.integrity_secret
+			.resolve()
+			.map_err(ConfigValidationError::SecurityError)?;
+
+		// Validate individual solver configurations
+		for (solver_id, solver_config) in &self.solvers {
+			if solver_config.solver_id != *solver_id {
+				return Err(ConfigValidationError::InvalidConfig {
+					field: format!("solvers.{}", solver_id),
+					reason: format!(
+						"Solver ID mismatch: key '{}' != config.solver_id '{}'",
+						solver_id, solver_config.solver_id
+					),
+				});
+			}
+
+			if solver_config.endpoint.is_empty() {
+				return Err(ConfigValidationError::InvalidConfig {
+					field: format!("solvers.{}.endpoint", solver_id),
+					reason: "Endpoint cannot be empty".to_string(),
+				});
+			}
+
+			if solver_config.adapter_id.is_empty() {
+				return Err(ConfigValidationError::InvalidConfig {
+					field: format!("solvers.{}.adapter_id", solver_id),
+					reason: "Adapter ID cannot be empty".to_string(),
+				});
+			}
+		}
+
+		// Validate optional configurations have sensible values if present
+		if let Some(server) = &self.server {
+			if server.host.is_empty() {
+				return Err(ConfigValidationError::InvalidConfig {
+					field: "server.host".to_string(),
+					reason: "Host cannot be empty".to_string(),
+				});
+			}
+			if server.port == 0 {
+				return Err(ConfigValidationError::InvalidConfig {
+					field: "server.port".to_string(),
+					reason: "Port cannot be 0".to_string(),
+				});
+			}
+		}
+
+		if let Some(logging) = &self.logging {
+			if logging.level.is_empty() {
+				return Err(ConfigValidationError::InvalidConfig {
+					field: "logging.level".to_string(),
+					reason: "Log level cannot be empty".to_string(),
+				});
+			}
+		}
+
+		Ok(())
+	}
+
+	/// Get server configuration with defaults
+	pub fn get_server(&self) -> ServerSettings {
+		self.server.clone().unwrap_or_else(|| ServerSettings {
+			host: "0.0.0.0".to_string(),
+			port: 4000,
+		})
+	}
+
+	/// Get logging configuration with defaults  
+	pub fn get_logging(&self) -> LoggingSettings {
+		self.logging.clone().unwrap_or_else(|| LoggingSettings {
+			level: "info".to_string(),
+			format: LogFormat::Pretty,
+			structured: false,
+		})
+	}
+
+	/// Get environment configuration with defaults
+	pub fn get_environment(&self) -> EnvironmentSettings {
+		self.environment.clone().unwrap_or(EnvironmentSettings {
+			rate_limiting: RateLimitSettings {
+				enabled: false,
+				requests_per_minute: DEFAULT_RATE_LIMIT_REQUESTS_PER_MINUTE,
+				burst_size: DEFAULT_RATE_LIMIT_BURST_SIZE,
+			},
+		})
+	}
+
+	/// Get aggregation configuration with defaults
+	pub fn get_aggregation(&self) -> AggregationSettings {
+		self.aggregation.clone().unwrap_or(AggregationSettings {
+			global_timeout_ms: Some(DEFAULT_GLOBAL_TIMEOUT_MS),
+			per_solver_timeout_ms: Some(DEFAULT_SOLVER_TIMEOUT_MS),
+			max_concurrent_solvers: Some(DEFAULT_MAX_CONCURRENT_SOLVERS),
+			max_retries_per_solver: Some(DEFAULT_MAX_RETRIES_PER_SOLVER),
+			retry_delay_ms: Some(DEFAULT_RETRY_DELAY_MS),
+			include_unknown_compatibility: Some(DEFAULT_INCLUDE_UNKNOWN_COMPATIBILITY),
+		})
+	}
+
 	/// Get server bind address
 	/// Priority: 1) Environment variables (HOST, PORT) 2) Config file 3) Defaults
 	pub fn bind_address(&self) -> String {
@@ -254,31 +413,32 @@ impl Settings {
 	}
 
 	/// Get resolved server host with environment variable override
-	/// Priority: 1) HOST env var 2) Config file value
+	/// Priority: 1) HOST env var 2) Config file value 3) Default
 	pub fn get_host(&self) -> String {
-		std::env::var("HOST").unwrap_or_else(|_| self.server.host.clone())
+		std::env::var("HOST").unwrap_or_else(|_| self.get_server().host)
 	}
 
 	/// Get resolved server port with environment variable override
-	/// Priority: 1) PORT env var 2) Config file value
+	/// Priority: 1) PORT env var 2) Config file value 3) Default
 	pub fn get_port(&self) -> u16 {
 		if let Ok(port_str) = std::env::var("PORT") {
 			port_str.parse::<u16>().unwrap_or_else(|_| {
+				let default_port = self.get_server().port;
 				warn!(
 					"Warning: Invalid PORT environment variable '{}', using config file value {}",
-					port_str, self.server.port
+					port_str, default_port
 				);
-				self.server.port
+				default_port
 			})
 		} else {
-			self.server.port
+			self.get_server().port
 		}
 	}
 
 	/// Get resolved log level with environment variable override
-	/// Priority: 1) RUST_LOG env var 2) Config file value
+	/// Priority: 1) RUST_LOG env var 2) Config file value 3) Default
 	pub fn get_log_level(&self) -> String {
-		std::env::var("RUST_LOG").unwrap_or_else(|_| self.logging.level.clone())
+		std::env::var("RUST_LOG").unwrap_or_else(|_| self.get_logging().level)
 	}
 
 	/// Get enabled solvers only
@@ -346,5 +506,189 @@ mod tests {
 			},
 			_ => panic!("Expected routes mode with auto-discovery"),
 		}
+	}
+
+	#[test]
+	fn test_validation_fails_without_solvers() {
+		let settings = Settings {
+			server: None,
+			solvers: HashMap::new(), // Empty solvers
+			aggregation: None,
+			environment: None,
+			logging: None,
+			security: SecuritySettings {
+				integrity_secret: ConfigurableValue::from_plain("test-secret"),
+			},
+			maintenance: None,
+		};
+
+		let result = settings.validate();
+		assert!(result.is_err());
+		if let Err(ConfigValidationError::MissingCriticalConfig { field }) = result {
+			assert_eq!(field, "solvers");
+		} else {
+			panic!("Expected MissingCriticalConfig error for solvers");
+		}
+	}
+
+	#[test]
+	fn test_validation_fails_without_enabled_solvers() {
+		let mut solvers = HashMap::new();
+		solvers.insert(
+			"test-solver".to_string(),
+			SolverConfig {
+				solver_id: "test-solver".to_string(),
+				adapter_id: "oif-v1".to_string(),
+				endpoint: "https://api.test.com".to_string(),
+				enabled: false, // Disabled
+				headers: None,
+				adapter_metadata: None,
+				name: None,
+				description: None,
+				supported_assets: None,
+			},
+		);
+
+		let settings = Settings {
+			server: None,
+			solvers,
+			aggregation: None,
+			environment: None,
+			logging: None,
+			security: SecuritySettings {
+				integrity_secret: ConfigurableValue::from_plain("test-secret"),
+			},
+			maintenance: None,
+		};
+
+		let result = settings.validate();
+		assert!(result.is_err());
+		if let Err(ConfigValidationError::InvalidConfig { field, reason }) = result {
+			assert_eq!(field, "solvers");
+			assert!(reason.contains("No enabled solvers found"));
+		} else {
+			panic!("Expected InvalidConfig error for disabled solvers");
+		}
+	}
+
+	#[test]
+	fn test_validation_passes_with_valid_config() {
+		let mut solvers = HashMap::new();
+		solvers.insert(
+			"test-solver".to_string(),
+			SolverConfig {
+				solver_id: "test-solver".to_string(),
+				adapter_id: "oif-v1".to_string(),
+				endpoint: "https://api.test.com".to_string(),
+				enabled: true,
+				headers: None,
+				adapter_metadata: None,
+				name: None,
+				description: None,
+				supported_assets: None,
+			},
+		);
+
+		let settings = Settings {
+			server: None,
+			solvers,
+			aggregation: None,
+			environment: None,
+			logging: None,
+			security: SecuritySettings {
+				integrity_secret: ConfigurableValue::from_plain("test-secret"),
+			},
+			maintenance: None,
+		};
+
+		let result = settings.validate();
+		assert!(result.is_ok(), "Validation should pass with valid config");
+	}
+
+	#[test]
+	fn test_validation_fails_with_solver_id_mismatch() {
+		let mut solvers = HashMap::new();
+		solvers.insert(
+			"different-key".to_string(),
+			SolverConfig {
+				solver_id: "test-solver".to_string(), // Different from key
+				adapter_id: "oif-v1".to_string(),
+				endpoint: "https://api.test.com".to_string(),
+				enabled: true,
+				headers: None,
+				adapter_metadata: None,
+				name: None,
+				description: None,
+				supported_assets: None,
+			},
+		);
+
+		let settings = Settings {
+			server: None,
+			solvers,
+			aggregation: None,
+			environment: None,
+			logging: None,
+			security: SecuritySettings {
+				integrity_secret: ConfigurableValue::from_plain("test-secret"),
+			},
+			maintenance: None,
+		};
+
+		let result = settings.validate();
+		assert!(result.is_err());
+		if let Err(ConfigValidationError::InvalidConfig { field, reason }) = result {
+			assert!(field.contains("different-key"));
+			assert!(reason.contains("Solver ID mismatch"));
+		} else {
+			panic!("Expected InvalidConfig error for solver ID mismatch");
+		}
+	}
+
+	#[test]
+	fn test_get_methods_return_defaults() {
+		let settings = Settings {
+			server: None,
+			solvers: HashMap::new(),
+			aggregation: None,
+			environment: None,
+			logging: None,
+			security: SecuritySettings {
+				integrity_secret: ConfigurableValue::from_plain("test-secret"),
+			},
+			maintenance: None,
+		};
+
+		// Should return defaults when fields are None
+		let server = settings.get_server();
+		assert_eq!(server.host, "0.0.0.0");
+		assert_eq!(server.port, 4000);
+
+		let logging = settings.get_logging();
+		assert_eq!(logging.level, "info");
+		assert_eq!(logging.structured, false);
+
+		let environment = settings.get_environment();
+		assert_eq!(environment.rate_limiting.enabled, false);
+		assert_eq!(
+			environment.rate_limiting.requests_per_minute,
+			DEFAULT_RATE_LIMIT_REQUESTS_PER_MINUTE
+		);
+		assert_eq!(
+			environment.rate_limiting.burst_size,
+			DEFAULT_RATE_LIMIT_BURST_SIZE
+		);
+
+		let aggregation = settings.get_aggregation();
+		assert_eq!(
+			aggregation.global_timeout_ms,
+			Some(DEFAULT_GLOBAL_TIMEOUT_MS)
+		);
+		assert_eq!(
+			aggregation.include_unknown_compatibility,
+			Some(DEFAULT_INCLUDE_UNKNOWN_COMPATIBILITY)
+		);
+		// Verify the default is false
+		assert_eq!(DEFAULT_INCLUDE_UNKNOWN_COMPATIBILITY, false);
 	}
 }

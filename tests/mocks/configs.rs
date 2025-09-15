@@ -12,31 +12,31 @@ impl MockConfigs {
 	/// Create minimal test settings with sensible defaults
 	pub fn test_settings() -> Settings {
 		Settings {
-			server: ServerSettings {
+			server: Some(ServerSettings {
 				host: "127.0.0.1".to_string(),
 				port: 3001, // Different port for testing
-			},
+			}),
 			solvers: HashMap::new(), // Empty for testing
-			aggregation: AggregationSettings {
+			aggregation: Some(AggregationSettings {
 				global_timeout_ms: Some(5000), // Override default for testing
 				per_solver_timeout_ms: Some(2000),
 				max_concurrent_solvers: Some(5), // Lower concurrency for testing
 				max_retries_per_solver: Some(2), // Fewer retries for faster tests
 				retry_delay_ms: Some(500),       // Faster retries for testing
 				include_unknown_compatibility: Some(true), // Include unknown solvers for testing
-			},
-			environment: EnvironmentSettings {
+			}),
+			environment: Some(EnvironmentSettings {
 				rate_limiting: RateLimitSettings {
 					enabled: false,
 					requests_per_minute: 60,
 					burst_size: 10,
 				},
-			},
-			logging: LoggingSettings {
+			}),
+			logging: Some(LoggingSettings {
 				level: "debug".to_string(),
 				format: LogFormat::Compact,
 				structured: false,
-			},
+			}),
 			security: SecuritySettings {
 				integrity_secret: oif_config::ConfigurableValue::from_plain("test-secret"),
 			},
@@ -47,19 +47,23 @@ impl MockConfigs {
 	/// Create test settings with rate limiting enabled
 	pub fn test_settings_with_rate_limit(requests_per_minute: u32, burst_size: u32) -> Settings {
 		let mut settings = Self::test_settings();
-		settings.environment.rate_limiting = RateLimitSettings {
-			enabled: true,
-			requests_per_minute,
-			burst_size,
-		};
+		if let Some(ref mut env) = settings.environment {
+			env.rate_limiting = RateLimitSettings {
+				enabled: true,
+				requests_per_minute,
+				burst_size,
+			};
+		}
 		settings
 	}
 
 	/// Create test settings for production-like environment
 	pub fn test_settings_production() -> Settings {
 		let mut settings = Self::test_settings();
-		settings.logging.level = "info".to_string();
-		settings.logging.format = LogFormat::Json;
+		if let Some(ref mut logging) = settings.logging {
+			logging.level = "info".to_string();
+			logging.format = LogFormat::Json;
+		}
 		settings
 	}
 

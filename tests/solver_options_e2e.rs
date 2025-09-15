@@ -39,8 +39,8 @@ async fn test_solver_options_default_behavior() {
 	let metadata = &body["metadata"];
 
 	// Verify default values
-	assert_eq!(metadata["globalTimeoutMs"].as_u64().unwrap(), 5000); // Default 5s (from config settings)
-	assert_eq!(metadata["solverTimeoutMs"].as_u64().unwrap(), 2000); // Default 2s
+	assert_eq!(metadata["globalTimeoutMs"].as_u64().unwrap(), 10000); // Default 5s (from config settings)
+	assert_eq!(metadata["solverTimeoutMs"].as_u64().unwrap(), 5000); // Default 2s
 	assert_eq!(metadata["minQuotesRequired"].as_u64().unwrap(), 30); // Default 30
 	assert_eq!(metadata["solverSelectionMode"].as_str().unwrap(), "all"); // Default "all"
 	assert!(metadata["totalSolversAvailable"].as_u64().unwrap() > 0);
