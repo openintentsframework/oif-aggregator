@@ -369,24 +369,17 @@
       },
       "Asset": {
         "type": "object",
-        "description": "Supported blockchain asset/token",
+        "description": "Supported blockchain asset/token (internal model with InteropAddress)",
         "required": [
           "address",
           "symbol",
           "name",
-          "decimals",
-          "chain_id"
+          "decimals"
         ],
         "properties": {
           "address": {
-            "type": "string",
-            "description": "Contract address (use \"0x0\" for native tokens)"
-          },
-          "chain_id": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Chain ID where this asset exists",
-            "minimum": 0
+            "$ref": "#/components/schemas/InteropAddress",
+            "description": "Asset address in ERC-7930 interoperable format"
           },
           "decimals": {
             "type": "integer",

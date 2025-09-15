@@ -84,6 +84,7 @@ mod tests {
 				last_updated: chrono::Utc::now(),
 			},
 			headers: None,
+			adapter_metadata: None,
 		}
 	}
 
