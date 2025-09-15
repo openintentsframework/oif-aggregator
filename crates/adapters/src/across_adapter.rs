@@ -467,7 +467,7 @@ impl SolverAdapter for AcrossAdapter {
 				("outputToken", output_token.as_str()),
 				("originChainId", &input_chain_id.to_string()),
 				("destinationChainId", &output_chain_id.to_string()),
-				("amount", &output.amount.to_string()),
+				("amount", &input.amount.to_string()),
 			])
 			.send()
 			.await
