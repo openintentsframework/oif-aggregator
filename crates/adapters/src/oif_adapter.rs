@@ -368,7 +368,7 @@ impl OifAdapter {
 			})?;
 
 		let status = response.status();
-		debug!("📡 Token refresh HTTP response status: {}", status);
+		debug!("Token refresh HTTP response status: {}", status);
 
 		if !status.is_success() {
 			let error_body = response.text().await.unwrap_or_default();
@@ -477,7 +477,6 @@ impl OifAdapter {
 					let now = Utc::now();
 
 					// Check if access token is still valid
-					// Use normal 5-minute buffer to prevent refresh loops in testing
 					let access_token_valid =
 						token_info
 							.access_token_expires_at
@@ -679,7 +678,7 @@ impl OifAdapter {
 
 		Ok(assets)
 	}
-	
+
 	/// Check if an access token exists and is still valid (for testing)
 	#[cfg(test)]
 	pub fn is_token_valid(&self, solver_id: &str) -> bool {
