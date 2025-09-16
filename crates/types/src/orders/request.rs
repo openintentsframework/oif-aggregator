@@ -9,7 +9,7 @@ use utoipa::ToSchema;
 
 use crate::QuoteResponse;
 
-/// API request body for submitting orders
+/// API request body for submitting orders - flexible design for multi-adapter support
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[cfg_attr(feature = "openapi", schema(example = json!({
@@ -38,21 +38,22 @@ use crate::QuoteResponse;
         "provider": "Example Solver v1.0",
         "integrityChecksum": "hmac-sha256:a1b2c3d4e5f6..."
     },
-    "sponsor": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8",
     "signature": "0x1234567890abcdef...",
-    "order": "0xfedcba0987654321..."
+    "metadata": {
+        "order": "0xfedcba0987654321...",
+        "sponsor": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
+    }
 })))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct OrderRequest {
 	/// Quote data
 	pub quote_response: QuoteResponse,
 
-	/// User's wallet address
-	pub sponsor: String,
-
 	/// User's signature for authorization
 	pub signature: String,
 
-	/// Order data
-	pub order: String,
+	/// Adapter-specific metadata that can store order data, sponsor info, and other custom data
+	/// This allows flexibility for different adapters to include the specific information they need
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub metadata: Option<serde_json::Value>,
 }

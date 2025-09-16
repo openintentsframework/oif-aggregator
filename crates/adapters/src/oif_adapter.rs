@@ -29,6 +29,22 @@ use crate::client_cache::ClientCache;
 /// This prevents race conditions where tokens expire between validation and actual use
 pub const JWT_TOKEN_EXPIRY_BUFFER_MINUTES: i64 = 5;
 
+/// Request structure for OIF order submission API
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OifOrderRequest {
+	/// Quote ID from the original quote request
+	pub quote_id: String,
+	/// User's signature for authorization
+	pub signature: String,
+	/// Order data (optional, from metadata)
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub order: Option<String>,
+	/// User's wallet address (optional, from metadata)
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub sponsor: Option<String>,
+}
+
 /// OIF tokens response models
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct OifTokensResponse {
@@ -763,8 +779,8 @@ impl SolverAdapter for OifAdapter {
 		config: &SolverRuntimeConfig,
 	) -> AdapterResult<SubmitOrderResponse> {
 		debug!(
-			"Submitting order {} to OIF adapter {} via solver {}",
-			order.order, self.config.adapter_id, config.solver_id
+			"Submitting order with quote_id {} to OIF adapter {} via solver {}",
+			order.quote_response.quote_id, self.config.adapter_id, config.solver_id
 		);
 
 		let orders_url = self.build_url(&config.endpoint, "orders")?;
@@ -775,9 +791,28 @@ impl SolverAdapter for OifAdapter {
 			self.config.adapter_id, config.solver_id
 		);
 
+		// Create OIF-specific order request from the generic SubmitOrderRequest
+		let oif_request = OifOrderRequest {
+			quote_id: order.quote_response.quote_id.clone(),
+			signature: order.signature.clone(),
+			// Extract optional fields from metadata
+			order: order
+				.metadata
+				.as_ref()
+				.and_then(|m| m.get("order"))
+				.and_then(|v| v.as_str())
+				.map(|s| s.to_string()),
+			sponsor: order
+				.metadata
+				.as_ref()
+				.and_then(|m| m.get("sponsor"))
+				.and_then(|v| v.as_str())
+				.map(|s| s.to_string()),
+		};
+
 		let response = client
 			.post(orders_url)
-			.json(&order)
+			.json(&oif_request)
 			.send()
 			.await
 			.map_err(AdapterError::HttpError)?;

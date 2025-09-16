@@ -645,17 +645,14 @@
       },
       "OrderRequest": {
         "type": "object",
-        "description": "API request body for submitting orders",
+        "description": "API request body for submitting orders - flexible design for multi-adapter support",
         "required": [
           "quoteResponse",
-          "sponsor",
-          "signature",
-          "order"
+          "signature"
         ],
         "properties": {
-          "order": {
-            "type": "string",
-            "description": "Order data"
+          "metadata": {
+            "description": "Adapter-specific metadata that can store order data, sponsor info, and other custom data\nThis allows flexibility for different adapters to include the specific information they need"
           },
           "quoteResponse": {
             "$ref": "#/components/schemas/QuoteResponse",
@@ -664,15 +661,14 @@
           "signature": {
             "type": "string",
             "description": "User's signature for authorization"
-          },
-          "sponsor": {
-            "type": "string",
-            "description": "User's wallet address"
           }
         },
         "additionalProperties": false,
         "example": {
-          "order": "0xfedcba0987654321...",
+          "metadata": {
+            "order": "0xfedcba0987654321...",
+            "sponsor": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
+          },
           "quoteResponse": {
             "details": {
               "requestedOutputs": [
@@ -698,8 +694,7 @@
             "quoteId": "6a22e92f-3e5d-4f05-ab5f-007b01e58b21",
             "solverId": "example-solver"
           },
-          "signature": "0x1234567890abcdef...",
-          "sponsor": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
+          "signature": "0x1234567890abcdef..."
         }
       },
       "OrderResponse": {
@@ -1043,10 +1038,10 @@
         "example": {
           "metadata": {
             "earlyTermination": false,
-            "globalTimeoutMs": 4000,
+            "globalTimeoutMs": 10000,
             "minQuotesRequired": 30,
             "solverSelectionMode": "all",
-            "solverTimeoutMs": 2000,
+            "solverTimeoutMs": 5000,
             "solversQueried": 2,
             "solversRespondedError": 0,
             "solversRespondedSuccess": 1,
