@@ -25,6 +25,10 @@ use url::Url;
 
 use crate::client_cache::ClientCache;
 
+/// JWT token expiry buffer in minutes - tokens are considered invalid this many minutes before actual expiry
+/// This prevents race conditions where tokens expire between validation and actual use
+pub const JWT_TOKEN_EXPIRY_BUFFER_MINUTES: i64 = 5;
+
 /// OIF tokens response models
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct OifTokensResponse {
@@ -481,10 +485,12 @@ impl OifAdapter {
 						token_info
 							.access_token_expires_at
 							.map_or(true, |expires_at| {
-								let is_valid = now < expires_at - Duration::minutes(5); // Normal 5-minute buffer
+								let is_valid = now
+									< expires_at
+										- Duration::minutes(JWT_TOKEN_EXPIRY_BUFFER_MINUTES);
 								debug!(
-								"Access token for solver {}: expires_at={:?}, now={:?}, buffer=5min, valid={}",
-								config.solver_id, expires_at, now, is_valid
+								"Access token for solver {}: expires_at={:?}, now={:?}, buffer={}min, valid={}",
+								config.solver_id, expires_at, now, JWT_TOKEN_EXPIRY_BUFFER_MINUTES, is_valid
 							);
 								is_valid
 							});
@@ -500,9 +506,13 @@ impl OifAdapter {
 					}
 
 					// Access token expired, check if refresh token is still valid
-					let refresh_token_valid = token_info
-						.refresh_token_expires_at
-						.map_or(true, |expires_at| now < expires_at - Duration::minutes(5));
+					let refresh_token_valid =
+						token_info
+							.refresh_token_expires_at
+							.map_or(true, |expires_at| {
+								now < expires_at
+									- Duration::minutes(JWT_TOKEN_EXPIRY_BUFFER_MINUTES)
+							});
 
 					if refresh_token_valid {
 						// Try to refresh the access token
@@ -684,8 +694,8 @@ impl OifAdapter {
 	pub fn is_token_valid(&self, solver_id: &str) -> bool {
 		if let Some(token_info) = self.jwt_tokens.get(solver_id) {
 			if let Some(expires_at) = token_info.access_token_expires_at {
-				// Consider token invalid if it expires within the next 60 seconds
-				Utc::now() < expires_at - Duration::seconds(60)
+				// Consider token invalid if it expires within the buffer time
+				Utc::now() < expires_at - Duration::minutes(JWT_TOKEN_EXPIRY_BUFFER_MINUTES)
 			} else {
 				// If no expiration info, assume token is valid
 				true
