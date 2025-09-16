@@ -28,7 +28,10 @@ pub async fn post_orders(
 	State(state): State<AppState>,
 	Json(request): Json<OrderRequest>,
 ) -> Result<Json<OrderResponse>, (StatusCode, Json<ErrorResponse>)> {
-	debug!("Received order submission for user {}", request.sponsor);
+	debug!(
+		"Received order submission for quote {}",
+		request.quote_response.quote_id
+	);
 
 	let order: oif_types::Order = match state.order_service.submit_order(&request).await {
 		Ok(order) => order,

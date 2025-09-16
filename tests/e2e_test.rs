@@ -163,16 +163,11 @@ async fn test_orders_endpoint_with_mock_data() {
 	}
 
 	let first_quote = &quotes[0];
-	let user_addr = quote_request["user"]
-		.as_str()
-		.expect("No user in quote request");
 
 	// Create order request using the real quote
 	let order_request = serde_json::json!({
-		"sponsor": user_addr,
 		"quoteResponse": first_quote,
 		"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
-		"order": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	});
 
 	// Submit the order

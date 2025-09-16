@@ -43,16 +43,11 @@ async fn test_orders_stateless_flow() {
 	}
 
 	let first_quote = &quotes[0];
-	let user_addr = quote_request["user"]
-		.as_str()
-		.expect("No user in quote request");
 
 	// Step 2: Create order with real quote (stateless flow with quoteResponse)
 	let order_request = serde_json::json!({
-		"sponsor": user_addr,
 		"quoteResponse": first_quote,
 		"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
-		"order": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	});
 
 	let resp = client

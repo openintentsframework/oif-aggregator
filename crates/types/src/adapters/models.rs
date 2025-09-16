@@ -1,7 +1,10 @@
 //! Shared models for adapter communication
 //! Used by SolverAdapter trait implementations for request/response data
 
-use crate::models::{InteropAddress, Lock, U256};
+use crate::{
+	models::{InteropAddress, Lock, U256},
+	QuoteResponse,
+};
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
@@ -24,6 +27,10 @@ pub struct GetQuoteRequest {
 	pub min_valid_until: Option<u64>,
 	/// User preference for optimization
 	pub preference: Option<QuotePreference>,
+	/// Optional metadata for custom adapter use
+	/// This allows adapters to receive additional context from quote requests
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub metadata: Option<serde_json::Value>,
 }
 
 // ================================
@@ -493,18 +500,21 @@ pub struct SubmitOrderResponse {
 	pub message: Option<String>,
 }
 
-/// Response containing order details.
+/// Request for submitting orders to adapters - designed for multi-adapter flexibility
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SubmitOrderRequest {
-	pub order: String,
-
-	/// User's wallet address
-	pub sponsor: String,
+	/// Quote response from the original quote request
+	pub quote_response: QuoteResponse,
 
 	/// User's signature for authorization
 	pub signature: String,
+
+	/// Adapter-specific metadata that can store order data, sponsor info, and other custom data
+	/// This allows each adapter to include the specific information it needs for order execution
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub metadata: Option<serde_json::Value>,
 }
 
 // ================================
@@ -527,6 +537,7 @@ impl TryFrom<crate::QuoteRequest> for GetQuoteRequest {
 			requested_outputs: quote_request.requested_outputs,
 			min_valid_until: quote_request.min_valid_until,
 			preference: quote_request.preference,
+			metadata: quote_request.metadata,
 		})
 	}
 }
@@ -536,9 +547,9 @@ impl TryFrom<crate::orders::OrderRequest> for SubmitOrderRequest {
 
 	fn try_from(req: crate::orders::OrderRequest) -> Result<Self, Self::Error> {
 		Ok(Self {
-			order: req.order,
-			sponsor: req.sponsor,
+			quote_response: req.quote_response,
 			signature: req.signature,
+			metadata: req.metadata,
 		})
 	}
 }

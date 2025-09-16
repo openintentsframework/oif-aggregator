@@ -110,11 +110,7 @@ impl ApiFixtures {
 
 	/// Valid order request (with quote response)
 	pub fn valid_order_request() -> Value {
-		let user_addr =
-			InteropAddress::from_chain_and_address(1, TestConstants::TEST_USER_ADDRESS).unwrap();
-
 		json!({
-			"sponsor": user_addr.to_hex(),
 			"quoteResponse": {
 				"quoteId": "test-quote-123",
 				"solverId": "mock-demo-solver",
@@ -129,7 +125,6 @@ impl ApiFixtures {
 				"integrityChecksum": "test-checksum"
 			},
 			"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
-			"order": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 		})
 	}
 
@@ -267,36 +262,21 @@ impl ApiFixtures {
 
 		// Create OrderRequest
 		json!({
-			"sponsor": user_addr.to_hex(),
 			"quoteResponse": quote_response,
 			"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
-			"order": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 		})
 	}
 
 	pub fn invalid_order_request_missing_quote() -> Value {
-		// Create a request missing quote data
-		let user_addr =
-			InteropAddress::from_chain_and_address(1, "0x1234567890123456789012345678901234567890")
-				.unwrap();
-
 		json!({
-			"sponsor": user_addr.to_hex(),
 			"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
-			"order": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 			// Missing quoteResponse
 		})
 	}
 
 	pub fn order_request_with_invalid_quote_id() -> Value {
-		let user_addr =
-			InteropAddress::from_chain_and_address(1, "0x1234567890123456789012345678901234567890")
-				.unwrap();
-
 		json!({
-			"sponsor": user_addr.to_hex(),
 			"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
-			"order": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef",
 			"quoteId": "non-existent-quote-id"
 		})
 	}

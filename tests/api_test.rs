@@ -243,16 +243,11 @@ async fn test_post_orders_with_quote_response() {
 	}
 
 	let first_quote = &quotes[0];
-	let user_addr = quote_request["user"]
-		.as_str()
-		.expect("No user in quote request");
 
 	// Step 2: Create order request with the real quote
 	let order_request = json!({
-		"sponsor": user_addr,
 		"quoteResponse": first_quote,
 		"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
-		"order": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	});
 
 	let response = app
@@ -414,15 +409,10 @@ async fn test_quote_and_order_workflow() {
 	}
 
 	let first_quote = &quotes[0];
-	let user_addr = quote_request["user"]
-		.as_str()
-		.expect("No user in quote request");
 
 	let order_request = serde_json::json!({
-			"sponsor": user_addr,
 			"quoteResponse": first_quote,
 			"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
-			"order": "0xabcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef"
 	});
 
 	let order_response = app

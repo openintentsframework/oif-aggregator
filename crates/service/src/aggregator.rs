@@ -1529,6 +1529,7 @@ mod tests {
 			min_valid_until: None,
 			preference: None,
 			solver_options: None,
+			metadata: None,
 		}
 	}
 
@@ -1696,6 +1697,7 @@ mod tests {
 			min_valid_until: None,
 			preference: None,
 			solver_options: None,
+			metadata: None,
 		};
 
 		let result = aggregator.fetch_quotes(request).await;
@@ -1727,6 +1729,7 @@ mod tests {
 			min_valid_until: None,
 			preference: None,
 			solver_options: None,
+			metadata: None,
 		};
 
 		let result = aggregator.fetch_quotes(request).await;
@@ -1987,6 +1990,7 @@ mod tests {
 			min_valid_until: None,
 			preference: None,
 			solver_options: None,
+			metadata: None,
 		};
 
 		let result = aggregator.fetch_quotes(request).await;
@@ -2028,6 +2032,7 @@ mod tests {
 			min_valid_until: None,
 			preference: None,
 			solver_options: None,
+			metadata: None,
 		};
 
 		// This particular validation might not catch the user mismatch,

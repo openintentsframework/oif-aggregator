@@ -978,6 +978,7 @@ mod tests {
 			}],
 			min_valid_until: Some(300), // 5 minutes
 			preference: None,
+			metadata: None,
 		};
 
 		// Serialize to JSON for Postman usage
@@ -1174,6 +1175,7 @@ mod tests {
 			}],
 			min_valid_until: Some(600),
 			preference: None,
+			metadata: None,
 		};
 
 		let mock_config = SolverRuntimeConfig {
