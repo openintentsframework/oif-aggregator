@@ -9,7 +9,7 @@ use reqwest::{
 use std::{str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
 use oif_types::adapters::models::{SubmitOrderRequest, SubmitOrderResponse};
 use oif_types::adapters::GetOrderResponse;
@@ -20,7 +20,7 @@ use oif_types::{AdapterError, AdapterResult, SolverAdapter, SupportedAssetsData}
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::collections::HashMap;
-use tracing::{debug, info, warn};
+use tracing::{debug, error, info, warn};
 use url::Url;
 
 use crate::client_cache::ClientCache;
@@ -68,32 +68,62 @@ struct JwtRegisterRequest {
 	pub client_name: Option<String>,
 	/// Requested scopes (if not provided, defaults to basic read permissions)
 	pub scopes: Option<Vec<String>>,
-	/// Optional custom token expiry in hours
-	pub expiry_hours: Option<u32>,
 }
 
-/// JWT register response
+/// Register response from OIF auth endpoint
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct JwtRegisterResponse {
-	/// The generated JWT token
-	pub token: SecretString,
+struct RegisterResponse {
+	/// The generated access token
+	pub access_token: String,
+	/// The generated refresh token
+	pub refresh_token: String,
 	/// Client identifier
 	pub client_id: String,
-	/// Token expiry time in Unix timestamp
-	pub expires_at: i64,
+	/// Access token expiry time in Unix timestamp
+	pub access_token_expires_at: i64,
+	/// Refresh token expiry time in Unix timestamp
+	pub refresh_token_expires_at: i64,
 	/// Granted scopes
 	pub scopes: Vec<String>,
 	/// Token type (always "Bearer")
 	pub token_type: String,
 }
 
+/// Refresh token request
+#[derive(Debug, Serialize, Deserialize)]
+struct RefreshTokenRequest {
+	/// The refresh token
+	pub refresh_token: String,
+}
+
+/// Refresh token response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RefreshTokenResponse {
+	/// The new access token
+	pub access_token: String,
+	/// The new refresh token (optional, may be same as original)
+	pub refresh_token: Option<String>,
+	/// Access token expiry time in Unix timestamp
+	pub access_token_expires_at: i64,
+	/// Refresh token expiry time in Unix timestamp (optional)
+	pub refresh_token_expires_at: Option<i64>,
+	/// Token type (always "Bearer")
+	pub token_type: String,
+	/// Scopes
+	pub scopes: Vec<String>,
+}
+
 /// Cached JWT token information
 #[derive(Debug, Clone)]
 struct JwtTokenInfo {
-	/// The JWT token
-	token: SecretString,
-	/// When the token expires
-	expires_at: Option<DateTime<Utc>>,
+	/// The access token
+	access_token: SecretString,
+	/// The refresh token
+	refresh_token: SecretString,
+	/// When the access token expires
+	access_token_expires_at: Option<DateTime<Utc>>,
+	/// When the refresh token expires
+	refresh_token_expires_at: Option<DateTime<Utc>>,
 }
 
 /// Client strategy for the OIF adapter
@@ -169,21 +199,6 @@ impl OifAdapter {
 		})
 	}
 
-	/// Check if a JWT token exists and is still valid
-	fn is_token_valid(&self, solver_id: &str) -> bool {
-		if let Some(token_info) = self.jwt_tokens.get(solver_id) {
-			if let Some(expires_at) = token_info.expires_at {
-				// Consider token invalid if it expires within the next 60 seconds
-				Utc::now() < expires_at - chrono::Duration::seconds(60)
-			} else {
-				// If no expiration info, assume token is valid
-				true
-			}
-		} else {
-			false
-		}
-	}
-
 	/// Properly construct URL by joining base endpoint with path
 	fn build_url(&self, base_url: &str, path: &str) -> AdapterResult<String> {
 		let mut base = Url::parse(base_url).map_err(|e| AdapterError::InvalidResponse {
@@ -208,7 +223,7 @@ impl OifAdapter {
 	/// Register with OIF auth endpoint to get JWT token
 	async fn register_jwt(&self, config: &SolverRuntimeConfig) -> AdapterResult<JwtTokenInfo> {
 		let auth_config = self.parse_auth_config(config);
-		let register_url = self.build_url(&config.endpoint, "register")?;
+		let register_url = self.build_url(&config.endpoint, "auth/register")?;
 
 		// Create a basic HTTP client for auth requests (no cached headers to avoid circular dependency)
 		let client = Client::new();
@@ -236,12 +251,6 @@ impl OifAdapter {
 					.and_then(|c| c.scopes.clone())
 					.unwrap_or(default_scopes),
 			),
-			expiry_hours: Some(
-				auth_config
-					.as_ref()
-					.and_then(|c| c.expiry_hours)
-					.unwrap_or(24), // Default to 24 hours
-			),
 		};
 
 		let response = client
@@ -262,39 +271,55 @@ impl OifAdapter {
 
 		let body = response.text().await.unwrap_or_default();
 
-		let register_response: JwtRegisterResponse =
+		let register_response: RegisterResponse =
 			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
 				reason: format!("Failed to parse OIF auth register response: {}", e),
 			})?;
 
 		// Log non-sensitive parts of the response for debugging
 		debug!(
-			"OIF auth register successful for client_id: {}, expires_at: {}, scopes: {:?}, token_type: {}",
+			"OIF auth register successful for client_id: {}, access_token_expires_at: {}, refresh_token_expires_at: {}, scopes: {:?}, token_type: {}",
 			register_response.client_id,
-			register_response.expires_at,
+			register_response.access_token_expires_at,
+			register_response.refresh_token_expires_at,
 			register_response.scopes,
 			register_response.token_type
 		);
 
-		// Convert Unix timestamp to DateTime
-		let expires_at = if register_response.expires_at > 0 {
+		// Convert Unix timestamps to DateTime
+		let access_token_expires_at = if register_response.access_token_expires_at > 0 {
 			Some(
-				DateTime::<Utc>::from_timestamp(register_response.expires_at, 0).ok_or_else(
-					|| AdapterError::InvalidResponse {
+				DateTime::<Utc>::from_timestamp(register_response.access_token_expires_at, 0)
+					.ok_or_else(|| AdapterError::InvalidResponse {
 						reason: format!(
-							"Invalid expires_at timestamp: {}",
-							register_response.expires_at
+							"Invalid access_token_expires_at timestamp: {}",
+							register_response.access_token_expires_at
 						),
-					},
-				)?,
+					})?,
+			)
+		} else {
+			None
+		};
+
+		let refresh_token_expires_at = if register_response.refresh_token_expires_at > 0 {
+			Some(
+				DateTime::<Utc>::from_timestamp(register_response.refresh_token_expires_at, 0)
+					.ok_or_else(|| AdapterError::InvalidResponse {
+						reason: format!(
+							"Invalid refresh_token_expires_at timestamp: {}",
+							register_response.refresh_token_expires_at
+						),
+					})?,
 			)
 		} else {
 			None
 		};
 
 		let token_info = JwtTokenInfo {
-			token: register_response.token,
-			expires_at,
+			access_token: SecretString::new(register_response.access_token),
+			refresh_token: SecretString::new(register_response.refresh_token),
+			access_token_expires_at,
+			refresh_token_expires_at,
 		};
 
 		// Cache the token
@@ -302,11 +327,137 @@ impl OifAdapter {
 			.insert(config.solver_id.clone(), token_info.clone());
 
 		info!(
-			"Successfully registered JWT token for solver {} (expires: {:?}, scopes: {:?})",
-			config.solver_id, expires_at, register_response.scopes
+			"Successfully registered JWT tokens for solver {} (access expires: {:?}, refresh expires: {:?}, scopes: {:?})",
+			config.solver_id, access_token_expires_at, refresh_token_expires_at, register_response.scopes
 		);
 
 		Ok(token_info)
+	}
+
+	/// Refresh JWT tokens using refresh token
+	async fn refresh_jwt(
+		&self,
+		config: &SolverRuntimeConfig,
+		token_info: &JwtTokenInfo,
+	) -> AdapterResult<JwtTokenInfo> {
+		let refresh_url = self.build_url(&config.endpoint, "auth/refresh")?;
+
+		// Create a basic HTTP client for auth requests
+		let client = Client::new();
+
+		info!(
+			"Starting token refresh for solver {} at endpoint {}",
+			config.solver_id, refresh_url
+		);
+
+		let refresh_request = RefreshTokenRequest {
+			refresh_token: token_info.refresh_token.expose_secret().to_string(),
+		};
+
+		let response = client
+			.post(&refresh_url)
+			.json(&refresh_request)
+			.send()
+			.await
+			.map_err(|e| {
+				error!(
+					"HTTP error during token refresh for solver {}: {}",
+					config.solver_id, e
+				);
+				AdapterError::HttpError(e)
+			})?;
+
+		let status = response.status();
+		debug!("📡 Token refresh HTTP response status: {}", status);
+
+		if !status.is_success() {
+			let error_body = response.text().await.unwrap_or_default();
+			error!(
+				"OIF auth refresh endpoint returned status {} for solver {}: {}",
+				status, config.solver_id, error_body
+			);
+			return Err(AdapterError::InvalidResponse {
+				reason: format!(
+					"OIF auth refresh endpoint returned status {}: {}",
+					status, error_body
+				),
+			});
+		}
+
+		let body = response.text().await.unwrap_or_default();
+
+		let refresh_response: RefreshTokenResponse =
+			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Failed to parse OIF auth refresh response: {}", e),
+			})?;
+
+		// Log non-sensitive parts of the response for debugging
+		debug!(
+			"OIF auth refresh successful for solver {}: access_token_expires_at: {}, token_type: {}, scopes: {:?}",
+			config.solver_id,
+			refresh_response.access_token_expires_at,
+			refresh_response.token_type,
+			refresh_response.scopes
+		);
+
+		// Convert Unix timestamp to DateTime
+		let access_token_expires_at = if refresh_response.access_token_expires_at > 0 {
+			let parsed_datetime =
+				DateTime::<Utc>::from_timestamp(refresh_response.access_token_expires_at, 0)
+					.ok_or_else(|| AdapterError::InvalidResponse {
+						reason: format!(
+							"Invalid access_token_expires_at timestamp: {}",
+							refresh_response.access_token_expires_at
+						),
+					})?;
+			Some(parsed_datetime)
+		} else {
+			None
+		};
+
+		let refresh_token_expires_at =
+			if let Some(expires_at) = refresh_response.refresh_token_expires_at {
+				if expires_at > 0 {
+					Some(
+						DateTime::<Utc>::from_timestamp(expires_at, 0).ok_or_else(|| {
+							AdapterError::InvalidResponse {
+								reason: format!(
+									"Invalid refresh_token_expires_at timestamp: {}",
+									expires_at
+								),
+							}
+						})?,
+					)
+				} else {
+					None
+				}
+			} else {
+				// If not provided, keep the original refresh token expiry
+				token_info.refresh_token_expires_at
+			};
+
+		let new_token_info = JwtTokenInfo {
+			access_token: SecretString::new(refresh_response.access_token),
+			refresh_token: if let Some(new_refresh_token) = refresh_response.refresh_token {
+				SecretString::new(new_refresh_token)
+			} else {
+				// Keep the original refresh token if none provided
+				token_info.refresh_token.clone()
+			},
+			access_token_expires_at,
+			refresh_token_expires_at,
+		};
+
+		// Cache the new token
+		self.jwt_tokens
+			.insert(config.solver_id.clone(), new_token_info.clone());
+
+		info!(
+			"Successfully refreshed JWT tokens for solver {} (access expires: {:?}, refresh expires: {:?})",
+			config.solver_id, access_token_expires_at, refresh_token_expires_at
+		);
+
+		Ok(new_token_info)
 	}
 
 	/// Get or refresh JWT token for a solver
@@ -317,22 +468,77 @@ impl OifAdapter {
 		// Check if auth is enabled
 		if let Some(auth_config) = self.parse_auth_config(config) {
 			if auth_config.auth_enabled.unwrap_or(false) {
-				// Check if we have a valid token
-				if !self.is_token_valid(&config.solver_id) {
-					debug!(
-						"JWT token missing or expired for solver {}, registering new token",
-						config.solver_id
-					);
-					let token_info = self.register_jwt(config).await?;
-					Ok(Some(token_info.token))
-				} else {
-					// Return existing valid token
-					if let Some(token_info) = self.jwt_tokens.get(&config.solver_id) {
-						Ok(Some(token_info.token.clone()))
+				// Check if we have tokens cached (clone to avoid holding lock during refresh)
+				let cached_token_info = self
+					.jwt_tokens
+					.get(&config.solver_id)
+					.map(|token| token.clone());
+				if let Some(token_info) = cached_token_info {
+					let now = Utc::now();
+
+					// Check if access token is still valid
+					// Use normal 5-minute buffer to prevent refresh loops in testing
+					let access_token_valid =
+						token_info
+							.access_token_expires_at
+							.map_or(true, |expires_at| {
+								let is_valid = now < expires_at - Duration::minutes(5); // Normal 5-minute buffer
+								debug!(
+								"Access token for solver {}: expires_at={:?}, now={:?}, buffer=5min, valid={}",
+								config.solver_id, expires_at, now, is_valid
+							);
+								is_valid
+							});
+
+					if access_token_valid {
+						// Access token is still valid, return it
+						return Ok(Some(token_info.access_token.clone()));
 					} else {
-						Ok(None)
+						debug!(
+							"Access token expired for solver {}, will attempt refresh",
+							config.solver_id
+						);
+					}
+
+					// Access token expired, check if refresh token is still valid
+					let refresh_token_valid = token_info
+						.refresh_token_expires_at
+						.map_or(true, |expires_at| now < expires_at - Duration::minutes(5));
+
+					if refresh_token_valid {
+						// Try to refresh the access token
+						info!(
+							"Access token expired for solver {}, attempting to refresh using refresh token",
+							config.solver_id
+						);
+						match self.refresh_jwt(config, &token_info).await {
+							Ok(new_token_info) => {
+								info!(
+									"Successfully refreshed access token for solver {}",
+									config.solver_id
+								);
+								return Ok(Some(new_token_info.access_token));
+							},
+							Err(e) => {
+								error!(
+									"Failed to refresh token for solver {}: {}. Falling back to registration",
+									config.solver_id, e
+								);
+								// Fall through to registration
+							},
+						}
+					} else {
+						warn!(
+							"Both access and refresh tokens expired for solver {}, re-registering",
+							config.solver_id
+						);
 					}
 				}
+
+				// No cached tokens, or refresh failed, or tokens expired - register new tokens
+				debug!("Registering new JWT tokens for solver {}", config.solver_id);
+				let token_info = self.register_jwt(config).await?;
+				Ok(Some(token_info.access_token))
 			} else {
 				Ok(None) // Auth not enabled
 			}
@@ -472,6 +678,22 @@ impl OifAdapter {
 		);
 
 		Ok(assets)
+	}
+	
+	/// Check if an access token exists and is still valid (for testing)
+	#[cfg(test)]
+	pub fn is_token_valid(&self, solver_id: &str) -> bool {
+		if let Some(token_info) = self.jwt_tokens.get(solver_id) {
+			if let Some(expires_at) = token_info.access_token_expires_at {
+				// Consider token invalid if it expires within the next 60 seconds
+				Utc::now() < expires_at - Duration::seconds(60)
+			} else {
+				// If no expiration info, assume token is valid
+				true
+			}
+		} else {
+			false
+		}
 	}
 }
 
@@ -1111,8 +1333,10 @@ mod tests {
 		// Test token with future expiration
 		let future_expiry = Utc::now() + chrono::Duration::hours(1);
 		let token_info = JwtTokenInfo {
-			token: SecretString::from("valid-token"),
-			expires_at: Some(future_expiry),
+			access_token: SecretString::from("valid-access-token"),
+			refresh_token: SecretString::from("valid-refresh-token"),
+			access_token_expires_at: Some(future_expiry),
+			refresh_token_expires_at: Some(future_expiry + chrono::Duration::days(7)),
 		};
 		adapter
 			.jwt_tokens
@@ -1122,8 +1346,10 @@ mod tests {
 		// Test token that expires soon (within 60 seconds)
 		let soon_expiry = Utc::now() + chrono::Duration::seconds(30);
 		let expiring_token_info = JwtTokenInfo {
-			token: SecretString::from("expiring-token"),
-			expires_at: Some(soon_expiry),
+			access_token: SecretString::from("expiring-access-token"),
+			refresh_token: SecretString::from("expiring-refresh-token"),
+			access_token_expires_at: Some(soon_expiry),
+			refresh_token_expires_at: Some(soon_expiry + chrono::Duration::days(7)),
 		};
 		adapter
 			.jwt_tokens
@@ -1132,8 +1358,10 @@ mod tests {
 
 		// Test token with no expiration (should be valid)
 		let no_expiry_token_info = JwtTokenInfo {
-			token: SecretString::from("no-expiry-token"),
-			expires_at: None,
+			access_token: SecretString::from("no-expiry-access-token"),
+			refresh_token: SecretString::from("no-expiry-refresh-token"),
+			access_token_expires_at: None,
+			refresh_token_expires_at: None,
 		};
 		adapter
 			.jwt_tokens
