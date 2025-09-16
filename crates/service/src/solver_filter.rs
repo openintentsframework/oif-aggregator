@@ -549,6 +549,7 @@ mod tests {
 			min_valid_until: None,
 			preference: None,
 			solver_options: None,
+			metadata: None,
 		}
 	}
 

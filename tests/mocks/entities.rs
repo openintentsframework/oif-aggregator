@@ -210,6 +210,7 @@ impl MockEntities {
 			min_valid_until: Some(300),
 			preference: None,
 			solver_options: None,
+			metadata: None,
 		}
 	}
 
@@ -244,6 +245,7 @@ impl MockEntities {
 			min_valid_until: Some(300),
 			preference: None,
 			solver_options: None,
+			metadata: None,
 		}
 	}
 }

@@ -110,9 +110,6 @@ impl ApiFixtures {
 
 	/// Valid order request (with quote response)
 	pub fn valid_order_request() -> Value {
-		let user_addr =
-			InteropAddress::from_chain_and_address(1, TestConstants::TEST_USER_ADDRESS).unwrap();
-
 		json!({
 			"quoteResponse": {
 				"quoteId": "test-quote-123",
@@ -271,11 +268,6 @@ impl ApiFixtures {
 	}
 
 	pub fn invalid_order_request_missing_quote() -> Value {
-		// Create a request missing quote data
-		let user_addr =
-			InteropAddress::from_chain_and_address(1, "0x1234567890123456789012345678901234567890")
-				.unwrap();
-
 		json!({
 			"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
 			// Missing quoteResponse

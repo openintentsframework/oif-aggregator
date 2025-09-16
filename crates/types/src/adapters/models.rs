@@ -27,6 +27,10 @@ pub struct GetQuoteRequest {
 	pub min_valid_until: Option<u64>,
 	/// User preference for optimization
 	pub preference: Option<QuotePreference>,
+	/// Optional metadata for custom adapter use
+	/// This allows adapters to receive additional context from quote requests
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub metadata: Option<serde_json::Value>,
 }
 
 // ================================
@@ -533,6 +537,7 @@ impl TryFrom<crate::QuoteRequest> for GetQuoteRequest {
 			requested_outputs: quote_request.requested_outputs,
 			min_valid_until: quote_request.min_valid_until,
 			preference: quote_request.preference,
+			metadata: quote_request.metadata,
 		})
 	}
 }

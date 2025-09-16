@@ -206,6 +206,10 @@ pub struct QuoteRequest {
 	pub preference: Option<QuotePreference>,
 	/// Solver options
 	pub solver_options: Option<SolverOptions>,
+	/// Optional metadata for custom adapter use
+	/// This allows clients to include adapter-specific information in quote requests
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub metadata: Option<serde_json::Value>,
 }
 
 impl QuoteRequest {
@@ -339,6 +343,7 @@ mod tests {
 			min_valid_until: Some(300), // 5 minutes
 			preference: Some(QuotePreference::Price),
 			solver_options: None,
+			metadata: None,
 		}
 	}
 

@@ -11,8 +11,11 @@ use std::{str::FromStr, sync::Arc};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
-use oif_types::adapters::models::{SubmitOrderRequest, SubmitOrderResponse};
+use oif_types::adapters::models::{
+	AvailableInput, QuotePreference, RequestedOutput, SubmitOrderRequest, SubmitOrderResponse,
+};
 use oif_types::adapters::GetOrderResponse;
+use oif_types::models::InteropAddress;
 use oif_types::{
 	Adapter, Asset, GetQuoteRequest, GetQuoteResponse, SecretString, SolverRuntimeConfig,
 };
@@ -29,6 +32,24 @@ use crate::client_cache::ClientCache;
 /// This prevents race conditions where tokens expire between validation and actual use
 pub const JWT_TOKEN_EXPIRY_BUFFER_MINUTES: i64 = 5;
 
+/// Request structure for OIF quote API (external API format)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct OifQuoteRequest {
+	/// User making the request in ERC-7930 interoperable format
+	pub user: InteropAddress,
+	/// Available inputs (order significant if preference is 'input-priority')
+	pub available_inputs: Vec<AvailableInput>,
+	/// Requested outputs
+	pub requested_outputs: Vec<RequestedOutput>,
+	/// Minimum quote validity duration in seconds
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub min_valid_until: Option<u64>,
+	/// User preference for optimization
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub preference: Option<QuotePreference>,
+}
+
 /// Request structure for OIF order submission API
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -43,6 +64,21 @@ struct OifOrderRequest {
 	/// User's wallet address (optional, from metadata)
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub sponsor: Option<String>,
+}
+
+impl TryFrom<&GetQuoteRequest> for OifQuoteRequest {
+	type Error = AdapterError;
+
+	fn try_from(request: &GetQuoteRequest) -> Result<Self, Self::Error> {
+		Ok(OifQuoteRequest {
+			user: request.user.clone(),
+			available_inputs: request.available_inputs.clone(),
+			requested_outputs: request.requested_outputs.clone(),
+			min_valid_until: request.min_valid_until,
+			preference: request.preference.clone(),
+			// metadata is intentionally excluded for external API
+		})
+	}
 }
 
 /// OIF tokens response models
@@ -744,9 +780,12 @@ impl SolverAdapter for OifAdapter {
 		let quote_url = self.build_url(&config.endpoint, "quotes")?;
 		let client = self.get_configured_client(config).await?;
 
+		// Convert to OIF-specific request format (automatically excludes metadata)
+		let oif_request = OifQuoteRequest::try_from(request)?;
+
 		let response = client
 			.post(quote_url)
-			.json(&request)
+			.json(&oif_request)
 			.send()
 			.await
 			.map_err(AdapterError::HttpError)?;
