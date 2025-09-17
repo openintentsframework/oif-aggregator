@@ -10,6 +10,56 @@ use utoipa::ToSchema;
 use super::{Solver, SolverStatus};
 use crate::models::{Asset, AssetRouteResponse};
 
+/// Asset response format for API with separate address and chain ID fields
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[cfg_attr(feature = "openapi", schema(example = json!({
+    "address": "0xA0b86a33E6441E7C81F7C93451777f5F4dE78e86",
+    "chainId": 1,
+    "symbol": "USDC", 
+    "name": "USD Coin",
+    "decimals": 6
+})))]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct AssetResponse {
+	/// Token contract address
+	pub address: String,
+	/// Chain ID where the token exists
+	pub chain_id: u64,
+	/// Token symbol (e.g., "USDC", "ETH", "WBTC")
+	pub symbol: String,
+	/// Human-readable token name (e.g., "USD Coin", "Ethereum")
+	pub name: String,
+	/// Number of decimal places
+	pub decimals: u8,
+}
+
+impl From<Asset> for AssetResponse {
+	fn from(asset: Asset) -> Self {
+		Self {
+			address: asset.plain_address(),
+			chain_id: asset.chain_id().unwrap_or(0), // Default to 0 if chain ID extraction fails
+			symbol: asset.symbol,
+			name: asset.name,
+			decimals: asset.decimals,
+		}
+	}
+}
+
+impl TryFrom<AssetResponse> for Asset {
+	type Error = crate::quotes::errors::QuoteValidationError;
+
+	fn try_from(response: AssetResponse) -> Result<Self, Self::Error> {
+		Asset::from_chain_and_address(
+			response.chain_id,
+			response.address,
+			response.symbol,
+			response.name,
+			response.decimals,
+		)
+	}
+}
+
 /// Supported assets response format for API
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
@@ -17,7 +67,10 @@ use crate::models::{Asset, AssetRouteResponse};
 pub enum SupportedAssetsResponse {
 	/// Asset-based: supports any-to-any within asset list (including same-chain)
 	#[serde(rename = "assets")]
-	Assets { assets: Vec<Asset>, source: String },
+	Assets {
+		assets: Vec<AssetResponse>,
+		source: String,
+	},
 	/// Route-based: supports specific origin->destination pairs
 	#[serde(rename = "routes")]
 	Routes {
@@ -37,15 +90,14 @@ pub enum SupportedAssetsResponse {
     "endpoint": "https://api.example-solver.com",
     "status": "active",
     "supportedAssets": {
-        "type": "routes",
-        "routes": [
+        "type": "assets",
+        "assets": [
             {
-                "originChainId": 1,
-                "originTokenAddress": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-                "originTokenSymbol": "WETH",
-                "destinationChainId": 10,
-                "destinationTokenAddress": "0x4200000000000000000000000000000000000006",
-                "destinationTokenSymbol": "WETH"
+                "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+                "chainId": 1,
+                "symbol": "WETH",
+                "name": "Wrapped Ether",
+                "decimals": 18
             }
         ],
         "source": "autoDiscovered"
@@ -82,11 +134,11 @@ pub struct SolverResponse {
                 "type": "assets",
                 "assets": [
                     {
-                        "address": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                        "address": "0xA0b86a33E6441E7C81F7C93451777f5F4dE78e86",
+                        "chainId": 1,
                         "symbol": "USDC",
                         "name": "USD Coin",
-                        "decimals": 6,
-                        "chainId": 1
+                        "decimals": 6
                     }
                 ],
                 "source": "autoDiscovered"
@@ -147,8 +199,12 @@ impl TryFrom<&Solver> for SolverResponse {
 					crate::solvers::AssetSource::Config => "config".to_string(),
 					crate::solvers::AssetSource::AutoDiscovered => "autoDiscovered".to_string(),
 				};
+				let asset_responses: Vec<AssetResponse> = assets
+					.iter()
+					.map(|asset| AssetResponse::from(asset.clone()))
+					.collect();
 				SupportedAssetsResponse::Assets {
-					assets: assets.clone(),
+					assets: asset_responses,
 					source: source_str,
 				}
 			},
@@ -278,5 +334,97 @@ mod tests {
 		let response = SolversResponse::try_from(solvers).unwrap();
 
 		assert_eq!(response.total_solvers, 2);
+	}
+
+	#[test]
+	fn test_asset_response_conversion() {
+		// Test conversion from Asset to AssetResponse
+		let asset = Asset::from_chain_and_address(
+			1,
+			"0xA0b86a33E6441E7C81F7C93451777f5F4dE78e86".to_string(),
+			"USDC".to_string(),
+			"USD Coin".to_string(),
+			6,
+		)
+		.unwrap();
+
+		let asset_response = AssetResponse::from(asset);
+
+		assert_eq!(
+			asset_response.address,
+			"0xa0b86a33e6441e7c81f7c93451777f5f4de78e86"
+		);
+		assert_eq!(asset_response.chain_id, 1);
+		assert_eq!(asset_response.symbol, "USDC");
+		assert_eq!(asset_response.name, "USD Coin");
+		assert_eq!(asset_response.decimals, 6);
+
+		// Test reverse conversion
+		let converted_asset = Asset::try_from(asset_response).unwrap();
+		assert_eq!(converted_asset.chain_id().unwrap(), 1);
+		assert_eq!(
+			converted_asset.plain_address(),
+			"0xa0b86a33e6441e7c81f7c93451777f5f4de78e86"
+		);
+		assert_eq!(converted_asset.symbol, "USDC");
+		assert_eq!(converted_asset.name, "USD Coin");
+		assert_eq!(converted_asset.decimals, 6);
+	}
+
+	#[test]
+	fn test_asset_based_solver_response() {
+		// Create a solver with assets instead of routes
+		let assets = vec![
+			Asset::from_chain_and_address(
+				1,
+				"0xA0b86a33E6441E7C81F7C93451777f5F4dE78e86".to_string(),
+				"USDC".to_string(),
+				"USD Coin".to_string(),
+				6,
+			)
+			.unwrap(),
+			Asset::from_chain_and_address(
+				10,
+				"0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85".to_string(),
+				"USDC".to_string(),
+				"USD Coin".to_string(),
+				6,
+			)
+			.unwrap(),
+		];
+
+		let mut solver = Solver::new(
+			"test-asset-solver".to_string(),
+			"across-v1".to_string(),
+			"https://api.across.to".to_string(),
+		)
+		.with_assets(assets);
+
+		solver.update_status(SolverStatus::Active);
+
+		let response = SolverResponse::try_from(&solver).unwrap();
+
+		// Verify that we get AssetResponse format
+		match &response.supported_assets {
+			SupportedAssetsResponse::Assets { assets, source } => {
+				assert_eq!(assets.len(), 2);
+				assert_eq!(source, "config");
+
+				// Check first asset
+				let asset1 = &assets[0];
+				assert_eq!(asset1.address, "0xa0b86a33e6441e7c81f7c93451777f5f4de78e86");
+				assert_eq!(asset1.chain_id, 1);
+				assert_eq!(asset1.symbol, "USDC");
+
+				// Check second asset
+				let asset2 = &assets[1];
+				assert_eq!(asset2.address, "0x0b2c639c533813f4aa9d7837caf62653d097ff85");
+				assert_eq!(asset2.chain_id, 10);
+				assert_eq!(asset2.symbol, "USDC");
+			},
+			SupportedAssetsResponse::Routes { .. } => {
+				panic!("Expected assets mode for solver created with with_assets()");
+			},
+		}
 	}
 }

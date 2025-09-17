@@ -17,7 +17,6 @@ use serde_json;
 use std::{str::FromStr, sync::Arc};
 use tracing::{debug, info, warn};
 use url::Url;
-use uuid::Uuid;
 
 use crate::client_cache::{ClientCache, ClientConfig};
 
@@ -73,99 +72,324 @@ pub struct AcrossRoute {
 	pub is_native: bool,
 }
 
-/// Across suggested fees response
+/// Across swap API response (new format)
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AcrossQuoteResponse {
-	/// Estimated fill time in seconds
-	pub estimated_fill_time_sec: u64,
-	/// Capital fee percentage
-	pub capital_fee_pct: String,
-	/// Capital fee total
-	pub capital_fee_total: String,
-	/// Relay gas fee percentage
-	pub relay_gas_fee_pct: String,
-	/// Relay gas fee total
-	pub relay_gas_fee_total: String,
-	/// Relay fee percentage
-	pub relay_fee_pct: String,
-	/// Relay fee total
-	pub relay_fee_total: String,
-	/// LP fee percentage
-	pub lp_fee_pct: String,
-	/// Timestamp
-	pub timestamp: String,
-	/// Whether amount is too low
-	pub is_amount_too_low: bool,
-	/// Quote block number
-	pub quote_block: String,
-	/// Exclusive relayer address
-	pub exclusive_relayer: String,
-	/// Exclusivity deadline timestamp
-	pub exclusivity_deadline: u64,
-	/// Spoke pool address
-	pub spoke_pool_address: String,
-	/// Destination spoke pool address
-	pub destination_spoke_pool_address: String,
-	/// Total relay fee breakdown
-	pub total_relay_fee: AcrossFeeBand,
-	/// Relayer capital fee breakdown
-	pub relayer_capital_fee: AcrossFeeBand,
-	/// Relayer gas fee breakdown
-	pub relayer_gas_fee: AcrossFeeBand,
-	/// LP fee breakdown
-	pub lp_fee: AcrossFeeBand,
-	/// Deposit limits
-	pub limits: AcrossLimits,
-	/// Fill deadline timestamp
-	pub fill_deadline: String,
-	/// Output amount
-	pub output_amount: String,
+pub struct AcrossSwapResponse {
+	/// Cross swap type
+	pub cross_swap_type: String,
+	/// Amount type (exactInput, exactOutput, minOutput)
+	pub amount_type: String,
+	/// Validation checks
+	pub checks: AcrossSwapChecks,
+	/// Approval transactions (optional)
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub approval_txns: Option<Vec<AcrossApprovalTx>>,
+	/// Swap steps
+	pub steps: AcrossSwapSteps,
 	/// Input token details
-	pub input_token: AcrossToken,
+	pub input_token: AcrossSwapToken,
 	/// Output token details
-	pub output_token: AcrossToken,
-	/// Quote ID
-	pub id: String,
+	pub output_token: AcrossSwapToken,
+	/// Refund token details
+	pub refund_token: AcrossSwapToken,
+	/// Fee breakdown
+	pub fees: AcrossSwapFees,
+	/// Input amount
+	pub input_amount: String,
+	/// Expected output amount
+	pub expected_output_amount: String,
+	/// Minimum output amount
+	pub min_output_amount: String,
+	/// Expected fill time in seconds
+	pub expected_fill_time: u64,
+	/// Transaction details for execution (optional)
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub swap_tx: Option<AcrossSwapTx>,
+	/// Quote ID (optional)
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub id: Option<String>,
 }
 
-/// Across fee breakdown
+/// Approval transaction details
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct AcrossFeeBand {
+#[serde(rename_all = "camelCase")]
+pub struct AcrossApprovalTx {
+	/// Chain ID for the approval transaction
+	pub chain_id: u64,
+	/// Contract address to approve
+	pub to: String,
+	/// Transaction data
+	pub data: String,
+}
+
+/// New swap API data structures
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcrossSwapChecks {
+	/// Allowance check
+	pub allowance: Option<AcrossSwapCheck>,
+	/// Balance check
+	pub balance: Option<AcrossSwapCheck>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AcrossSwapCheck {
+	/// Token address
+	pub token: String,
+	/// Spender address (for allowance)
+	pub spender: Option<String>,
+	/// Actual value
+	pub actual: String,
+	/// Expected value
+	pub expected: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcrossSwapSteps {
+	/// Origin swap step (optional)
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub origin_swap: Option<AcrossSwapDestination>,
+	/// Bridge step
+	pub bridge: AcrossSwapBridge,
+	/// Destination swap step (optional)
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub destination_swap: Option<AcrossSwapDestination>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcrossSwapBridge {
+	/// Input amount
+	pub input_amount: String,
+	/// Output amount
+	pub output_amount: String,
+	/// Input token
+	pub token_in: AcrossSwapToken,
+	/// Output token
+	pub token_out: AcrossSwapToken,
+	/// Fee breakdown
+	pub fees: AcrossSwapBridgeFees,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcrossSwapDestination {
+	/// Input token
+	pub token_in: AcrossSwapToken,
+	/// Output token
+	pub token_out: AcrossSwapToken,
+	/// Input amount
+	pub input_amount: String,
+	/// Max input amount
+	pub max_input_amount: String,
+	/// Output amount
+	pub output_amount: String,
+	/// Min output amount
+	pub min_output_amount: String,
+	/// Swap provider details
+	pub swap_provider: AcrossSwapProvider,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AcrossSwapProvider {
+	/// Provider name
+	pub name: String,
+	/// Sources used
+	pub sources: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcrossSwapToken {
+	/// Token decimals
+	pub decimals: u8,
+	/// Token symbol
+	pub symbol: String,
+	/// Token address
+	pub address: String,
+	/// Token name
+	pub name: Option<String>,
+	/// Chain ID
+	pub chain_id: u64,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcrossSwapFees {
+	/// Total fees
+	pub total: AcrossSwapFee,
+	/// Origin gas fees
+	pub origin_gas: AcrossSwapFee,
+	/// Destination gas fees
+	pub destination_gas: AcrossSwapFee,
+	/// Relayer capital fees
+	pub relayer_capital: AcrossSwapFee,
+	/// LP fees
+	pub lp_fee: AcrossSwapFee,
+	/// Relayer total fees
+	pub relayer_total: AcrossSwapFee,
+	/// App fees
+	pub app: AcrossSwapFee,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcrossSwapFee {
+	/// Fee amount
+	pub amount: String,
+	/// Fee amount in USD
+	pub amount_usd: Option<String>,
+	/// Fee percentage
+	pub pct: Option<String>,
+	/// Fee token
+	pub token: Option<AcrossSwapToken>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcrossSwapBridgeFees {
+	/// Total relay fees
+	pub total_relay: AcrossSwapSimpleFee,
+	/// Relayer capital fees
+	pub relayer_capital: AcrossSwapSimpleFee,
+	/// Relayer gas fees
+	pub relayer_gas: AcrossSwapSimpleFee,
+	/// LP fees
+	pub lp: AcrossSwapSimpleFee,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AcrossSwapSimpleFee {
 	/// Fee percentage
 	pub pct: String,
-	/// Fee total amount
+	/// Fee total
 	pub total: String,
 }
 
-/// Across deposit limits
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AcrossLimits {
-	/// Minimum deposit amount
-	pub min_deposit: String,
-	/// Maximum deposit amount
-	pub max_deposit: String,
-	/// Maximum instant deposit amount
-	pub max_deposit_instant: String,
-	/// Maximum short delay deposit amount
-	pub max_deposit_short_delay: String,
-	/// Recommended instant deposit amount
-	pub recommended_deposit_instant: String,
+pub struct AcrossSwapTx {
+	/// Whether simulation was successful
+	pub simulation_success: bool,
+	/// Chain ID
+	pub chain_id: u64,
+	/// Contract address to call
+	pub to: String,
+	/// Transaction data
+	pub data: String,
+	/// Gas limit
+	pub gas: Option<String>,
+	/// Max fee per gas
+	pub max_fee_per_gas: Option<String>,
+	/// Max priority fee per gas
+	pub max_priority_fee_per_gas: Option<String>,
 }
 
-/// Across token information
+/// Across swap quote request body
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcrossSwapQuoteRequest {
+	/// Amount type (exactInput, exactOutput, minOutput)  
+	pub amount_type: String,
+	/// Required amount of input/output token in smallest unit
+	pub amount: String,
+	/// Address of the input token on the origin chain
+	pub input_token: String,
+	/// Address of the output token on the destination chain
+	pub output_token: String,
+	/// Chain ID of the origin chain
+	pub origin_chain_id: u64,
+	/// Chain ID of the destination chain
+	pub destination_chain_id: u64,
+	/// Address of the depositor initiating the swap
+	pub depositor: String,
+	/// Address of the account receiving the output token
+	pub recipient: String,
+	/// Slippage tolerance percentage (optional, defaults to 1%)
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub slippage: Option<f64>,
+	/// Whether to skip origin transaction estimation (optional, defaults to false)
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub skip_origin_tx_estimation: Option<bool>,
+	/// Whether to strictly follow the defined trade type (optional, defaults to true)
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub strict_trade_type: Option<bool>,
+}
+
+/// Optional query parameters for Across API requests
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct AcrossToken {
+pub struct AcrossQueryParams {
+	/// Trade type (exactInput, exactOutput, minOutput)
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub trade_type: Option<String>,
+	/// Integrator ID for tracking
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub integrator_id: Option<String>,
+	/// Refund address for failed transactions
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub refund_address: Option<String>,
+	/// Whether to refund on origin chain
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub refund_on_origin: Option<String>,
+	/// Slippage tolerance
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub slippage: Option<String>,
+	/// Whether to skip origin transaction estimation
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub skip_origin_tx_estimation: Option<String>,
+	/// Sources to exclude from quote
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub exclude_sources: Option<String>,
+	/// Sources to include in quote (exclusive with exclude_sources)
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub include_sources: Option<String>,
+	/// App fee percentage
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub app_fee: Option<String>,
+	/// App fee recipient address
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub app_fee_recipient: Option<String>,
+	/// Whether to strictly follow the defined trade type
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub strict_trade_type: Option<String>,
+}
+
+/// Across token from swap/tokens endpoint
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcrossTokenInfo {
+	/// Chain ID
+	pub chain_id: u64,
 	/// Token contract address
 	pub address: String,
+	/// Token name
+	pub name: String,
 	/// Token symbol
 	pub symbol: String,
 	/// Token decimals
 	pub decimals: u8,
-	/// Chain ID
-	pub chain_id: u64,
+	// Note: priceUsd and logoUrl are ignored/excluded as requested
+}
+
+impl AcrossTokenInfo {
+	/// Convert Across token info to internal Asset model
+	pub fn to_asset(&self) -> AdapterResult<Asset> {
+		let normalized_address = normalize_address(&self.address);
+
+		Asset::from_chain_and_address(
+			self.chain_id,
+			normalized_address,
+			self.symbol.clone(),
+			self.name.clone(),
+			self.decimals,
+		)
+		.map_err(|e| AdapterError::InvalidResponse {
+			reason: format!("Invalid asset from Across token: {}", e),
+		})
+	}
 }
 
 impl AcrossRoute {
@@ -360,17 +584,129 @@ impl AcrossAdapter {
 		Self::new(config)
 	}
 
-	/// Convert Across quote response to internal adapter quote format
-	fn convert_across_quote_to_adapter_quote(
+	/// Extract query parameters from request metadata.requestParams and build query parameters
+	///
+	/// Expects optional Across-specific parameters to be nested under metadata.requestParams:
+	/// ```json
+	/// {
+	///   "metadata": {
+	///     "requestParams": {
+	///       "tradeType": "exactInput",
+	///       "slippage": "0.005",
+	///       "integratorId": "my-integration",
+	///       "skipOriginTxEstimation": "true",
+	///       "appFee": "0.001",
+	///       "appFeeRecipient": "0x1234567890123456789012345678901234567890"
+	///     }
+	///   }
+	/// }
+	/// ```
+	#[allow(clippy::too_many_arguments)]
+	fn build_query_params(
 		&self,
-		across_quote: AcrossQuoteResponse,
+		request: &GetQuoteRequest,
+		amount: &str,
+		input_token: &str,
+		output_token: &str,
+		input_chain_id: u64,
+		output_chain_id: u64,
+		depositor: &str,
+		recipient: &str,
+	) -> AdapterResult<Vec<(&'static str, String)>> {
+		// Start with required parameters
+		let mut params = vec![
+			("amount", amount.to_string()),
+			("inputToken", input_token.to_string()),
+			("outputToken", output_token.to_string()),
+			("originChainId", input_chain_id.to_string()),
+			("destinationChainId", output_chain_id.to_string()),
+			("depositor", depositor.to_string()),
+			("recipient", recipient.to_string()),
+		];
+
+		// Extract optional parameters from metadata.requestParams
+		if let Some(metadata) = &request.metadata {
+			// Try to parse AcrossQueryParams from metadata.requestParams
+			if let Some(request_params) = metadata.get("requestParams") {
+				if let Ok(query_params) =
+					serde_json::from_value::<AcrossQueryParams>(request_params.clone())
+				{
+					// Add optional parameters if they exist
+					if let Some(trade_type) = query_params.trade_type {
+						params.push(("tradeType", trade_type));
+					}
+
+					if let Some(integrator_id) = query_params.integrator_id {
+						params.push(("integratorId", integrator_id));
+					}
+
+					if let Some(refund_address) = query_params.refund_address {
+						params.push(("refundAddress", refund_address));
+					}
+
+					if let Some(refund_on_origin) = query_params.refund_on_origin {
+						params.push(("refundOnOrigin", refund_on_origin));
+					}
+
+					if let Some(slippage) = query_params.slippage {
+						params.push(("slippage", slippage));
+					}
+
+					if let Some(skip_origin_tx_estimation) = query_params.skip_origin_tx_estimation
+					{
+						params.push(("skipOriginTxEstimation", skip_origin_tx_estimation));
+					}
+
+					if let Some(exclude_sources) = query_params.exclude_sources {
+						params.push(("excludeSources", exclude_sources));
+					}
+
+					if let Some(include_sources) = query_params.include_sources {
+						params.push(("includeSources", include_sources));
+					}
+
+					if let Some(app_fee) = query_params.app_fee {
+						params.push(("appFee", app_fee));
+					}
+
+					if let Some(app_fee_recipient) = query_params.app_fee_recipient {
+						params.push(("appFeeRecipient", app_fee_recipient));
+					}
+
+					if let Some(strict_trade_type) = query_params.strict_trade_type {
+						params.push(("strictTradeType", strict_trade_type));
+					}
+
+					debug!(
+						"Built dynamic query parameters from metadata.requestParams: {:?}",
+						params
+					);
+				}
+			}
+		}
+
+		Ok(params)
+	}
+
+	/// Convert Across swap response to internal adapter quote format
+	fn convert_across_swap_to_adapter_quote(
+		&self,
+		across_swap: AcrossSwapResponse,
 		request: &GetQuoteRequest,
 		_config: &SolverRuntimeConfig,
 	) -> AdapterResult<AdapterQuote> {
 		use oif_types::adapters::{AdapterQuote, QuoteDetails};
 
-		// Generate unique quote ID
-		let quote_id = Uuid::new_v4().to_string();
+		// Generate unique quote ID (use provided ID if available, otherwise generate one)
+		let quote_id = across_swap.id.clone().unwrap_or_else(|| {
+			format!(
+				"across-quote-{}",
+				std::time::SystemTime::now()
+					.duration_since(std::time::UNIX_EPOCH)
+					.unwrap_or_default()
+					.as_millis()
+			)
+		});
 
 		// Create quote details from the request structure
 		let details = QuoteDetails {
@@ -378,18 +714,18 @@ impl AcrossAdapter {
 			requested_outputs: request.requested_outputs.clone(),
 		};
 
-		// Parse timestamp for valid_until
-		let valid_until = across_quote.timestamp.parse::<u64>().ok();
+		// The new API doesn't provide a timestamp, so we don't set valid_until
+		let valid_until = None;
 
 		let metadata = serde_json::json!({
-			"across": across_quote
+			"across_response": across_swap,
 		});
 
 		Ok(AdapterQuote {
-			orders: vec![], // EIP-712 orders are not supported for Across
+			orders: vec![], // EIP-712 orders are not supported for Across yet
 			details,
 			valid_until,
-			eta: Some(across_quote.estimated_fill_time_sec),
+			eta: Some(across_swap.expected_fill_time),
 			quote_id,
 			provider: format!("Across Protocol v{}", self.config.version),
 			metadata: Some(metadata),
@@ -452,23 +788,34 @@ impl SolverAdapter for AcrossAdapter {
 
 		// Build query parameters for Across API
 		let client = self.get_client(config)?;
-		let quote_url = self.build_url(&config.endpoint, "suggested-fees")?;
+		let quote_url = self.build_url(&config.endpoint, "swap/approval")?;
 
 		debug!(
 			"Fetching Across quote from {} (solver: {}) - {}:{} -> {}:{}",
 			quote_url, config.solver_id, input_chain_id, input_token, output_chain_id, output_token
 		);
 
-		// Make the quote request
+		// Extract user and receiver addresses
+		let depositor = input.user.extract_address();
+		let recipient = output.receiver.extract_address();
+
+		// Build query parameters dynamically from metadata
+		let query_params = self.build_query_params(
+			request,
+			&input.amount.to_string(),
+			input_token.as_str(),
+			output_token.as_str(),
+			input_chain_id,
+			output_chain_id,
+			depositor.as_str(),
+			recipient.as_str(),
+		)?;
+
+		// Make the quote request (remove Content-Type header for GET request)
 		let response = client
 			.get(&quote_url)
-			.query(&[
-				("inputToken", input_token.as_str()),
-				("outputToken", output_token.as_str()),
-				("originChainId", &input_chain_id.to_string()),
-				("destinationChainId", &output_chain_id.to_string()),
-				("amount", &input.amount.to_string()),
-			])
+			.header("Content-Type", "") // Override default Content-Type header to avoid 400 error (body set error)
+			.query(&query_params)
 			.send()
 			.await
 			.map_err(AdapterError::HttpError)?;
@@ -476,33 +823,37 @@ impl SolverAdapter for AcrossAdapter {
 		if !response.status().is_success() {
 			return Err(AdapterError::InvalidResponse {
 				reason: format!(
-					"Across quote endpoint returned status {}",
-					response.status()
+					"Across quote endpoint returned status {}, {}",
+					response.status(),
+					response.text().await.unwrap_or_default()
 				),
 			});
 		}
 
-		// Parse the JSON response
-		let across_quote: AcrossQuoteResponse =
-			response
-				.json()
-				.await
-				.map_err(|e| AdapterError::InvalidResponse {
-					reason: format!("Failed to parse Across quote response: {}", e),
-				})?;
+		// Get response text for logging and parsing
+		let response_text = response
+			.text()
+			.await
+			.map_err(|e| AdapterError::InvalidResponse {
+				reason: format!("Failed to get response text: {}", e),
+			})?;
 
-		// Check if amount is too low
-		if across_quote.is_amount_too_low {
-			return Err(AdapterError::InvalidResponse {
+		debug!(
+			"Across API response for solver {}: {}",
+			config.solver_id, response_text
+		);
+
+		// Parse the JSON response using new swap API format
+		let across_swap: AcrossSwapResponse =
+			serde_json::from_str(&response_text).map_err(|e| AdapterError::InvalidResponse {
 				reason: format!(
-					"Amount {} is below minimum deposit of {}",
-					input.amount, across_quote.limits.min_deposit
+					"Failed to parse Across swap response: {}. Response body: {}",
+					e, response_text
 				),
-			});
-		}
+			})?;
 
 		// Convert Across response to internal quote format
-		let quote = self.convert_across_quote_to_adapter_quote(across_quote, request, config)?;
+		let quote = self.convert_across_swap_to_adapter_quote(across_swap, request, config)?;
 
 		debug!(
 			"Across adapter successfully fetched quote {} for solver {}",
@@ -521,15 +872,15 @@ impl SolverAdapter for AcrossAdapter {
 		);
 
 		let client = self.get_client(config)?;
-		let routes_url = self.build_url(&config.endpoint, "available-routes")?;
+		let tokens_url = self.build_url(&config.endpoint, "swap/tokens")?;
 
 		debug!(
 			"Performing Across adapter health check at {} (solver: {})",
-			routes_url, config.solver_id
+			tokens_url, config.solver_id
 		);
 
-		// Make a lightweight request to the routes endpoint
-		let response = client.get(&routes_url).send().await.map_err(|e| {
+		// Make a lightweight request to the tokens endpoint
+		let response = client.get(&tokens_url).send().await.map_err(|e| {
 			warn!(
 				"Across adapter health check failed for solver {}: HTTP error - {}",
 				config.solver_id, e
@@ -542,12 +893,12 @@ impl SolverAdapter for AcrossAdapter {
 
 		if is_healthy {
 			// Optionally verify the response contains valid JSON
-			match response.json::<Vec<AcrossRoute>>().await {
-				Ok(routes) => {
+			match response.json::<Vec<AcrossTokenInfo>>().await {
+				Ok(tokens) => {
 					debug!(
-						"Across adapter health check passed for solver {}: {} routes available",
+						"Across adapter health check passed for solver {}: {} tokens available",
 						config.solver_id,
-						routes.len()
+						tokens.len()
 					);
 					Ok(true)
 				},
@@ -574,21 +925,21 @@ impl SolverAdapter for AcrossAdapter {
 		config: &SolverRuntimeConfig,
 	) -> AdapterResult<SupportedAssetsData> {
 		debug!(
-			"Across adapter getting supported routes for solver: {}",
+			"Across adapter getting supported tokens for solver: {}",
 			config.solver_id
 		);
 
 		let client = self.get_client(config)?;
-		let routes_url = self.build_url(&config.endpoint, "available-routes")?;
+		let tokens_url = self.build_url(&config.endpoint, "swap/tokens")?;
 
 		debug!(
-			"Fetching supported routes from Across adapter at {} (solver: {})",
-			routes_url, config.solver_id
+			"Fetching supported tokens from Across adapter at {} (solver: {})",
+			tokens_url, config.solver_id
 		);
 
-		// Make the routes request
+		// Make the tokens request
 		let response = client
-			.get(&routes_url)
+			.get(&tokens_url)
 			.send()
 			.await
 			.map_err(AdapterError::HttpError)?;
@@ -596,113 +947,98 @@ impl SolverAdapter for AcrossAdapter {
 		if !response.status().is_success() {
 			return Err(AdapterError::InvalidResponse {
 				reason: format!(
-					"Across routes endpoint returned status {}",
+					"Across tokens endpoint returned status {}",
 					response.status()
 				),
 			});
 		}
 
-		// Parse the JSON response into Across route models
-		let across_routes: Vec<AcrossRoute> =
+		// Parse the JSON response into Across token models
+		let across_tokens: Vec<AcrossTokenInfo> =
 			response
 				.json()
 				.await
 				.map_err(|e| AdapterError::InvalidResponse {
-					reason: format!("Failed to parse Across routes response: {}", e),
+					reason: format!("Failed to parse Across tokens response: {}", e),
 				})?;
 
-		let routes_count = across_routes.len();
+		let tokens_count = across_tokens.len();
 		debug!(
-			"Parsed {} routes from Across adapter for route conversion",
-			routes_count
+			"Parsed {} tokens from Across adapter for asset conversion",
+			tokens_count
 		);
 
-		// Transform Across routes to AssetRoute models using builder methods
-		let mut asset_routes = Vec::new();
-		let mut skipped_routes = 0;
-		let mut invalid_route_details = Vec::new();
+		// Transform Across tokens to Asset models
+		let mut assets = Vec::new();
+		let mut skipped_tokens = 0;
+		let mut invalid_token_details = Vec::new();
 		let mut error_categories = std::collections::HashMap::new();
 
-		for across_route in across_routes {
-			// Normalize addresses to ensure they have 0x prefix
-			let origin_token = normalize_address(&across_route.origin_token);
-			let destination_token = normalize_address(&across_route.destination_token);
-
-			match AssetRoute::from_chain_and_addresses(
-				across_route.origin_chain_id,
-				origin_token,
-				across_route.destination_chain_id,
-				destination_token,
-			) {
-				Ok(asset_route) => {
-					let asset_route_with_symbols = asset_route.add_symbols(
-						Some(across_route.origin_token_symbol.clone()),
-						Some(across_route.destination_token_symbol.clone()),
-					);
-					asset_routes.push(asset_route_with_symbols);
+		for across_token in across_tokens {
+			match across_token.to_asset() {
+				Ok(asset) => {
+					assets.push(asset);
 				},
 				Err(e) => {
 					let error_str = e.to_string();
 					let error_category = categorize_validation_error(&error_str);
 
-					let invalid_route_info = format!(
-						"origin={}:{} ({}) -> destination={}:{} ({}), error: {} [category: {}]",
-						across_route.origin_chain_id,
-						across_route.origin_token,
-						across_route.origin_token_symbol,
-						across_route.destination_chain_id,
-						across_route.destination_token,
-						across_route.destination_token_symbol,
+					let invalid_token_info = format!(
+						"chain={}:{} ({}) - {}, error: {} [category: {}]",
+						across_token.chain_id,
+						across_token.address,
+						across_token.symbol,
+						across_token.name,
 						error_str,
 						error_category
 					);
 
-					warn!("Skipping invalid Across route: {}", invalid_route_info);
-					invalid_route_details.push(invalid_route_info);
+					warn!("Skipping invalid Across token: {}", invalid_token_info);
+					invalid_token_details.push(invalid_token_info);
 
 					// Track error categories for statistics
 					*error_categories.entry(error_category).or_insert(0) += 1;
-					skipped_routes += 1;
+					skipped_tokens += 1;
 				},
 			}
 		}
 
-		if skipped_routes > 0 {
+		if skipped_tokens > 0 {
 			info!(
-				"Across adapter converted {} Across routes to {} asset routes for solver {} (using routes mode), skipped {} invalid routes",
-				routes_count,
-				asset_routes.len(),
+				"Across adapter converted {} Across tokens to {} assets for solver {} (using tokens mode), skipped {} invalid tokens",
+				tokens_count,
+				assets.len(),
 				config.solver_id,
-				skipped_routes
+				skipped_tokens
 			);
 
 			// Log error category statistics
 			warn!(
-				"Error statistics for {} invalid routes from Across API for solver {}:",
-				skipped_routes, config.solver_id
+				"Error statistics for {} invalid tokens from Across API for solver {}:",
+				skipped_tokens, config.solver_id
 			);
 			for (category, count) in error_categories.iter() {
-				warn!("  {}: {} routes", category, count);
+				warn!("  {}: {} tokens", category, count);
 			}
 
-			// Log detailed summary of invalid routes for analysis
+			// Log detailed summary of invalid tokens for analysis
 			warn!(
-				"Detailed list of {} invalid routes from Across API for solver {}:",
-				skipped_routes, config.solver_id
+				"Detailed list of {} invalid tokens from Across API for solver {}:",
+				skipped_tokens, config.solver_id
 			);
-			for (index, invalid_route) in invalid_route_details.iter().enumerate() {
-				warn!("  Invalid route #{}: {}", index + 1, invalid_route);
+			for (index, invalid_token) in invalid_token_details.iter().enumerate() {
+				warn!("  Invalid token #{}: {}", index + 1, invalid_token);
 			}
 		} else {
 			info!(
-				"Across adapter converted {} Across routes to {} asset routes for solver {} (using routes mode)",
-				routes_count,
-				asset_routes.len(),
+				"Across adapter converted {} Across tokens to {} assets for solver {} (using tokens mode)",
+				tokens_count,
+				assets.len(),
 				config.solver_id
 			);
 		}
 
-		Ok(SupportedAssetsData::Routes(asset_routes))
+		Ok(SupportedAssetsData::Assets(assets))
 	}
 }
 
@@ -913,8 +1249,8 @@ mod tests {
 		};
 
 		// Test URL construction (this is what the health check method would use)
-		let expected_url = format!("{}/available-routes", config.endpoint);
-		assert_eq!(expected_url, "https://app.across.to/available-routes");
+		let expected_url = format!("{}/swap/tokens", config.endpoint);
+		assert_eq!(expected_url, "https://app.across.to/swap/tokens");
 
 		// Verify adapter configuration
 		assert_eq!(adapter.id(), "across-v1");
@@ -1034,191 +1370,317 @@ mod tests {
 		))
 		.unwrap();
 
-		// Test basic URL construction
+		// Test basic URL construction with quote endpoint
 		let base_url = "https://api.across.to";
-		let result = adapter.build_url(base_url, "suggested-fees").unwrap();
-		assert_eq!(result, "https://api.across.to/suggested-fees");
+		let result = adapter.build_url(base_url, "swap/approval").unwrap();
+		assert_eq!(result, "https://api.across.to/swap/approval");
 
 		// Test with trailing slash - should handle gracefully
 		let base_with_slash = "https://api.across.to/";
-		let result = adapter
-			.build_url(base_with_slash, "suggested-fees")
-			.unwrap();
-		assert_eq!(result, "https://api.across.to/suggested-fees");
+		let result = adapter.build_url(base_with_slash, "swap/approval").unwrap();
+		assert_eq!(result, "https://api.across.to/swap/approval");
 
 		// Test with leading slash in path - should handle gracefully
-		let result = adapter.build_url(base_url, "/suggested-fees").unwrap();
-		assert_eq!(result, "https://api.across.to/suggested-fees");
+		let result = adapter.build_url(base_url, "/swap/approval").unwrap();
+		assert_eq!(result, "https://api.across.to/swap/approval");
 
 		// Test with both trailing and leading slashes
 		let result = adapter
-			.build_url(base_with_slash, "/suggested-fees")
+			.build_url(base_with_slash, "/swap/approval")
 			.unwrap();
-		assert_eq!(result, "https://api.across.to/suggested-fees");
+		assert_eq!(result, "https://api.across.to/swap/approval");
 
-		// Test with available-routes endpoint
-		let result = adapter.build_url(base_url, "available-routes").unwrap();
-		assert_eq!(result, "https://api.across.to/available-routes");
+		// Test with tokens endpoint
+		let result = adapter.build_url(base_url, "swap/tokens").unwrap();
+		assert_eq!(result, "https://api.across.to/swap/tokens");
 
 		// Test with path in base URL (the problematic case)
 		let base_with_path = "http://127.0.0.1:3000/api";
-		let result = adapter.build_url(base_with_path, "suggested-fees").unwrap();
-		assert_eq!(result, "http://127.0.0.1:3000/api/suggested-fees");
+		let result = adapter.build_url(base_with_path, "swap/approval").unwrap();
+		assert_eq!(result, "http://127.0.0.1:3000/api/swap/approval");
 
 		// Test with path in base URL and trailing slash
 		let base_with_path_slash = "http://127.0.0.1:3000/api/";
 		let result = adapter
-			.build_url(base_with_path_slash, "suggested-fees")
+			.build_url(base_with_path_slash, "swap/approval")
 			.unwrap();
-		assert_eq!(result, "http://127.0.0.1:3000/api/suggested-fees");
+		assert_eq!(result, "http://127.0.0.1:3000/api/swap/approval");
 
-		// Test available-routes with base path
-		let result = adapter
-			.build_url(base_with_path, "available-routes")
-			.unwrap();
-		assert_eq!(result, "http://127.0.0.1:3000/api/available-routes");
+		// Test tokens endpoint with base path
+		let result = adapter.build_url(base_with_path, "swap/tokens").unwrap();
+		assert_eq!(result, "http://127.0.0.1:3000/api/swap/tokens");
 
 		// Test invalid URL
-		let result = adapter.build_url("invalid://::url", "suggested-fees");
+		let result = adapter.build_url("invalid://::url", "swap/approval");
 		assert!(result.is_err());
 	}
 
 	#[test]
-	fn test_across_metadata_enrichment() {
-		// Create a mock Across quote response with rich data
-		let mock_across_response = AcrossQuoteResponse {
-			estimated_fill_time_sec: 120,
-			capital_fee_pct: "78750000000001".to_string(),
-			capital_fee_total: "78750000000001".to_string(),
-			relay_gas_fee_pct: "155024308002".to_string(),
-			relay_gas_fee_total: "155024308002".to_string(),
-			relay_fee_pct: "78905024308003".to_string(),
-			relay_fee_total: "78905024308003".to_string(),
-			lp_fee_pct: "0".to_string(),
-			timestamp: "1754342087".to_string(),
-			is_amount_too_low: false,
-			quote_block: "23070320".to_string(),
-			exclusive_relayer: "0x394311A6Aaa0D8E3411D8b62DE4578D41322d1bD".to_string(),
-			exclusivity_deadline: 1754342267,
-			spoke_pool_address: "0x5c7BCd6E7De5423a257D81B442095A1a6ced35C5".to_string(),
-			destination_spoke_pool_address: "0x6f26Bf09B1C792e3228e5467807a900A503c0281"
-				.to_string(),
-			total_relay_fee: AcrossFeeBand {
-				pct: "78905024308003".to_string(),
-				total: "78905024308003".to_string(),
+	fn test_across_swap_api_response_parsing() {
+		// Test parsing of the new swap API response format
+		let json_response = r#"{
+			"crossSwapType": "bridgeableToAny",
+			"amountType": "exactInput",
+			"checks": {
+				"allowance": {
+					"token": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+					"spender": "0x6f26Bf09B1C792e3228e5467807a900A503c0281",
+					"actual": "115792089237316195423570985008687907853269984665640564039457584007913099639935",
+					"expected": "1000000"
+				},
+				"balance": {
+					"token": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+					"actual": "7169942",
+					"expected": "1000000"
+				}
 			},
-			relayer_capital_fee: AcrossFeeBand {
-				pct: "78750000000001".to_string(),
-				total: "78750000000001".to_string(),
+			"steps": {
+				"bridge": {
+					"inputAmount": "1000000",
+					"outputAmount": "980662",
+					"tokenIn": {
+						"decimals": 6,
+						"symbol": "USDC",
+						"address": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+						"name": "USD Coin",
+						"chainId": 10
+					},
+					"tokenOut": {
+						"decimals": 6,
+						"symbol": "USDC",
+						"address": "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+						"chainId": 42161
+					},
+					"fees": {
+						"totalRelay": {
+							"pct": "19338767572622738",
+							"total": "19338"
+						},
+						"relayerCapital": {
+							"pct": "100000000000000",
+							"total": "100"
+						},
+						"relayerGas": {
+							"pct": "19227000000000000",
+							"total": "19227"
+						},
+						"lp": {
+							"pct": "11767572622738",
+							"total": "11"
+						}
+					}
+				}
 			},
-			relayer_gas_fee: AcrossFeeBand {
-				pct: "155024308002".to_string(),
-				total: "155024308002".to_string(),
+			"inputToken": {
+				"decimals": 6,
+				"symbol": "USDC",
+				"address": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+				"name": "USD Coin",
+				"chainId": 10
 			},
-			lp_fee: AcrossFeeBand {
-				pct: "0".to_string(),
-				total: "0".to_string(),
+			"outputToken": {
+				"decimals": 18,
+				"symbol": "ETH",
+				"address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+				"name": "Ether",
+				"chainId": 42161
 			},
-			limits: AcrossLimits {
-				min_deposit: "134862494200912".to_string(),
-				max_deposit: "1661211802629989209324".to_string(),
-				max_deposit_instant: "231397155893653275446".to_string(),
-				max_deposit_short_delay: "1661211802629989209324".to_string(),
-				recommended_deposit_instant: "231397155893653275446".to_string(),
+			"refundToken": {
+				"decimals": 6,
+				"symbol": "USDC",
+				"address": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+				"name": "USD Coin",
+				"chainId": 10
 			},
-			fill_deadline: "1754353917".to_string(),
-			output_amount: "999921094975691997".to_string(),
-			input_token: AcrossToken {
-				address: "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
-				symbol: "ETH".to_string(),
-				decimals: 18,
-				chain_id: 1,
+			"fees": {
+				"total": {
+					"amount": "47651",
+					"amountUsd": "0.047642182071510164",
+					"pct": "47651283466652296",
+					"token": {
+						"decimals": 6,
+						"symbol": "USDC",
+						"address": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+						"name": "USD Coin",
+						"chainId": 10
+					}
+				},
+				"originGas": {
+					"amount": "134879133226",
+					"amountUsd": "0.000502067341563801",
+					"token": {
+						"chainId": 10,
+						"address": "0x0000000000000000000000000000000000000000",
+						"decimals": 18,
+						"symbol": "ETH"
+					}
+				},
+				"destinationGas": {
+					"amount": "5161137520505",
+					"amountUsd": "0.019223327642999999",
+					"pct": "19227000000000001",
+					"token": {
+						"chainId": 42161,
+						"address": "0x0000000000000000000000000000000000000000",
+						"decimals": 18,
+						"symbol": "ETH"
+					}
+				},
+				"relayerCapital": {
+					"amount": "100",
+					"amountUsd": "0.0000999809",
+					"pct": "100000000000000",
+					"token": {
+						"decimals": 6,
+						"symbol": "USDC",
+						"address": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+						"name": "USD Coin",
+						"chainId": 10
+					}
+				},
+				"lpFee": {
+					"amount": "11",
+					"amountUsd": "0.000010997899",
+					"pct": "11000000000000",
+					"token": {
+						"decimals": 6,
+						"symbol": "USDC",
+						"address": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+						"name": "USD Coin",
+						"chainId": 10
+					}
+				},
+				"relayerTotal": {
+					"amount": "19338",
+					"amountUsd": "0.019334306442000002",
+					"pct": "19338000000000001",
+					"token": {
+						"decimals": 6,
+						"symbol": "USDC",
+						"address": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+						"name": "USD Coin",
+						"chainId": 10
+					}
+				},
+				"app": {
+					"amount": "0",
+					"amountUsd": "0.0",
+					"pct": "0",
+					"token": {
+						"decimals": 18,
+						"symbol": "ETH",
+						"address": "0x82aF49447D8a07e3bd95BD0d56f35241523fBab1",
+						"name": "Ether",
+						"chainId": 42161
+					}
+				}
 			},
-			output_token: AcrossToken {
-				address: "0x4200000000000000000000000000000000000006".to_string(),
-				symbol: "ETH".to_string(),
-				decimals: 18,
-				chain_id: 10,
+			"inputAmount": "1000000",
+			"expectedOutputAmount": "263466241499732",
+			"minOutputAmount": "260831579075100",
+			"expectedFillTime": 3,
+			"swapTx": {
+				"simulationSuccess": true,
+				"chainId": 10,
+				"to": "0x6f26Bf09B1C792e3228e5467807a900A503c0281",
+				"data": "0xad5425c6000000000000000000000000a4d353bbc130cbef1811f27ac70989f9d568ceab",
+				"gas": "122554",
+				"maxFeePerGas": "1100569",
+				"maxPriorityFeePerGas": "1100000"
 			},
-			id: "xn8fx-1754342218143-67be35cfbdb6".to_string(),
-		};
+			"id": "6pl4c-1754347045980-2353645c0fb7"
+		}"#;
 
-		// Create a simple mock request
-		use oif_types::models::InteropAddress;
-		use oif_types::{AvailableInput, RequestedOutput, U256};
+		// Parse the JSON response
+		let parsed_response: Result<AcrossSwapResponse, _> = serde_json::from_str(json_response);
+		assert!(parsed_response.is_ok(), "Failed to parse swap API response");
 
-		let user_address =
-			InteropAddress::from_chain_and_address(1, "0x742d35Cc6634C0532925a3b8D38BA2297C33A9D7")
-				.expect("Failed to create user address");
-		let input_asset =
-			InteropAddress::from_chain_and_address(1, "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
-				.expect("Failed to create input asset");
-		let output_asset = InteropAddress::from_chain_and_address(
-			10,
-			"0x4200000000000000000000000000000000000006",
-		)
-		.expect("Failed to create output asset");
+		let swap_response = parsed_response.unwrap();
+		assert_eq!(swap_response.amount_type, "exactInput");
+		assert_eq!(swap_response.cross_swap_type, "bridgeableToAny");
+		assert_eq!(swap_response.expected_fill_time, 3);
+		if let Some(ref swap_tx) = swap_response.swap_tx {
+			assert!(swap_tx.simulation_success);
+		}
+		assert_eq!(
+			swap_response.id,
+			Some("6pl4c-1754347045980-2353645c0fb7".to_string())
+		);
 
-		let mock_request = GetQuoteRequest {
-			user: user_address.clone(),
-			available_inputs: vec![AvailableInput {
-				user: user_address.clone(),
-				asset: input_asset,
-				amount: U256::new("1000000000000000000".to_string()),
-				lock: None,
-			}],
-			requested_outputs: vec![RequestedOutput {
-				receiver: user_address,
-				asset: output_asset,
-				amount: U256::new("999000000000000000".to_string()),
-				calldata: None,
-			}],
-			min_valid_until: Some(600),
-			preference: None,
-			metadata: None,
-		};
+		println!("✅ Successfully parsed Across swap API response!");
+	}
 
-		let mock_config = SolverRuntimeConfig {
-			solver_id: "test-across".to_string(),
-			endpoint: "https://api.across.to".to_string(),
-			headers: None,
-			adapter_metadata: None,
-		};
+	#[test]
+	fn test_across_token_parsing() {
+		// Test parsing of the new swap/tokens response format
+		let json_response = r#"[
+			{
+				"chainId": 1,
+				"address": "0x111111111117dC0aa78b770fA6A738034120C302",
+				"name": "1inch",
+				"symbol": "1INCH",
+				"decimals": 18,
+				"logoUrl": "https://assets.coingecko.com/coins/images/13469/thumb/1inch-token.png?1608803028",
+				"priceUsd": "0.2530907825982632"
+			},
+			{
+				"chainId": 10,
+				"address": "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85",
+				"name": "USD Coin",
+				"symbol": "USDC",
+				"decimals": 6,
+				"logoUrl": "https://assets.coingecko.com/coins/images/6319/thumb/USD_Coin_icon.png?1547042389",
+				"priceUsd": "0.9999"
+			}
+		]"#;
 
-		// Create the adapter and convert the response
-		let adapter = AcrossAdapter::with_default_config().expect("Failed to create adapter");
+		// Parse the JSON response
+		let parsed_response: Result<Vec<AcrossTokenInfo>, _> = serde_json::from_str(json_response);
+		assert!(
+			parsed_response.is_ok(),
+			"Failed to parse tokens API response"
+		);
 
-		let adapter_quote = adapter
-			.convert_across_quote_to_adapter_quote(
-				mock_across_response,
-				&mock_request,
-				&mock_config,
-			)
-			.expect("Failed to convert Across response");
+		let tokens = parsed_response.unwrap();
+		assert_eq!(tokens.len(), 2);
 
-		// Serialize the enriched response to JSON
-		let json_response = serde_json::to_string_pretty(&adapter_quote)
-			.expect("Failed to serialize AdapterQuote to JSON");
+		// Test first token
+		let token1 = &tokens[0];
+		assert_eq!(token1.chain_id, 1);
+		assert_eq!(token1.address, "0x111111111117dC0aa78b770fA6A738034120C302");
+		assert_eq!(token1.name, "1inch");
+		assert_eq!(token1.symbol, "1INCH");
+		assert_eq!(token1.decimals, 18);
 
-		println!("🎯 Enhanced AdapterQuote with Across Metadata:");
-		println!("{}", json_response);
+		// Test second token
+		let token2 = &tokens[1];
+		assert_eq!(token2.chain_id, 10);
+		assert_eq!(token2.address, "0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85");
+		assert_eq!(token2.name, "USD Coin");
+		assert_eq!(token2.symbol, "USDC");
+		assert_eq!(token2.decimals, 6);
 
-		// Verify metadata is present
-		assert!(adapter_quote.metadata.is_some());
+		// Test conversion to Asset
+		let asset1 = token1.to_asset().expect("Failed to convert token to asset");
+		assert_eq!(asset1.chain_id().unwrap(), 1);
+		assert_eq!(asset1.symbol, "1INCH");
+		assert_eq!(asset1.name, "1inch");
+		assert_eq!(asset1.decimals, 18);
+		assert_eq!(
+			asset1.plain_address(),
+			"0x111111111117dc0aa78b770fa6a738034120c302"
+		);
 
-		let metadata = adapter_quote.metadata.unwrap();
-		assert!(metadata.get("across").is_some());
+		let asset2 = token2.to_asset().expect("Failed to convert token to asset");
+		assert_eq!(asset2.chain_id().unwrap(), 10);
+		assert_eq!(asset2.symbol, "USDC");
+		assert_eq!(asset2.name, "USD Coin");
+		assert_eq!(asset2.decimals, 6);
+		assert_eq!(
+			asset2.plain_address(),
+			"0x0b2c639c533813f4aa9d7837caf62653d097ff85"
+		);
 
-		let across_data = &metadata["across"];
-		// Verify key Across fields are present (flat structure)
-		assert!(across_data.get("capitalFeePct").is_some());
-		assert!(across_data.get("spokePoolAddress").is_some());
-		assert!(across_data.get("limits").is_some());
-		assert!(across_data.get("inputToken").is_some());
-		assert!(across_data.get("outputToken").is_some());
-		assert!(across_data.get("estimatedFillTimeSec").is_some());
-		assert!(across_data.get("id").is_some());
-
-		println!("✅ All Across metadata fields are present and accessible!");
+		println!("✅ Successfully parsed Across tokens and converted to assets!");
 	}
 }

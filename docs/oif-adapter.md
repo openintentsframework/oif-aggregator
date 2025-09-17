@@ -128,6 +128,7 @@ let client = self.cache.get_configured_client(config)?;
 ## 📚 Related Documentation
 
 - **[Custom Adapter Guide](custom-adapters.md)** - Building your own adapters
+- **[Across Adapter Guide](across-adapter.md)** - Across Protocol integration guide
 - **[JWT Authentication Guide](../oif_jwt_auth_guide.md)** - Detailed JWT implementation
 - **[Configuration Guide](configuration.md)** - Complete configuration reference
 - **[API Documentation](api/)** - OIF protocol specification
