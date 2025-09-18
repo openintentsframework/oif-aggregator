@@ -72,7 +72,7 @@ pub struct AcrossRoute {
 	pub is_native: bool,
 }
 
-/// Across swap API response (new format)
+/// Across swap API response
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AcrossSwapResponse {
@@ -123,7 +123,7 @@ pub struct AcrossApprovalTx {
 	pub data: String,
 }
 
-/// New swap API data structures
+/// Swap API data structures
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AcrossSwapChecks {
@@ -406,7 +406,6 @@ pub struct AcrossTokenInfo {
 	pub symbol: String,
 	/// Token decimals
 	pub decimals: u8,
-	// Note: priceUsd and logoUrl are ignored/excluded as requested
 }
 
 impl AcrossTokenInfo {
@@ -628,8 +627,7 @@ impl AcrossAdapter {
 	///     "requestParams": {
 	///       "tradeType": "exactInput",
 	///       "slippage": "0.005",
-	///       "integratorId": "my-integration",
-	///       "skipOriginTxEstimation": "true",
+	///       "skipOriginTxEstimation": true,
 	///       "appFee": "0.001",
 	///       "appFeeRecipient": "0x1234567890123456789012345678901234567890"
 	///     }
