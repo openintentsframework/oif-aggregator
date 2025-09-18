@@ -45,6 +45,7 @@ graph LR
 Before implementing your own adapter, check the existing implementations in `crates/adapters/src/` for reference:
 
 - **`oif_adapter.rs`** - Standard OIF protocol adapter implementation
+- **`across_adapter.rs`** - Across Protocol integration with dynamic query parameters ([guide](across-adapter.md))
 - **`mod.rs`** - Adapter registry and factory patterns
 
 These provide working examples of:

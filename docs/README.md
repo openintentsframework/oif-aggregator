@@ -20,6 +20,7 @@ Welcome to the comprehensive documentation for the **Open Intent Framework (OIF)
 ### 🚀 **Development & Extension**
 - **[Custom Adapter Guide](custom-adapters.md)** - How to implement and register custom solver adapters
 - **[OIF Adapter Guide](oif-adapter.md)** - Complete guide for OIF adapter with JWT authentication
+- **[Across Adapter Guide](across-adapter.md)** - Complete guide for Across Protocol integration
 
 ### 🔗 **External Resources**
 - **[Interactive API Docs](https://openintentsframework.github.io/oif-aggregator/)** - Live Swagger UI
@@ -35,6 +36,7 @@ docs/
 ├── quotes-and-aggregation.md     # Quote system and aggregation logic
 ├── custom-adapters.md             # Custom adapter implementation guide
 ├── oif-adapter.md                 # OIF adapter guide with JWT authentication
+├── across-adapter.md              # Across Protocol adapter guide
 ├── docker.md                     # Docker deployment and development
 ├── security.md                   # Security guidelines and best practices
 ├── maintenance.md                 # System maintenance and monitoring
@@ -89,6 +91,11 @@ docs/
 - JWT authentication configuration with `adapter_metadata`
 - Token management and automatic refresh
 - HTTP client caching with authentication support
+
+### **[Across Adapter Guide](across-adapter.md)**
+- Across Protocol integration with dynamic query parameters
+- Cross-chain bridge configuration through `requestParams` metadata
+- Request parameter reference
 
 ### **[Docker Guide](docker.md)**
 - Container deployment and development workflows
