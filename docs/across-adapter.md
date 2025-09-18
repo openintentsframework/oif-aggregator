@@ -53,6 +53,8 @@ The Across Adapter supports extensive customization through the `metadata.reques
 }
 ```
 
+> **💡 Note**: Numeric parameters like `slippage` and `appFee` accept both numbers (`5`) and strings (`"5"`) for flexibility.
+
 ### All Available Request Parameters
 
 | Parameter | Type | Description |
@@ -69,7 +71,7 @@ The Across Adapter supports extensive customization through the `metadata.reques
 | `appFeeRecipient` | `string` | Address to receive app fees |
 | `strictTradeType` | `boolean` | Used to define whether you want to strictly follow the defined tradeType |
 
-> **📖 Complete API Reference**: For detailed parameter documentation, default values, and additional options, see the [official Across API documentation](https://docs.across.to/reference/api-reference#get-swap-approval).
+> **📖 Complete API Reference**: For detailed parameter documentation, default values, max values, and additional options, see the [official Across API documentation](https://docs.across.to/reference/api-reference#get-swap-approval).
 
 
 ## 🔗 Additional Resources

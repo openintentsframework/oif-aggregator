@@ -34,15 +34,17 @@ pub struct AssetResponse {
 	pub decimals: u8,
 }
 
-impl From<Asset> for AssetResponse {
-	fn from(asset: Asset) -> Self {
-		Self {
+impl TryFrom<Asset> for AssetResponse {
+	type Error = crate::quotes::errors::QuoteValidationError;
+
+	fn try_from(asset: Asset) -> Result<Self, Self::Error> {
+		Ok(Self {
 			address: asset.plain_address(),
-			chain_id: asset.chain_id().unwrap_or(0), // Default to 0 if chain ID extraction fails
+			chain_id: asset.chain_id()?,
 			symbol: asset.symbol,
 			name: asset.name,
 			decimals: asset.decimals,
-		}
+		})
 	}
 }
 
@@ -199,10 +201,18 @@ impl TryFrom<&Solver> for SolverResponse {
 					crate::solvers::AssetSource::Config => "config".to_string(),
 					crate::solvers::AssetSource::AutoDiscovered => "autoDiscovered".to_string(),
 				};
-				let asset_responses: Vec<AssetResponse> = assets
+				let asset_responses: Result<Vec<AssetResponse>, _> = assets
 					.iter()
-					.map(|asset| AssetResponse::from(asset.clone()))
+					.map(|asset| AssetResponse::try_from(asset.clone()))
 					.collect();
+
+				let asset_responses = asset_responses.map_err(|e| {
+					tracing::error!("Failed to convert Asset to AssetResponse: {}", e);
+					crate::solvers::SolverError::Configuration(format!(
+						"Invalid asset chain ID in supported_assets: {}",
+						e
+					))
+				})?;
 				SupportedAssetsResponse::Assets {
 					assets: asset_responses,
 					source: source_str,
@@ -348,7 +358,7 @@ mod tests {
 		)
 		.unwrap();
 
-		let asset_response = AssetResponse::from(asset);
+		let asset_response = AssetResponse::try_from(asset).unwrap();
 
 		assert_eq!(
 			asset_response.address,

@@ -334,8 +334,9 @@ pub struct AcrossQueryParams {
 	/// Whether to refund on origin chain
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub refund_on_origin: Option<String>,
-	/// Slippage tolerance
+	/// Slippage tolerance (accepts both string and number)
 	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, deserialize_with = "deserialize_optional_number_or_string")]
 	pub slippage: Option<String>,
 	/// Whether to skip origin transaction estimation
 	#[serde(skip_serializing_if = "Option::is_none")]
@@ -346,15 +347,49 @@ pub struct AcrossQueryParams {
 	/// Sources to include in quote (exclusive with exclude_sources)
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub include_sources: Option<String>,
-	/// App fee percentage
+	/// App fee percentage (accepts both string and number)
 	#[serde(skip_serializing_if = "Option::is_none")]
+	#[serde(default, deserialize_with = "deserialize_optional_number_or_string")]
 	pub app_fee: Option<String>,
 	/// App fee recipient address
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub app_fee_recipient: Option<String>,
 	/// Whether to strictly follow the defined trade type
 	#[serde(skip_serializing_if = "Option::is_none")]
-	pub strict_trade_type: Option<String>,
+	pub strict_trade_type: Option<bool>,
+}
+
+/// Helper function for optional number/string deserialization
+fn deserialize_optional_number_or_string<'de, D>(
+	deserializer: D,
+) -> Result<Option<String>, D::Error>
+where
+	D: serde::Deserializer<'de>,
+{
+	use serde::Deserialize;
+
+	let opt_value = Option::<serde_json::Value>::deserialize(deserializer)?;
+
+	Ok(opt_value.map(|v| match v {
+		serde_json::Value::String(s) => s,
+		serde_json::Value::Number(n) => {
+			if let Some(f) = n.as_f64() {
+				// Always format as decimal (e.g., 1 -> "1.0", 2.5 -> "2.5")
+				if f.fract() == 0.0 {
+					format!("{:.1}", f) // Force one decimal place for whole numbers
+				} else {
+					format!("{}", f)
+				}
+			} else if let Some(i) = n.as_i64() {
+				format!("{:.1}", i as f64) // Convert integer to float format
+			} else if let Some(u) = n.as_u64() {
+				format!("{:.1}", u as f64) // Convert unsigned to float format
+			} else {
+				n.to_string()
+			}
+		},
+		_ => v.to_string(),
+	}))
 }
 
 /// Across token from swap/tokens endpoint
@@ -626,61 +661,68 @@ impl AcrossAdapter {
 
 		// Extract optional parameters from metadata.requestParams
 		if let Some(metadata) = &request.metadata {
+			debug!("metadata: {:?}", metadata);
 			// Try to parse AcrossQueryParams from metadata.requestParams
 			if let Some(request_params) = metadata.get("requestParams") {
-				if let Ok(query_params) =
-					serde_json::from_value::<AcrossQueryParams>(request_params.clone())
-				{
-					// Add optional parameters if they exist
-					if let Some(trade_type) = query_params.trade_type {
-						params.push(("tradeType", trade_type));
-					}
+				match serde_json::from_value::<AcrossQueryParams>(request_params.clone()) {
+					Ok(query_params) => {
+						debug!("Successfully parsed query_params: {:?}", query_params);
+						// Add optional parameters if they exist
+						if let Some(trade_type) = query_params.trade_type {
+							params.push(("tradeType", trade_type));
+						}
 
-					if let Some(integrator_id) = query_params.integrator_id {
-						params.push(("integratorId", integrator_id));
-					}
+						if let Some(integrator_id) = query_params.integrator_id {
+							params.push(("integratorId", integrator_id));
+						}
 
-					if let Some(refund_address) = query_params.refund_address {
-						params.push(("refundAddress", refund_address));
-					}
+						if let Some(refund_address) = query_params.refund_address {
+							params.push(("refundAddress", refund_address));
+						}
 
-					if let Some(refund_on_origin) = query_params.refund_on_origin {
-						params.push(("refundOnOrigin", refund_on_origin));
-					}
+						if let Some(refund_on_origin) = query_params.refund_on_origin {
+							params.push(("refundOnOrigin", refund_on_origin));
+						}
 
-					if let Some(slippage) = query_params.slippage {
-						params.push(("slippage", slippage));
-					}
+						if let Some(slippage) = query_params.slippage {
+							params.push(("slippage", slippage));
+						}
 
-					if let Some(skip_origin_tx_estimation) = query_params.skip_origin_tx_estimation
-					{
-						params.push(("skipOriginTxEstimation", skip_origin_tx_estimation));
-					}
+						if let Some(skip_origin_tx_estimation) =
+							query_params.skip_origin_tx_estimation
+						{
+							params.push(("skipOriginTxEstimation", skip_origin_tx_estimation));
+						}
 
-					if let Some(exclude_sources) = query_params.exclude_sources {
-						params.push(("excludeSources", exclude_sources));
-					}
+						if let Some(exclude_sources) = query_params.exclude_sources {
+							params.push(("excludeSources", exclude_sources));
+						}
 
-					if let Some(include_sources) = query_params.include_sources {
-						params.push(("includeSources", include_sources));
-					}
+						if let Some(include_sources) = query_params.include_sources {
+							params.push(("includeSources", include_sources));
+						}
 
-					if let Some(app_fee) = query_params.app_fee {
-						params.push(("appFee", app_fee));
-					}
+						if let Some(app_fee) = query_params.app_fee {
+							params.push(("appFee", app_fee));
+						}
 
-					if let Some(app_fee_recipient) = query_params.app_fee_recipient {
-						params.push(("appFeeRecipient", app_fee_recipient));
-					}
+						if let Some(app_fee_recipient) = query_params.app_fee_recipient {
+							params.push(("appFeeRecipient", app_fee_recipient));
+						}
 
-					if let Some(strict_trade_type) = query_params.strict_trade_type {
-						params.push(("strictTradeType", strict_trade_type));
-					}
+						if let Some(strict_trade_type) = query_params.strict_trade_type {
+							params.push(("strictTradeType", strict_trade_type.to_string()));
+						}
 
-					debug!(
-						"Built dynamic query parameters from metadata.requestParams: {:?}",
-						params
-					);
+						debug!(
+							"Built dynamic query parameters from metadata.requestParams: {:?}",
+							params
+						);
+					},
+					Err(e) => {
+						debug!("Failed to parse requestParams as AcrossQueryParams: {}", e);
+						debug!("requestParams content: {:?}", request_params);
+					},
 				}
 			}
 		}
@@ -698,15 +740,10 @@ impl AcrossAdapter {
 		use oif_types::adapters::{AdapterQuote, QuoteDetails};
 
 		// Generate unique quote ID (use provided ID if available, otherwise generate one)
-		let quote_id = across_swap.id.clone().unwrap_or_else(|| {
-			format!(
-				"across-quote-{}",
-				std::time::SystemTime::now()
-					.duration_since(std::time::UNIX_EPOCH)
-					.unwrap_or_default()
-					.as_millis()
-			)
-		});
+		let quote_id = across_swap
+			.id
+			.clone()
+			.unwrap_or_else(|| format!("across-quote-{}", uuid::Uuid::new_v4()));
 
 		// Create quote details from the request structure
 		let details = QuoteDetails {
@@ -1682,5 +1719,91 @@ mod tests {
 		);
 
 		println!("✅ Successfully parsed Across tokens and converted to assets!");
+	}
+
+	#[test]
+	fn test_across_query_params_deserialization() {
+		// Test JSON with mixed types (numbers and strings)
+		let json_data = serde_json::json!({
+			"tradeType": "minOutput",
+			"slippage": 5,        // Number
+			"appFee": 2.5,        // Float
+			"integratorId": "test-id",
+			"strictTradeType": true
+		});
+
+		// Should successfully deserialize mixed types
+		let params: AcrossQueryParams =
+			serde_json::from_value(json_data).expect("Failed to deserialize mixed types");
+
+		assert_eq!(params.trade_type, Some("minOutput".to_string()));
+		assert_eq!(params.slippage, Some("5.0".to_string())); // Integer converted to decimal string
+		assert_eq!(params.app_fee, Some("2.5".to_string())); // Float converted to string
+		assert_eq!(params.integrator_id, Some("test-id".to_string()));
+		assert_eq!(params.strict_trade_type, Some(true));
+
+		println!("✅ Successfully parsed mixed number/string parameters");
+
+		// Test with string values
+		let json_string_data = serde_json::json!({
+			"tradeType": "exactInput",
+			"slippage": "0.005",  // String
+			"appFee": "1.0",      // String
+		});
+
+		let params_string: AcrossQueryParams =
+			serde_json::from_value(json_string_data).expect("Failed to deserialize string types");
+
+		assert_eq!(params_string.trade_type, Some("exactInput".to_string()));
+		assert_eq!(params_string.slippage, Some("0.005".to_string()));
+		assert_eq!(params_string.app_fee, Some("1.0".to_string()));
+
+		println!("✅ Successfully parsed string parameters");
+
+		// Test with null/missing values
+		let json_minimal = serde_json::json!({
+			"tradeType": "exactOutput"
+		});
+
+		let params_minimal: AcrossQueryParams =
+			serde_json::from_value(json_minimal).expect("Failed to deserialize minimal data");
+
+		assert_eq!(params_minimal.trade_type, Some("exactOutput".to_string()));
+		assert_eq!(params_minimal.slippage, None);
+		assert_eq!(params_minimal.app_fee, None);
+
+		println!("✅ Successfully parsed minimal parameters with null values");
+
+		// Test with the user's exact payload
+		let user_payload = serde_json::json!({
+			"tradeType": "minOutput",
+			"integratorId": "0xdede",
+			"strictTradeType": true
+		});
+
+		let params_user: AcrossQueryParams =
+			serde_json::from_value(user_payload).expect("Failed to deserialize user payload");
+
+		assert_eq!(params_user.trade_type, Some("minOutput".to_string()));
+		assert_eq!(params_user.integrator_id, Some("0xdede".to_string()));
+		assert_eq!(params_user.strict_trade_type, Some(true));
+		assert_eq!(params_user.slippage, None); // Missing field should be None
+		assert_eq!(params_user.app_fee, None); // Missing field should be None
+
+		println!("✅ Successfully parsed user payload with missing numeric fields");
+
+		// Test integer to decimal conversion specifically
+		let json_integers = serde_json::json!({
+			"slippage": 1,    // Integer
+			"appFee": 10      // Integer
+		});
+
+		let params_int: AcrossQueryParams =
+			serde_json::from_value(json_integers).expect("Failed to deserialize integers");
+
+		assert_eq!(params_int.slippage, Some("1.0".to_string())); // 1 -> "1.0"
+		assert_eq!(params_int.app_fee, Some("10.0".to_string())); // 10 -> "10.0"
+
+		println!("✅ Successfully converted integers to decimal format");
 	}
 }
