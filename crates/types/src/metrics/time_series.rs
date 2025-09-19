@@ -134,15 +134,45 @@ impl MetricsAggregate {
 		// Update success rate
 		self.success_rate = self.successful_requests as f64 / self.total_requests as f64;
 
-		self.last_updated = Utc::now();
+		// Calculate p95 response time using mathematical approximation
+		// This provides a reasonable estimate without storing all individual response times
+		self.p95_response_time_ms = self.calculate_p95_approximation();
 
-		// TODO: Calculate p95 properly - for now, approximate with max
-		self.p95_response_time_ms = self.max_response_time_ms;
+		self.last_updated = Utc::now();
 	}
 
 	/// Check if this aggregate is empty (no data points)
 	pub fn is_empty(&self) -> bool {
 		self.total_requests == 0
+	}
+
+	/// Calculate p95 response time approximation
+	///
+	/// Uses mathematical approximation based on min, max, and average values.
+	/// This provides a reasonable estimate without storing all individual response times.
+	fn calculate_p95_approximation(&self) -> u64 {
+		// Handle edge cases
+		if self.total_requests == 0 {
+			return 0;
+		}
+
+		if self.total_requests == 1 {
+			return self.max_response_time_ms;
+		}
+
+		// If all values are the same (min == max), p95 is that value
+		if self.min_response_time_ms == self.max_response_time_ms {
+			return self.max_response_time_ms;
+		}
+
+		// Use mathematical approximation: p95 ≈ avg + 0.7 * (max - avg)
+		// This assumes most values cluster around average with some higher outliers
+		let avg_ms = self.avg_response_time_ms;
+		let max_ms = self.max_response_time_ms as f64;
+		let p95_estimate = avg_ms + 0.7 * (max_ms - avg_ms);
+
+		// Ensure result is within bounds [avg, max] and convert to u64
+		p95_estimate.max(avg_ms).min(max_ms) as u64
 	}
 }
 
@@ -537,8 +567,8 @@ impl MetricsTimeSeries {
 			// Calculate weighted average of response times
 			combined.avg_response_time_ms = total_weighted_time / combined.total_requests as f64;
 
-			// Approximate p95 with max for now
-			combined.p95_response_time_ms = combined.max_response_time_ms;
+			// Calculate p95 using the same approximation method
+			combined.p95_response_time_ms = combined.calculate_p95_approximation();
 		}
 
 		combined.last_updated = Utc::now();
@@ -549,5 +579,115 @@ impl MetricsTimeSeries {
 	pub fn cleanup_old_data(&mut self) {
 		// The cleanup happens automatically in MetricsBucket based on max_buckets
 		// This method is here for future enhancements
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+
+	#[test]
+	fn test_p95_calculation_single_value() {
+		let time_range = TimeRange::new(Utc::now(), Utc::now() + Duration::minutes(15));
+		let mut aggregate = MetricsAggregate::new(time_range);
+
+		let data_point = MetricsDataPoint {
+			timestamp: Utc::now(),
+			response_time_ms: 100,
+			was_successful: true,
+			was_timeout: false,
+			error_type: None,
+		};
+
+		aggregate.add_data_point(&data_point);
+
+		// With single value, p95 should equal that value
+		assert_eq!(aggregate.p95_response_time_ms, 100);
+	}
+
+	#[test]
+	fn test_p95_calculation_identical_values() {
+		let time_range = TimeRange::new(Utc::now(), Utc::now() + Duration::minutes(15));
+		let mut aggregate = MetricsAggregate::new(time_range);
+
+		for _ in 0..10 {
+			let data_point = MetricsDataPoint {
+				timestamp: Utc::now(),
+				response_time_ms: 150,
+				was_successful: true,
+				was_timeout: false,
+				error_type: None,
+			};
+			aggregate.add_data_point(&data_point);
+		}
+
+		// All identical values, p95 should equal that value
+		assert_eq!(aggregate.p95_response_time_ms, 150);
+		assert_eq!(aggregate.avg_response_time_ms, 150.0);
+		assert_eq!(aggregate.min_response_time_ms, 150);
+		assert_eq!(aggregate.max_response_time_ms, 150);
+	}
+
+	#[test]
+	fn test_p95_calculation_varied_values() {
+		let time_range = TimeRange::new(Utc::now(), Utc::now() + Duration::minutes(15));
+		let mut aggregate = MetricsAggregate::new(time_range);
+
+		// Add data points with values: 50, 100, 150, 200, 300
+		let values = vec![50, 100, 150, 200, 300];
+		for value in values {
+			let data_point = MetricsDataPoint {
+				timestamp: Utc::now(),
+				response_time_ms: value,
+				was_successful: true,
+				was_timeout: false,
+				error_type: None,
+			};
+			aggregate.add_data_point(&data_point);
+		}
+
+		// Expected: avg = 160, max = 300, p95 ≈ 160 + 0.7 * (300 - 160) = 160 + 98 = 258
+		assert_eq!(aggregate.avg_response_time_ms, 160.0);
+		assert_eq!(aggregate.min_response_time_ms, 50);
+		assert_eq!(aggregate.max_response_time_ms, 300);
+		assert_eq!(aggregate.p95_response_time_ms, 258);
+	}
+
+	#[test]
+	fn test_p95_bounds_checking() {
+		let time_range = TimeRange::new(Utc::now(), Utc::now() + Duration::minutes(15));
+		let mut aggregate = MetricsAggregate::new(time_range);
+
+		// Add data points where average and max are very close
+		let data_point1 = MetricsDataPoint {
+			timestamp: Utc::now(),
+			response_time_ms: 99,
+			was_successful: true,
+			was_timeout: false,
+			error_type: None,
+		};
+		let data_point2 = MetricsDataPoint {
+			timestamp: Utc::now(),
+			response_time_ms: 100,
+			was_successful: true,
+			was_timeout: false,
+			error_type: None,
+		};
+
+		aggregate.add_data_point(&data_point1);
+		aggregate.add_data_point(&data_point2);
+
+		// p95 should be between avg and max
+		assert!(aggregate.p95_response_time_ms >= aggregate.avg_response_time_ms as u64);
+		assert!(aggregate.p95_response_time_ms <= aggregate.max_response_time_ms);
+	}
+
+	#[test]
+	fn test_p95_empty_aggregate() {
+		let time_range = TimeRange::new(Utc::now(), Utc::now() + Duration::minutes(15));
+		let aggregate = MetricsAggregate::new(time_range);
+
+		// Empty aggregate should have p95 = 0
+		assert_eq!(aggregate.calculate_p95_approximation(), 0);
 	}
 }
