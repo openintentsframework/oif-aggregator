@@ -48,6 +48,8 @@ pub struct SolverMetricsStorage {
 	pub successful_requests: u64,
 	pub failed_requests: u64,
 	pub timeout_requests: u64,
+	pub service_errors: u64,
+	pub client_errors: u64,
 	pub last_health_check: Option<HealthCheckStorage>,
 	pub consecutive_failures: u32,
 	pub last_updated: DateTime<Utc>,
@@ -177,6 +179,8 @@ impl From<SolverMetrics> for SolverMetricsStorage {
 			successful_requests: metrics.successful_requests,
 			failed_requests: metrics.failed_requests,
 			timeout_requests: metrics.timeout_requests,
+			service_errors: metrics.service_errors,
+			client_errors: metrics.client_errors,
 			last_health_check: metrics.last_health_check.map(HealthCheckStorage::from),
 			consecutive_failures: metrics.consecutive_failures,
 			last_updated: metrics.last_updated,
@@ -195,6 +199,8 @@ impl TryFrom<SolverMetricsStorage> for SolverMetrics {
 			successful_requests: storage.successful_requests,
 			failed_requests: storage.failed_requests,
 			timeout_requests: storage.timeout_requests,
+			service_errors: storage.service_errors,
+			client_errors: storage.client_errors,
 			last_health_check: storage
 				.last_health_check
 				.map(|hc| hc.try_into())

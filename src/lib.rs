@@ -465,7 +465,6 @@ where
 			Arc::clone(&solver_filter_service),
 			settings.get_aggregation().into(),
 			Some(Arc::clone(&job_scheduler)),
-			settings.is_metrics_collection_enabled(),
 		)) as Arc<dyn oif_service::AggregatorTrait>;
 		let solver_service = Arc::new(SolverService::new(
 			Arc::clone(&storage_arc),

@@ -856,13 +856,15 @@ impl SolverAdapter for AcrossAdapter {
 			.map_err(AdapterError::HttpError)?;
 
 		if !response.status().is_success() {
-			return Err(AdapterError::InvalidResponse {
-				reason: format!(
-					"Across quote endpoint returned status {}, {}",
-					response.status(),
-					response.text().await.unwrap_or_default()
+			let status_code = response.status().as_u16();
+			let error_body = response.text().await.unwrap_or_default();
+			return Err(AdapterError::http_failure(
+				status_code,
+				format!(
+					"Across quote endpoint returned status {}: {}",
+					status_code, error_body
 				),
-			});
+			));
 		}
 
 		// Get response text for logging and parsing
@@ -946,10 +948,10 @@ impl SolverAdapter for AcrossAdapter {
 				},
 			}
 		} else {
+			let status_code = response.status().as_u16();
 			warn!(
 				"Across adapter health check failed for solver {}: HTTP status {}",
-				config.solver_id,
-				response.status()
+				config.solver_id, status_code
 			);
 			Ok(false)
 		}
@@ -980,12 +982,11 @@ impl SolverAdapter for AcrossAdapter {
 			.map_err(AdapterError::HttpError)?;
 
 		if !response.status().is_success() {
-			return Err(AdapterError::InvalidResponse {
-				reason: format!(
-					"Across tokens endpoint returned status {}",
-					response.status()
-				),
-			});
+			let status_code = response.status().as_u16();
+			return Err(AdapterError::http_failure(
+				status_code,
+				format!("Across tokens endpoint returned status {}", status_code),
+			));
 		}
 
 		// Parse the JSON response into Across token models
@@ -1803,5 +1804,26 @@ mod tests {
 		assert_eq!(params_int.app_fee, Some("10.0".to_string())); // 10 -> "10.0"
 
 		println!("✅ Successfully converted integers to decimal format");
+	}
+
+	#[test]
+	fn test_across_adapter_http_failure_error_handling() {
+		// Test that AdapterError::http_failure creates proper error with status code
+		let error =
+			AdapterError::http_failure(404, "Across quote endpoint returned status 404: Not Found");
+		assert_eq!(error.status_code(), Some(404));
+
+		let error = AdapterError::http_failure(500, "Across tokens endpoint returned status 500");
+		assert_eq!(error.status_code(), Some(500));
+
+		let error = AdapterError::http_failure(429, "Rate limited by Across API");
+		assert_eq!(error.status_code(), Some(429));
+
+		// Test error message formatting
+		let error = AdapterError::from_http_failure(503);
+		assert!(error.to_string().contains("503"));
+		assert!(error.to_string().contains("Service Unavailable"));
+
+		println!("✅ Across adapter HTTP failure error handling works correctly");
 	}
 }

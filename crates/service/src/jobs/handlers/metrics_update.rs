@@ -196,14 +196,7 @@ impl MetricsUpdateHandler {
 			response_time_ms: metrics_data.response_time_ms,
 			was_successful: metrics_data.was_successful,
 			was_timeout: metrics_data.was_timeout,
-			error_type: metrics_data.error_message.as_ref().map(|_| {
-				// Simple error classification - could be improved
-				if metrics_data.was_timeout {
-					oif_types::ErrorType::Timeout
-				} else {
-					oif_types::ErrorType::Unknown
-				}
-			}),
+			error_type: metrics_data.error_type.clone(),
 		};
 
 		// Get or create time-series for this solver
@@ -292,6 +285,8 @@ mod tests {
 			was_timeout: false,
 			timestamp: Utc::now(),
 			error_message: None,
+			status_code: None,
+			error_type: None,
 		};
 
 		let result = handler
@@ -330,6 +325,8 @@ mod tests {
 			was_timeout: true,
 			timestamp: Utc::now(),
 			error_message: Some("Connection timeout".to_string()),
+			status_code: None,
+			error_type: Some(oif_types::ErrorType::ServiceError),
 		};
 
 		let result = handler
@@ -359,6 +356,8 @@ mod tests {
 			was_timeout: false,
 			timestamp: Utc::now(),
 			error_message: None,
+			status_code: None,
+			error_type: None,
 		};
 
 		let result = handler

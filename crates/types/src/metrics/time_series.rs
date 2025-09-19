@@ -19,21 +19,43 @@ pub struct MetricsDataPoint {
 	pub error_type: Option<ErrorType>,
 }
 
-/// Classification of different error types for analysis
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Simple error categorization for circuit breaker and monitoring decisions
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub enum ErrorType {
-	/// Network-related errors (connection, DNS, etc.)
-	Network,
-	/// HTTP errors (4xx, 5xx status codes)
-	Http,
-	/// Timeout errors
-	Timeout,
-	/// Adapter-specific errors (parsing, validation)
-	Adapter,
-	/// Solver-specific errors (business logic)
-	Solver,
-	/// Unknown/uncategorized errors
+	/// Service errors that should affect circuit breaker (5xx, 429, network issues, timeouts)
+	ServiceError,
+	/// Client errors that don't indicate service problems (4xx except 429)
+	ClientError,
+	/// Application errors (parsing, config, internal issues)
+	ApplicationError,
+	/// Unknown/uncategorized error
 	Unknown,
+}
+
+impl ErrorType {
+	/// Get a human-readable description of the error type
+	pub fn description(&self) -> &'static str {
+		match self {
+			ErrorType::ServiceError => "Service Error (affects circuit breaker)",
+			ErrorType::ClientError => "Client Error (doesn't affect circuit breaker)",
+			ErrorType::ApplicationError => "Application Error (internal issue)",
+			ErrorType::Unknown => "Unknown Error",
+		}
+	}
+
+	/// Create error type from HTTP status code
+	pub fn from_http_status(status_code: u16) -> Self {
+		match status_code {
+			// 4xx client errors - except rate limiting
+			400..=428 | 430..=499 => ErrorType::ClientError,
+			// 429 rate limiting - service overload, affects circuit breaker
+			429 => ErrorType::ServiceError,
+			// 5xx server errors - service problems
+			500..=599 => ErrorType::ServiceError,
+			// Everything else
+			_ => ErrorType::Unknown,
+		}
+	}
 }
 
 /// Aggregated metrics for a specific time period

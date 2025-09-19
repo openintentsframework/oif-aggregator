@@ -80,6 +80,8 @@ impl MetricsTestEnvironment {
 			was_timeout: false,
 			timestamp: Utc::now(),
 			error_message: None,
+			status_code: None,
+			error_type: None,
 		}
 	}
 }
@@ -234,10 +236,7 @@ async fn test_parallel_metrics_processing_performance() {
 		);
 	}
 
-	println!(
-		"Processed {} solvers in {:?}",
-		solver_count, elapsed
-	);
+	println!("Processed {} solvers in {:?}", solver_count, elapsed);
 
 	// Performance assertion: should complete much faster than sequential processing
 	// Sequential would be ~2 seconds (20 * 100ms), parallel should be much faster
@@ -389,15 +388,24 @@ async fn test_rolling_metrics_calculation_integration() {
 		for i in 0..10 {
 			let success = i % 3 != 0; // Mix of successes and failures
 			let response_time = 100 + (i * 50); // Varying response times
+			let is_timeout = i % 7 == 0; // Occasional timeouts
 			let metrics_data = SolverMetricsUpdate {
 				response_time_ms: response_time,
 				was_successful: success,
-				was_timeout: i % 7 == 0, // Occasional timeouts
+				was_timeout: is_timeout,
 				timestamp: Utc::now() - Duration::minutes(i as i64 * 2), // Spread over time
 				error_message: if success {
 					None
 				} else {
 					Some("Test error".to_string())
+				},
+				status_code: None,
+				error_type: if success {
+					None
+				} else if is_timeout {
+					Some(oif_types::ErrorType::ServiceError)
+				} else {
+					Some(oif_types::ErrorType::Unknown)
 				},
 			};
 

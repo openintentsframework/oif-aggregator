@@ -45,6 +45,10 @@ pub struct SolverMetricsUpdate {
 	pub timestamp: DateTime<Utc>,
 	/// Optional error message if the request failed
 	pub error_message: Option<String>,
+	/// HTTP status code from the solver response (if available)
+	pub status_code: Option<u16>,
+	/// Error type classification
+	pub error_type: Option<oif_types::ErrorType>,
 }
 
 /// Background job types that can be processed

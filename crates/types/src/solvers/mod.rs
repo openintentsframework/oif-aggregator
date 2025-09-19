@@ -167,6 +167,12 @@ pub struct SolverMetrics {
 	/// Number of timeout requests
 	pub timeout_requests: u64,
 
+	/// Service errors (5xx, 429, network issues, timeouts)
+	pub service_errors: u64,
+
+	/// Client errors (4xx except 429)
+	pub client_errors: u64,
+
 	/// Last health check result
 	pub last_health_check: Option<HealthCheckResult>,
 
@@ -533,6 +539,8 @@ impl SolverMetrics {
 			successful_requests: 0,
 			failed_requests: 0,
 			timeout_requests: 0,
+			service_errors: 0,
+			client_errors: 0,
 			last_health_check: None,
 			consecutive_failures: 0,
 			last_updated: Utc::now(),
