@@ -1,9 +1,10 @@
 //! In-memory storage implementation using DashMap
 
-use crate::traits::{OrderStorage, SolverStorage, Storage, StorageResult};
+use crate::traits::{MetricsStorage, OrderStorage, SolverStorage, Storage, StorageResult};
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use dashmap::DashMap;
-use oif_types::{storage::Repository, Order, Solver};
+use oif_types::{storage::Repository, MetricsTimeSeries, Order, RollingMetrics, Solver};
 use std::sync::Arc;
 
 /// In-memory storage for solvers, quotes, and orders
@@ -11,6 +12,7 @@ use std::sync::Arc;
 pub struct MemoryStore {
 	pub solvers: Arc<DashMap<String, Solver>>,
 	pub orders: Arc<DashMap<String, Order>>,
+	pub metrics_timeseries: Arc<DashMap<String, MetricsTimeSeries>>,
 }
 
 impl MemoryStore {
@@ -19,6 +21,7 @@ impl MemoryStore {
 		Self {
 			solvers: Arc::new(DashMap::new()),
 			orders: Arc::new(DashMap::new()),
+			metrics_timeseries: Arc::new(DashMap::new()),
 		}
 	}
 }
@@ -140,6 +143,76 @@ impl SolverStorage for MemoryStore {
 			})
 			.collect();
 		Ok(solvers)
+	}
+}
+
+#[async_trait]
+impl MetricsStorage for MemoryStore {
+	async fn update_metrics_timeseries(
+		&self,
+		solver_id: &str,
+		timeseries: MetricsTimeSeries,
+	) -> StorageResult<()> {
+		self.metrics_timeseries
+			.insert(solver_id.to_string(), timeseries);
+		Ok(())
+	}
+
+	async fn get_metrics_timeseries(
+		&self,
+		solver_id: &str,
+	) -> StorageResult<Option<MetricsTimeSeries>> {
+		Ok(self.metrics_timeseries.get(solver_id).map(|ts| ts.clone()))
+	}
+
+	async fn get_rolling_metrics(&self, solver_id: &str) -> StorageResult<Option<RollingMetrics>> {
+		Ok(self
+			.metrics_timeseries
+			.get(solver_id)
+			.map(|ts| ts.rolling_metrics.clone()))
+	}
+
+	async fn delete_metrics_timeseries(&self, solver_id: &str) -> StorageResult<bool> {
+		Ok(self.metrics_timeseries.remove(solver_id).is_some())
+	}
+
+	async fn list_solvers_with_metrics(&self) -> StorageResult<Vec<String>> {
+		Ok(self
+			.metrics_timeseries
+			.iter()
+			.map(|entry| entry.key().clone())
+			.collect())
+	}
+
+	async fn cleanup_old_metrics(&self, older_than: DateTime<Utc>) -> StorageResult<usize> {
+		let mut removed_count = 0;
+
+		// Get a list of keys to remove (to avoid borrowing issues)
+		let keys_to_remove: Vec<String> = self
+			.metrics_timeseries
+			.iter()
+			.filter_map(|entry| {
+				let timeseries = entry.value();
+				if timeseries.last_updated < older_than {
+					Some(entry.key().clone())
+				} else {
+					None
+				}
+			})
+			.collect();
+
+		// Remove the identified keys
+		for key in keys_to_remove {
+			if self.metrics_timeseries.remove(&key).is_some() {
+				removed_count += 1;
+			}
+		}
+
+		Ok(removed_count)
+	}
+
+	async fn count_metrics_timeseries(&self) -> StorageResult<usize> {
+		Ok(self.metrics_timeseries.len())
 	}
 }
 

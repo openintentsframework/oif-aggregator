@@ -41,6 +41,7 @@ impl MockConfigs {
 				integrity_secret: oif_config::ConfigurableValue::from_plain("test-secret"),
 			},
 			maintenance: None,
+			metrics: None,
 		}
 	}
 

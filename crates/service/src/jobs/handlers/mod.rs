@@ -17,6 +17,8 @@ use super::processor::JobHandler;
 use super::types::{BackgroundJob, JobResult};
 use orders_cleanup::OrdersCleanupParams;
 
+pub mod metrics_cleanup;
+pub mod metrics_update;
 pub mod order_status_monitor;
 pub mod orders_cleanup;
 pub mod solver_fetch_assets;
@@ -25,6 +27,8 @@ pub mod solvers_fetch_assets;
 pub mod solvers_health_check;
 
 // Re-export handler structs for convenience
+pub use metrics_cleanup::MetricsCleanupHandler;
+pub use metrics_update::MetricsUpdateHandler;
 pub use order_status_monitor::OrderStatusMonitorHandler;
 pub use orders_cleanup::OrdersCleanupHandler;
 pub use solver_fetch_assets::SolverFetchAssetsHandler;
@@ -41,6 +45,8 @@ pub struct BackgroundJobHandler {
 	solvers_fetch_assets_handler: SolversFetchAssetsHandler,
 	orders_cleanup_handler: OrdersCleanupHandler,
 	order_status_monitor_handler: OrderStatusMonitorHandler,
+	metrics_update_handler: MetricsUpdateHandler,
+	metrics_cleanup_handler: MetricsCleanupHandler,
 	// Core services available to all handlers
 	solver_service: Arc<dyn SolverServiceTrait>,
 	aggregator_service: Arc<dyn AggregatorTrait>,
@@ -78,6 +84,11 @@ impl BackgroundJobHandler {
 				Arc::clone(&storage),
 				Arc::clone(&job_scheduler),
 				None, // Use default monitoring configuration
+			),
+			metrics_update_handler: MetricsUpdateHandler::new(Arc::clone(&storage)),
+			metrics_cleanup_handler: MetricsCleanupHandler::new(
+				Arc::clone(&storage),
+				settings.clone(),
 			),
 			solver_service,
 			aggregator_service,
@@ -119,6 +130,19 @@ impl JobHandler for BackgroundJobHandler {
 				self.order_status_monitor_handler
 					.handle_order_monitoring(&order_id, attempt)
 					.await
+			},
+			BackgroundJob::AggregationMetricsUpdate {
+				aggregation_id,
+				solver_metrics,
+				..
+			} => {
+				// Delegate to the metrics update handler
+				self.metrics_update_handler
+					.handle_aggregation_metrics_update(&aggregation_id, solver_metrics)
+					.await
+			},
+			BackgroundJob::MetricsCleanup => {
+				self.metrics_cleanup_handler.handle_metrics_cleanup().await
 			},
 		}
 	}

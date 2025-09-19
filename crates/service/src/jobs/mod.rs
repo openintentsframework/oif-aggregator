@@ -17,7 +17,7 @@ pub use processor::{
 	JobInfo, JobInfoStats, JobProcessor, JobProcessorConfig, JobStatus, RetryPolicy, ScheduledJob,
 };
 pub use scheduler::{JobScheduler, UpgradableJobScheduler};
-pub use types::{BackgroundJob, JobError, JobResult};
+pub use types::{BackgroundJob, JobError, JobResult, SolverMetricsUpdate};
 
 // Re-export generic handler components for the new approach
 pub use generic_handler::{

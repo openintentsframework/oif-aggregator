@@ -453,21 +453,25 @@ where
 			Arc::new(IntegrityService::new(integrity_secret)) as Arc<dyn IntegrityTrait>;
 		let solver_filter_service =
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>;
+
+		// Create an upgradable job scheduler (works immediately, gets upgraded later)
+		let job_scheduler = Arc::new(UpgradableJobScheduler::new())
+			as Arc<dyn oif_service::jobs::scheduler::JobScheduler>;
+
 		let aggregator_service = Arc::new(AggregatorService::with_config(
 			Arc::clone(&storage_arc),
 			Arc::clone(&adapter_registry),
 			Arc::clone(&integrity_service),
 			Arc::clone(&solver_filter_service),
 			settings.get_aggregation().into(),
+			Some(Arc::clone(&job_scheduler)),
+			settings.is_metrics_collection_enabled(),
 		)) as Arc<dyn oif_service::AggregatorTrait>;
 		let solver_service = Arc::new(SolverService::new(
 			Arc::clone(&storage_arc),
 			Arc::clone(&adapter_registry),
+			Some(Arc::clone(&job_scheduler)),
 		)) as Arc<dyn SolverServiceTrait>;
-
-		// Create an upgradable job scheduler (works immediately, gets upgraded later)
-		let job_scheduler = Arc::new(UpgradableJobScheduler::new())
-			as Arc<dyn oif_service::jobs::scheduler::JobScheduler>;
 
 		// Create the order service with the upgradable scheduler
 		let order_service_impl = oif_service::order::OrderService::new(
@@ -678,6 +682,37 @@ where
 			warn!("Failed to schedule orders cleanup job: {}", e);
 		} else {
 			info!("Scheduled daily orders cleanup to run every 24 hours");
+		}
+
+		// Schedule metrics cleanup based on configuration
+		if let Some(ref settings) = self.settings {
+			if settings.is_metrics_collection_enabled() {
+				let cleanup_interval_hours = settings.get_metrics_cleanup_interval_hours();
+				let cleanup_interval_minutes = cleanup_interval_hours * 60;
+
+				if let Err(e) = job_processor
+					.schedule_job(
+						cleanup_interval_minutes as u64,
+						BackgroundJob::MetricsCleanup,
+						format!(
+							"Cleanup of old time-series metrics data (retention: {}h)",
+							settings.get_metrics_retention_hours()
+						),
+						Some("metrics-cleanup-periodic".to_string()),
+						false, // Don't run immediately on startup, wait for first interval
+						None,  // No retry policy for now
+					)
+					.await
+				{
+					warn!("Failed to schedule metrics cleanup job: {}", e);
+				} else {
+					info!(
+						"Scheduled metrics cleanup to run every {} hours (retention: {} hours)",
+						cleanup_interval_hours,
+						settings.get_metrics_retention_hours()
+					);
+				}
+			}
 		}
 	}
 }

@@ -72,8 +72,6 @@ mod tests {
 			created_at: chrono::Utc::now(),
 			last_seen: None,
 			metrics: SolverMetrics {
-				avg_response_time_ms: 0.0,
-				success_rate: 0.0,
 				total_requests: 0,
 				successful_requests: 0,
 				failed_requests: 0,
@@ -91,7 +89,7 @@ mod tests {
 	async fn create_test_solver_service() -> (Arc<dyn Storage>, Arc<SolverService>) {
 		let storage = Arc::new(MemoryStore::new());
 		let adapter_registry = Arc::new(AdapterRegistry::with_defaults());
-		let solver_service = Arc::new(SolverService::new(storage.clone(), adapter_registry));
+		let solver_service = Arc::new(SolverService::new(storage.clone(), adapter_registry, None));
 		(storage, solver_service)
 	}
 

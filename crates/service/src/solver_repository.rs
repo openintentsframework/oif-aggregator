@@ -5,13 +5,20 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::jobs::scheduler::JobScheduler;
+use crate::jobs::types::{BackgroundJob, SolverMetricsUpdate};
+use crate::solver_adapter::SolverAdapterService;
 use crate::solver_adapter::SolverAdapterTrait;
 use async_trait::async_trait;
+use chrono::Utc;
+use futures::stream::{self, StreamExt};
 use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;
 use oif_types::models::health::SolverStats;
 use oif_types::solvers::Solver;
 use oif_types::solvers::{AssetSource, SupportedAssets};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use oif_types::{SolverRuntimeConfig, SolverStatus};
 
@@ -66,13 +73,19 @@ pub enum SolverServiceError {
 pub struct SolverService {
 	storage: Arc<dyn Storage>,
 	adapter_registry: Arc<AdapterRegistry>,
+	job_scheduler: Option<Arc<dyn JobScheduler>>,
 }
 
 impl SolverService {
-	pub fn new(storage: Arc<dyn Storage>, adapter_registry: Arc<AdapterRegistry>) -> Self {
+	pub fn new(
+		storage: Arc<dyn Storage>,
+		adapter_registry: Arc<AdapterRegistry>,
+		job_scheduler: Option<Arc<dyn JobScheduler>>,
+	) -> Self {
 		Self {
 			storage,
 			adapter_registry,
+			job_scheduler,
 		}
 	}
 
@@ -123,6 +136,74 @@ impl SolverService {
 		let healthy_count = all.iter().filter(|s| s.is_healthy()).count();
 
 		Ok((page_items, total, active_count, healthy_count))
+	}
+
+	/// Schedule metrics job with the provided metrics data
+	async fn schedule_metrics_job(
+		&self,
+		job_scheduler: &Arc<dyn JobScheduler>,
+		solver_metrics: Vec<(String, SolverMetricsUpdate)>,
+		operation_type: &str,
+	) -> Result<String, String> {
+		use chrono::Utc;
+		use std::time::Duration;
+
+		debug!(
+			"Scheduling {} metrics job for {} solvers",
+			operation_type,
+			solver_metrics.len()
+		);
+
+		let metrics_job = BackgroundJob::AggregationMetricsUpdate {
+			aggregation_id: format!("{}-{}", operation_type, Utc::now().timestamp()),
+			solver_metrics,
+			aggregation_timestamp: Utc::now(),
+		};
+
+		let job_id = job_scheduler
+			.schedule_with_delay(metrics_job, Duration::from_secs(1), None)
+			.await
+			.map_err(|e| format!("Failed to schedule metrics job: {}", e))?;
+
+		debug!("Scheduled {} metrics job: {}", operation_type, job_id);
+		Ok(job_id)
+	}
+
+	/// Update solver status and metrics in storage based on health check result
+	async fn update_solver_status(
+		storage: &Arc<dyn Storage>,
+		solver: &Solver,
+		is_healthy: bool,
+	) -> Result<(), SolverServiceError> {
+		use chrono::Utc;
+
+		// Clone solver and update status and metrics
+		let mut updated_solver = solver.clone();
+
+		let new_status = if is_healthy {
+			SolverStatus::Active
+		} else {
+			SolverStatus::Error
+		};
+
+		updated_solver.status = new_status;
+		updated_solver.last_seen = Some(Utc::now());
+
+		// Update metrics
+		if is_healthy {
+			updated_solver.metrics.successful_requests += 1;
+		} else {
+			updated_solver.metrics.failed_requests += 1;
+			updated_solver.metrics.consecutive_failures += 1;
+		}
+
+		// Save to storage
+		storage
+			.update_solver(updated_solver)
+			.await
+			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
+
+		Ok(())
 	}
 }
 
@@ -417,9 +498,6 @@ impl SolverServiceTrait for SolverService {
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
-		let mut success_count = 0;
-		let mut error_count = 0;
-
 		// Filter solvers that should have health checks (active/inactive)
 		let checkable_solvers: Vec<_> = solvers
 			.into_iter()
@@ -431,35 +509,156 @@ impl SolverServiceTrait for SolverService {
 			checkable_solvers.len()
 		);
 
-		// Perform health check on each solver
-		for solver in checkable_solvers {
-			match self.health_check_solver(&solver.solver_id).await {
-				Ok(is_healthy) => {
-					if is_healthy {
-						success_count += 1;
-						debug!("Health check passed for solver: {}", solver.solver_id);
-					} else {
-						error_count += 1;
-						warn!("Health check failed for solver: {}", solver.solver_id);
+		if checkable_solvers.is_empty() {
+			info!("No solvers found for health checks - all done");
+			return Ok(());
+		}
+
+		// Perform health checks in parallel
+		let success_count = Arc::new(AtomicUsize::new(0));
+		let error_count = Arc::new(AtomicUsize::new(0));
+
+		let results: Vec<(String, Option<SolverMetricsUpdate>, bool)> = stream::iter(checkable_solvers)
+			.map(|solver| {
+				let storage = Arc::clone(&self.storage);
+				let adapter_registry = Arc::clone(&self.adapter_registry);
+				let success_count = Arc::clone(&success_count);
+				let error_count = Arc::clone(&error_count);
+
+				async move {
+					let solver_id = solver.solver_id.clone();
+					let start_time = Instant::now();
+
+					// Create adapter service and perform health check with timing
+					let adapter_result = SolverAdapterService::from_solver(solver.clone(), adapter_registry);
+
+					let (is_healthy, metrics_data) = match adapter_result {
+						Ok(adapter_service) => {
+							// Perform health check with timeout
+							let health_result = tokio::time::timeout(
+								Duration::from_secs(10), // 10 second timeout
+								adapter_service.health_check()
+							).await;
+
+							let response_time_ms = start_time.elapsed().as_millis() as u64;
+
+							match health_result {
+								Ok(Ok(is_healthy)) => {
+									if is_healthy {
+										success_count.fetch_add(1, Ordering::Relaxed);
+									} else {
+										error_count.fetch_add(1, Ordering::Relaxed);
+									}
+
+									let metrics = SolverMetricsUpdate {
+										response_time_ms,
+										was_successful: is_healthy,
+										was_timeout: false,
+										timestamp: Utc::now(),
+										error_message: if is_healthy { None } else { Some("Health check failed".to_string()) },
+									};
+									(is_healthy, Some(metrics))
+								},
+								Ok(Err(e)) => {
+									error_count.fetch_add(1, Ordering::Relaxed);
+									let metrics = SolverMetricsUpdate {
+										response_time_ms,
+										was_successful: false,
+										was_timeout: false,
+										timestamp: Utc::now(),
+										error_message: Some(format!("Adapter error: {}", e)),
+									};
+									(false, Some(metrics))
+								},
+								Err(_timeout) => {
+									error_count.fetch_add(1, Ordering::Relaxed);
+									let metrics = SolverMetricsUpdate {
+										response_time_ms,
+										was_successful: false,
+										was_timeout: true,
+										timestamp: Utc::now(),
+										error_message: Some("Health check timeout".to_string()),
+									};
+									(false, Some(metrics))
+								},
+							}
+						},
+						Err(e) => {
+							error_count.fetch_add(1, Ordering::Relaxed);
+							let response_time_ms = start_time.elapsed().as_millis() as u64;
+							let metrics = SolverMetricsUpdate {
+								response_time_ms,
+								was_successful: false,
+								was_timeout: false,
+								timestamp: Utc::now(),
+								error_message: Some(format!("Failed to create adapter service: {}", e)),
+							};
+							(false, Some(metrics))
+						},
+					};
+
+					// Update solver status in storage (preserve existing behavior)
+					if let Err(e) = Self::update_solver_status(&storage, &solver, is_healthy).await {
+						warn!("Failed to update solver status for {}: {}", solver_id, e);
 					}
-				},
-				Err(e) => {
-					error_count += 1;
-					warn!("Health check error for solver {}: {}", solver.solver_id, e);
-				},
+
+					(solver_id, metrics_data, is_healthy)
+				}
+			})
+			.buffer_unordered(8) // Process 8 health checks concurrently
+			.collect()
+			.await;
+
+		// Collect metrics data and log results
+		let mut metrics_data = Vec::new();
+		for (solver_id, metrics, is_healthy) in results {
+			if let Some(metrics) = metrics {
+				metrics_data.push((solver_id.clone(), metrics));
+			}
+
+			if is_healthy {
+				debug!("Health check passed for solver: {}", solver_id);
+			} else {
+				warn!("Health check failed for solver: {}", solver_id);
 			}
 		}
 
+		let final_success_count = success_count.load(Ordering::Relaxed);
+		let final_error_count = error_count.load(Ordering::Relaxed);
+
 		info!(
-			"Health check completed - {} successful, {} failed",
-			success_count, error_count
+			"Parallel health checks completed - {} successful, {} failed, {} metrics collected",
+			final_success_count,
+			final_error_count,
+			metrics_data.len()
 		);
+
+		// Schedule metrics job if we have data and a job scheduler
+		if !metrics_data.is_empty() {
+			if let Some(job_scheduler) = &self.job_scheduler {
+				let metrics_count = metrics_data.len();
+				match self
+					.schedule_metrics_job(job_scheduler, metrics_data, "health-check")
+					.await
+				{
+					Ok(job_id) => {
+						debug!(
+							"Scheduled health-check metrics job: {} for {} solvers",
+							job_id, metrics_count
+						);
+					},
+					Err(e) => {
+						warn!("Failed to schedule health-check metrics job: {}", e);
+					},
+				}
+			}
+		}
 
 		Ok(())
 	}
 
 	async fn fetch_assets_all_solvers(&self) -> Result<(), SolverServiceError> {
-		info!("Starting asset auto-discovery for all solvers (skipping solvers with manually configured assets)");
+		info!("Starting parallel asset auto-discovery for all solvers");
 
 		// Get all solvers from storage
 		let solvers = self
@@ -468,33 +667,136 @@ impl SolverServiceTrait for SolverService {
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
-		let mut success_count = 0;
-		let mut error_count = 0;
-
-		// Auto-discover routes for each solver (only if config routes are empty)
-		for solver in solvers {
-			match self.fetch_and_update_assets(&solver.solver_id).await {
-				Ok(()) => {
-					success_count += 1;
-					debug!(
-						"Route auto-discovery completed for solver: {}",
-						solver.solver_id
-					);
+		// Filter solvers that need auto-discovery (check if source is AutoDiscovered)
+		let auto_discovery_solvers: Vec<_> = solvers
+			.into_iter()
+			.filter(|solver| match &solver.metadata.supported_assets {
+				SupportedAssets::Assets { source, .. } => {
+					matches!(source, AssetSource::AutoDiscovered)
 				},
-				Err(e) => {
-					error_count += 1;
-					warn!(
-						"Route auto-discovery failed for solver {}: {}",
-						solver.solver_id, e
-					);
+				SupportedAssets::Routes { source, .. } => {
+					matches!(source, AssetSource::AutoDiscovered)
 				},
-			}
-		}
+			})
+			.collect();
 
 		info!(
-			"Asset auto-discovery completed - {} successful, {} failed",
-			success_count, error_count
+			"Found {} solvers requiring asset auto-discovery",
+			auto_discovery_solvers.len()
 		);
+
+		if auto_discovery_solvers.is_empty() {
+			info!("No solvers found requiring asset auto-discovery - all done");
+			return Ok(());
+		}
+
+		// Perform asset discovery in parallel
+		let success_count = Arc::new(AtomicUsize::new(0));
+		let error_count = Arc::new(AtomicUsize::new(0));
+		let metrics_data = Arc::new(std::sync::Mutex::new(Vec::new()));
+
+		stream::iter(auto_discovery_solvers)
+			.for_each_concurrent(8, |solver| {
+				let success_count = Arc::clone(&success_count);
+				let error_count = Arc::clone(&error_count);
+				let metrics_data = Arc::clone(&metrics_data);
+
+				async move {
+					let start_time = Instant::now();
+					let solver_id = solver.solver_id.clone();
+
+					match self.fetch_and_update_assets(&solver_id).await {
+						Ok(_) => {
+							let response_time = start_time.elapsed();
+							success_count.fetch_add(1, Ordering::Relaxed);
+
+							debug!("Asset auto-discovery completed for solver: {}", solver_id);
+
+							// Collect success metrics
+							let metrics = SolverMetricsUpdate {
+								response_time_ms: response_time.as_millis() as u64,
+								was_successful: true,
+								was_timeout: false,
+								timestamp: Utc::now(),
+								error_message: None,
+							};
+
+							if let Ok(mut data) = metrics_data.lock() {
+								data.push((solver_id, metrics));
+							}
+						},
+						Err(e) => {
+							let response_time = start_time.elapsed();
+							error_count.fetch_add(1, Ordering::Relaxed);
+
+							warn!(
+								"Asset auto-discovery failed for solver {}: {}",
+								solver_id, e
+							);
+
+							// Collect failure metrics
+							let error_message = match &e {
+								SolverServiceError::Storage(msg) => {
+									Some(format!("Storage error: {}", msg))
+								},
+								SolverServiceError::NotFound(msg) => {
+									Some(format!("Not found: {}", msg))
+								},
+							};
+
+							let metrics = SolverMetricsUpdate {
+								response_time_ms: response_time.as_millis() as u64,
+								was_successful: false,
+								was_timeout: false,
+								timestamp: Utc::now(),
+								error_message,
+							};
+
+							if let Ok(mut data) = metrics_data.lock() {
+								data.push((solver_id, metrics));
+							}
+						},
+					}
+				}
+			})
+			.await;
+
+		let final_success_count = success_count.load(Ordering::Relaxed);
+		let final_error_count = error_count.load(Ordering::Relaxed);
+		let metrics_data = Arc::try_unwrap(metrics_data)
+			.map_err(|_| SolverServiceError::Storage("Failed to extract metrics data".to_string()))?
+			.into_inner()
+			.map_err(|_| {
+				SolverServiceError::Storage("Failed to unlock metrics data".to_string())
+			})?;
+
+		info!(
+			"Parallel asset auto-discovery completed - {} successful, {} failed, {} metrics collected",
+			final_success_count,
+			final_error_count,
+			metrics_data.len()
+		);
+
+		// Schedule metrics job if we have data and a job scheduler
+		if !metrics_data.is_empty() {
+			if let Some(job_scheduler) = &self.job_scheduler {
+				let metrics_count = metrics_data.len();
+				match self
+					.schedule_metrics_job(job_scheduler, metrics_data, "asset-fetch")
+					.await
+				{
+					Ok(job_id) => {
+						debug!(
+							"Scheduled asset-fetch metrics job: {} for {} solvers",
+							job_id, metrics_count
+						);
+					},
+					Err(e) => {
+						warn!("Failed to schedule asset-fetch metrics job: {}", e);
+					},
+				}
+			}
+		}
 
 		Ok(())
 	}

@@ -1,7 +1,8 @@
 //! Storage traits for pluggable storage implementations
 
-use crate::{Order, Solver, StorageResult};
+use crate::{MetricsTimeSeries, Order, RollingMetrics, Solver, StorageResult};
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 
 /// Generic repository abstraction for basic CRUD operations over an entity type.
 ///
@@ -35,9 +36,41 @@ pub trait SolverStorageTrait: Repository<Solver> + Send + Sync {
 	async fn get_active(&self) -> StorageResult<Vec<Solver>>;
 }
 
+/// Trait for metrics time-series storage operations
+#[async_trait]
+pub trait MetricsStorageTrait: Send + Sync {
+	/// Update or create metrics time-series for a solver
+	async fn update_metrics_timeseries(
+		&self,
+		solver_id: &str,
+		timeseries: MetricsTimeSeries,
+	) -> StorageResult<()>;
+
+	/// Get metrics time-series for a solver
+	async fn get_metrics_timeseries(
+		&self,
+		solver_id: &str,
+	) -> StorageResult<Option<MetricsTimeSeries>>;
+
+	/// Get rolling metrics for a solver for specific time windows
+	async fn get_rolling_metrics(&self, solver_id: &str) -> StorageResult<Option<RollingMetrics>>;
+
+	/// Delete metrics time-series for a solver
+	async fn delete_metrics_timeseries(&self, solver_id: &str) -> StorageResult<bool>;
+
+	/// Get all solver IDs that have metrics data
+	async fn list_solvers_with_metrics(&self) -> StorageResult<Vec<String>>;
+
+	/// Clean up metrics data older than the specified timestamp
+	async fn cleanup_old_metrics(&self, older_than: DateTime<Utc>) -> StorageResult<usize>;
+
+	/// Get the total number of metrics time-series records
+	async fn count_metrics_timeseries(&self) -> StorageResult<usize>;
+}
+
 /// Main storage trait that combines all storage operations
 #[async_trait]
-pub trait StorageTrait: OrderStorageTrait + SolverStorageTrait {
+pub trait StorageTrait: OrderStorageTrait + SolverStorageTrait + MetricsStorageTrait {
 	/// Health check for the storage system
 	async fn health_check(&self) -> StorageResult<bool>;
 
@@ -138,5 +171,54 @@ pub trait StorageTrait: OrderStorageTrait + SolverStorageTrait {
 	/// Get orders by status
 	async fn get_orders_by_status(&self, status: crate::OrderStatus) -> StorageResult<Vec<Order>> {
 		<Self as OrderStorageTrait>::get_by_status(self, status).await
+	}
+
+	// ===============================
+	// Metrics convenience methods
+	// ===============================
+
+	/// Update or create metrics time-series for a solver
+	async fn update_solver_metrics_timeseries(
+		&self,
+		solver_id: &str,
+		timeseries: MetricsTimeSeries,
+	) -> StorageResult<()> {
+		<Self as MetricsStorageTrait>::update_metrics_timeseries(self, solver_id, timeseries).await
+	}
+
+	/// Get metrics time-series for a solver
+	async fn get_solver_metrics_timeseries(
+		&self,
+		solver_id: &str,
+	) -> StorageResult<Option<MetricsTimeSeries>> {
+		<Self as MetricsStorageTrait>::get_metrics_timeseries(self, solver_id).await
+	}
+
+	/// Get rolling metrics for a solver for specific time windows
+	async fn get_solver_rolling_metrics(
+		&self,
+		solver_id: &str,
+	) -> StorageResult<Option<RollingMetrics>> {
+		<Self as MetricsStorageTrait>::get_rolling_metrics(self, solver_id).await
+	}
+
+	/// Delete metrics time-series for a solver
+	async fn delete_solver_metrics_timeseries(&self, solver_id: &str) -> StorageResult<bool> {
+		<Self as MetricsStorageTrait>::delete_metrics_timeseries(self, solver_id).await
+	}
+
+	/// Get all solver IDs that have metrics data
+	async fn list_all_solvers_with_metrics(&self) -> StorageResult<Vec<String>> {
+		<Self as MetricsStorageTrait>::list_solvers_with_metrics(self).await
+	}
+
+	/// Clean up metrics data older than the specified timestamp
+	async fn cleanup_old_solver_metrics(&self, older_than: DateTime<Utc>) -> StorageResult<usize> {
+		<Self as MetricsStorageTrait>::cleanup_old_metrics(self, older_than).await
+	}
+
+	/// Get the total number of metrics time-series records
+	async fn count_solver_metrics_timeseries(&self) -> StorageResult<usize> {
+		<Self as MetricsStorageTrait>::count_metrics_timeseries(self).await
 	}
 }

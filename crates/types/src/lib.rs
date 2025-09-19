@@ -7,6 +7,7 @@ pub mod adapters;
 pub mod auth;
 pub mod constants;
 pub mod integrity;
+pub mod metrics;
 pub mod models;
 pub mod orders;
 pub mod quotes;
@@ -55,5 +56,11 @@ pub use auth::{
 };
 
 pub use storage::{
-	OrderStorageTrait, SolverStorageTrait, StorageError, StorageResult, StorageTrait,
+	MetricsStorageTrait, OrderStorageTrait, SolverStorageTrait, StorageError, StorageResult,
+	StorageTrait,
+};
+
+pub use metrics::{
+	ErrorType, MetricsAggregate, MetricsBucket, MetricsDataPoint, MetricsTimeSeries,
+	RollingMetrics, TimeBucket, TimeRange, TimeWindow,
 };

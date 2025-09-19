@@ -121,6 +121,9 @@ use tokio::sync::{broadcast, mpsc, Semaphore};
 use tokio::time::{timeout, Duration, Instant};
 use tracing::{debug, info, warn};
 
+use crate::jobs::{scheduler::JobScheduler, BackgroundJob, SolverMetricsUpdate};
+use chrono::Utc;
+
 /// Errors that can occur during quote aggregation
 #[derive(Debug, thiserror::Error)]
 pub enum AggregatorServiceError {
@@ -426,6 +429,8 @@ pub struct AggregatorService {
 	config: AggregationConfig,
 	solver_filter_service: Arc<dyn SolverFilterTrait>,
 	task_executor: Arc<dyn TaskExecutorTrait>,
+	job_scheduler: Option<Arc<dyn JobScheduler>>,
+	metrics_enabled: bool,
 }
 
 impl AggregatorService {
@@ -442,6 +447,8 @@ impl AggregatorService {
 			integrity_service,
 			solver_filter_service,
 			AggregationConfig::default(),
+			None,
+			false,
 		)
 	}
 
@@ -452,6 +459,8 @@ impl AggregatorService {
 		integrity_service: Arc<dyn IntegrityTrait>,
 		solver_filter_service: Arc<dyn SolverFilterTrait>,
 		config: AggregationConfig,
+		job_scheduler: Option<Arc<dyn JobScheduler>>,
+		metrics_enabled: bool,
 	) -> Self {
 		// Create TaskExecutor with the configuration
 		let concurrency_limiter = Arc::new(Semaphore::new(config.max_concurrent_solvers));
@@ -467,6 +476,71 @@ impl AggregatorService {
 			config,
 			solver_filter_service,
 			task_executor,
+			job_scheduler,
+			metrics_enabled,
+		}
+	}
+
+	/// Convert solver task result to metrics data for batch collection
+	fn create_solver_metrics_data(&self, result: &SolverTaskResult) -> SolverMetricsUpdate {
+		SolverMetricsUpdate {
+			response_time_ms: result.duration_ms,
+			was_successful: result.success,
+			was_timeout: result
+				.error_message
+				.as_ref()
+				.map(|msg| msg.contains("Timed out") || msg.contains("timeout"))
+				.unwrap_or(false),
+			timestamp: Utc::now(),
+			error_message: result.error_message.clone(),
+		}
+	}
+
+	/// Schedule batch metrics update job for all solvers in this aggregation
+	async fn schedule_aggregation_metrics_update(
+		&self,
+		solver_metrics: Vec<(String, SolverMetricsUpdate)>,
+	) {
+		// Only collect metrics if enabled and job scheduler is available
+		if !self.metrics_enabled || solver_metrics.is_empty() {
+			return;
+		}
+
+		let job_scheduler = match &self.job_scheduler {
+			Some(scheduler) => scheduler,
+			None => {
+				warn!("Metrics collection enabled but no job scheduler available");
+				return;
+			},
+		};
+
+		// Generate unique aggregation ID
+		let aggregation_id = format!("agg-{}", Utc::now().timestamp_millis());
+
+		// Create the aggregation metrics update job
+		let metrics_job = BackgroundJob::AggregationMetricsUpdate {
+			aggregation_id: aggregation_id.clone(),
+			solver_metrics: solver_metrics.clone(),
+			aggregation_timestamp: Utc::now(),
+		};
+
+		// Schedule the job for immediate processing
+		if let Err(e) = job_scheduler
+			.schedule_with_delay(metrics_job, Duration::from_millis(0), None)
+			.await
+		{
+			warn!(
+				"Failed to schedule aggregation metrics update job '{}' for {} solvers: {}",
+				aggregation_id,
+				solver_metrics.len(),
+				e
+			);
+		} else {
+			debug!(
+				"Scheduled aggregation metrics update job '{}' for {} solvers",
+				aggregation_id,
+				solver_metrics.len()
+			);
 		}
 	}
 
@@ -715,6 +789,7 @@ impl AggregatorService {
 		let mut success_count = 0;
 		let mut error_count = 0;
 		let mut timeout_count = 0;
+		let mut solver_metrics = Vec::new(); // Collect metrics for batch processing
 
 		// Create global timeout future
 		let global_timeout_future = tokio::time::sleep(global_timeout_duration);
@@ -734,6 +809,12 @@ impl AggregatorService {
 			}
 		} {
 			completed_solvers += 1;
+
+			// Collect metrics data for batch processing
+			if self.metrics_enabled {
+				let metrics_data = self.create_solver_metrics_data(&result);
+				solver_metrics.push((result.solver_id.clone(), metrics_data));
+			}
 
 			if result.success {
 				success_count += 1;
@@ -764,6 +845,10 @@ impl AggregatorService {
 						error_count,
 						timeout_count,
 					);
+
+					// Schedule batch metrics update job before returning
+					self.schedule_aggregation_metrics_update(solver_metrics)
+						.await;
 
 					return Ok((collected_quotes, metadata));
 				}
@@ -812,6 +897,10 @@ impl AggregatorService {
 			error_count,
 			timeout_count,
 		);
+
+		// Schedule batch metrics update job
+		self.schedule_aggregation_metrics_update(solver_metrics)
+			.await;
 
 		if collected_quotes.is_empty() {
 			return Err(AggregatorServiceError::AllSolversFailed);
@@ -1469,6 +1558,8 @@ mod tests {
 				as Arc<dyn IntegrityTrait>,
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
 			test_config,
+			None,
+			false,
 		)
 	}
 
@@ -1498,6 +1589,8 @@ mod tests {
 				as Arc<dyn IntegrityTrait>,
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
 			test_config,
+			None,
+			false,
 		)
 	}
 

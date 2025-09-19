@@ -54,7 +54,7 @@ mod tests {
 	async fn create_test_solver_service() -> Arc<SolverService> {
 		let storage = Arc::new(MemoryStore::new());
 		let adapter_registry = Arc::new(AdapterRegistry::with_defaults());
-		Arc::new(SolverService::new(storage, adapter_registry))
+		Arc::new(SolverService::new(storage, adapter_registry, None))
 	}
 
 	#[tokio::test]

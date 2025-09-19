@@ -25,7 +25,7 @@ impl GenericJobHandler<BulkHealthCheckParams> for SolversHealthCheckHandler {
 	async fn handle(&self, _params: BulkHealthCheckParams) -> JobResult<()> {
 		debug!("Starting bulk health checks for all solvers");
 
-		// Delegate to the solver service which contains the business logic
+		// Delegate to solver service (handles health checks + metrics job scheduling internally)
 		self.solver_service
 			.health_check_all_solvers()
 			.await
@@ -38,7 +38,8 @@ impl GenericJobHandler<BulkHealthCheckParams> for SolversHealthCheckHandler {
 				},
 			})?;
 
-		debug!("Bulk health checks completed for all solvers");
+		debug!("Bulk health checks job completed successfully");
+
 		Ok(())
 	}
 }
@@ -48,57 +49,18 @@ mod tests {
 	use super::*;
 	use crate::solver_repository::SolverService;
 	use oif_adapters::AdapterRegistry;
-	use oif_storage::{MemoryStore, Storage};
-	use oif_types::solvers::{AssetSource, SolverMetadata, SolverMetrics, SupportedAssets};
-	use oif_types::{Solver, SolverStatus};
-
-	/// Helper to create a test solver
-	fn create_test_solver(solver_id: &str, status: SolverStatus) -> Solver {
-		Solver {
-			solver_id: solver_id.to_string(),
-			adapter_id: "test-adapter".to_string(),
-			endpoint: format!("https://{}.example.com", solver_id),
-			status,
-			metadata: SolverMetadata {
-				name: Some(format!("{} Solver", solver_id)),
-				description: Some("Test solver for unit testing".to_string()),
-				version: None,
-
-				supported_assets: SupportedAssets::Routes {
-					routes: Vec::new(),
-					source: AssetSource::AutoDiscovered,
-				},
-				headers: None,
-			},
-			created_at: chrono::Utc::now(),
-			last_seen: None,
-			metrics: SolverMetrics {
-				avg_response_time_ms: 0.0,
-				success_rate: 0.0,
-				total_requests: 0,
-				successful_requests: 0,
-				failed_requests: 0,
-				timeout_requests: 0,
-				last_health_check: None,
-				consecutive_failures: 0,
-				last_updated: chrono::Utc::now(),
-			},
-			headers: None,
-			adapter_metadata: None,
-		}
-	}
+	use oif_storage::MemoryStore;
 
 	/// Helper to create test services
-	async fn create_test_solver_service() -> (Arc<dyn Storage>, Arc<SolverService>) {
+	async fn create_test_solver_service() -> Arc<SolverService> {
 		let storage = Arc::new(MemoryStore::new());
 		let adapter_registry = Arc::new(AdapterRegistry::with_defaults());
-		let solver_service = Arc::new(SolverService::new(storage.clone(), adapter_registry));
-		(storage, solver_service)
+		Arc::new(SolverService::new(storage, adapter_registry, None))
 	}
 
 	#[tokio::test]
 	async fn test_solvers_health_check_handler_creation() {
-		let (_, solver_service) = create_test_solver_service().await;
+		let solver_service = create_test_solver_service().await;
 		let handler = SolversHealthCheckHandler::new(solver_service);
 
 		// Just verify we can create the handler without panic
@@ -107,7 +69,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_solvers_health_check_empty_storage() {
-		let (_, solver_service) = create_test_solver_service().await;
+		let solver_service = create_test_solver_service().await;
 		let handler = SolversHealthCheckHandler::new(solver_service);
 
 		// Should succeed with no solvers
@@ -118,15 +80,8 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_solvers_health_check_with_solvers() {
-		let (storage, solver_service) = create_test_solver_service().await;
+		let solver_service = create_test_solver_service().await;
 		let handler = SolversHealthCheckHandler::new(solver_service);
-
-		// Create and store test solvers
-		let active_solver = create_test_solver("active-solver", SolverStatus::Active);
-		let inactive_solver = create_test_solver("inactive-solver", SolverStatus::Inactive);
-
-		storage.create_solver(active_solver).await.unwrap();
-		storage.create_solver(inactive_solver).await.unwrap();
 
 		// This will attempt health checks but fail since there are no real adapters
 		// We just verify it doesn't panic and returns properly

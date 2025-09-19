@@ -1,5 +1,6 @@
 //! Background job types and definitions
 
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -31,6 +32,21 @@ pub enum JobError {
 /// Result type for job operations
 pub type JobResult<T = ()> = Result<T, JobError>;
 
+/// Metrics data collected during solver interactions for updating time-series
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SolverMetricsUpdate {
+	/// Response time for this specific request/interaction
+	pub response_time_ms: u64,
+	/// Whether the request was successful
+	pub was_successful: bool,
+	/// Whether the request timed out
+	pub was_timeout: bool,
+	/// Timestamp when the interaction occurred
+	pub timestamp: DateTime<Utc>,
+	/// Optional error message if the request failed
+	pub error_message: Option<String>,
+}
+
 /// Background job types that can be processed
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum BackgroundJob {
@@ -51,6 +67,16 @@ pub enum BackgroundJob {
 
 	/// Monitor and update status for a specific order with exponential backoff
 	OrderStatusMonitor { order_id: String, attempt: u32 },
+
+	/// Update metrics for multiple solvers from a single aggregation
+	AggregationMetricsUpdate {
+		aggregation_id: String,
+		solver_metrics: Vec<(String, SolverMetricsUpdate)>,
+		aggregation_timestamp: DateTime<Utc>,
+	},
+
+	/// Clean up old time-series metrics data
+	MetricsCleanup,
 }
 
 impl BackgroundJob {
@@ -72,6 +98,18 @@ impl BackgroundJob {
 					order_id, attempt
 				)
 			},
+			BackgroundJob::AggregationMetricsUpdate {
+				aggregation_id,
+				solver_metrics,
+				..
+			} => {
+				format!(
+					"Update metrics for {} solvers from aggregation '{}'",
+					solver_metrics.len(),
+					aggregation_id
+				)
+			},
+			BackgroundJob::MetricsCleanup => "Clean up old time-series metrics data".to_string(),
 		}
 	}
 
@@ -83,7 +121,9 @@ impl BackgroundJob {
 			BackgroundJob::AllSolversHealthCheck
 			| BackgroundJob::AllSolversFetchAssets
 			| BackgroundJob::OrdersCleanup
-			| BackgroundJob::OrderStatusMonitor { .. } => None,
+			| BackgroundJob::OrderStatusMonitor { .. }
+			| BackgroundJob::AggregationMetricsUpdate { .. }
+			| BackgroundJob::MetricsCleanup => None,
 		}
 	}
 }

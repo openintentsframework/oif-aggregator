@@ -44,8 +44,6 @@ pub struct SolverMetadataStorage {
 /// Storage-compatible solver metrics
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SolverMetricsStorage {
-	pub avg_response_time_ms: f64,
-	pub success_rate: f64,
 	pub total_requests: u64,
 	pub successful_requests: u64,
 	pub failed_requests: u64,
@@ -54,12 +52,6 @@ pub struct SolverMetricsStorage {
 	pub consecutive_failures: u32,
 	pub last_updated: DateTime<Utc>,
 
-	// Extended storage metrics
-	pub min_response_time_ms: u64,
-	pub max_response_time_ms: u64,
-	pub p95_response_time_ms: u64,
-	pub requests_per_hour: f64,
-	pub uptime_percentage: f64,
 	pub last_error_message: Option<String>,
 	pub last_error_timestamp: Option<DateTime<Utc>>,
 }
@@ -142,18 +134,14 @@ impl SolverStorage {
 
 	/// Compact the storage (remove old data, optimize size)
 	pub fn compact(&mut self) {
-		// Reset extended metrics to save space
-		self.metrics.min_response_time_ms = 0;
-		self.metrics.max_response_time_ms = 0;
-		self.metrics.p95_response_time_ms = 0;
-
-		// Clear old error messages
+		// Clear old error messages (older than 7 days)
 		if let Some(error_time) = self.metrics.last_error_timestamp {
 			if Utc::now() - error_time > chrono::Duration::days(7) {
 				self.metrics.last_error_message = None;
 				self.metrics.last_error_timestamp = None;
 			}
 		}
+
 		self.last_updated = Utc::now();
 	}
 }
@@ -185,8 +173,6 @@ impl From<SolverMetadataStorage> for SolverMetadata {
 impl From<SolverMetrics> for SolverMetricsStorage {
 	fn from(metrics: SolverMetrics) -> Self {
 		Self {
-			avg_response_time_ms: metrics.avg_response_time_ms,
-			success_rate: metrics.success_rate,
 			total_requests: metrics.total_requests,
 			successful_requests: metrics.successful_requests,
 			failed_requests: metrics.failed_requests,
@@ -194,29 +180,6 @@ impl From<SolverMetrics> for SolverMetricsStorage {
 			last_health_check: metrics.last_health_check.map(HealthCheckStorage::from),
 			consecutive_failures: metrics.consecutive_failures,
 			last_updated: metrics.last_updated,
-
-			// Initialize extended metrics
-			min_response_time_ms: if metrics.total_requests > 0 {
-				metrics.avg_response_time_ms as u64
-			} else {
-				0
-			},
-			max_response_time_ms: if metrics.total_requests > 0 {
-				metrics.avg_response_time_ms as u64
-			} else {
-				0
-			},
-			p95_response_time_ms: if metrics.total_requests > 0 {
-				(metrics.avg_response_time_ms * 1.2) as u64 // Estimate
-			} else {
-				0
-			},
-			requests_per_hour: 0.0, // Would be calculated from historical data
-			uptime_percentage: if metrics.total_requests > 0 {
-				metrics.success_rate * 100.0
-			} else {
-				0.0
-			},
 			last_error_message: None,
 			last_error_timestamp: None,
 		}
@@ -228,8 +191,6 @@ impl TryFrom<SolverMetricsStorage> for SolverMetrics {
 
 	fn try_from(storage: SolverMetricsStorage) -> Result<Self, Self::Error> {
 		Ok(SolverMetrics {
-			avg_response_time_ms: storage.avg_response_time_ms,
-			success_rate: storage.success_rate,
 			total_requests: storage.total_requests,
 			successful_requests: storage.successful_requests,
 			failed_requests: storage.failed_requests,

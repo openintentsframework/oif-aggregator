@@ -30,6 +30,7 @@ fn create_test_services(
 	let solver_service = Arc::new(SolverService::new(
 		Arc::clone(&storage),
 		Arc::clone(&adapter_registry),
+		None,
 	)) as Arc<dyn SolverServiceTrait>;
 
 	let integrity_service = Arc::new(IntegrityService::new(
@@ -45,6 +46,8 @@ fn create_test_services(
 		Arc::clone(&integrity_service),
 		solver_filter_service,
 		Default::default(),
+		None,
+		false,
 	)) as Arc<dyn AggregatorTrait>;
 
 	(solver_service, aggregator_service, integrity_service)

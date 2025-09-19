@@ -155,12 +155,6 @@ pub struct SolverMetadata {
 /// Performance and health metrics
 #[derive(Debug, Clone, PartialEq)]
 pub struct SolverMetrics {
-	/// Average response time in milliseconds
-	pub avg_response_time_ms: f64,
-
-	/// Success rate (0.0 to 1.0)
-	pub success_rate: f64,
-
 	/// Total number of requests made
 	pub total_requests: u64,
 
@@ -445,18 +439,24 @@ impl Solver {
 	}
 
 	/// Get solver priority score (higher is better)
-	/// TODO improve
+	/// Basic scoring using immediate metrics only - for advanced scoring use MetricsTimeSeries
 	pub fn priority_score(&self) -> f64 {
 		if !self.is_available() {
 			return 0.0;
 		}
 
 		let base_score = 100.0;
-		let success_rate_bonus = self.metrics.success_rate * 50.0;
-		let response_time_penalty = self.metrics.avg_response_time_ms / 100.0;
+
+		// Use basic success rate calculation if we have requests
+		let success_rate_bonus = if self.metrics.total_requests > 0 {
+			(self.metrics.successful_requests as f64 / self.metrics.total_requests as f64) * 50.0
+		} else {
+			0.0
+		};
+
 		let failure_penalty = self.metrics.consecutive_failures as f64 * 10.0;
 
-		(base_score + success_rate_bonus - response_time_penalty - failure_penalty).max(0.0)
+		(base_score + success_rate_bonus - failure_penalty).max(0.0)
 	}
 
 	/// Check if solver has been inactive for too long
@@ -529,8 +529,6 @@ impl Default for SolverMetadata {
 impl SolverMetrics {
 	pub fn new() -> Self {
 		Self {
-			avg_response_time_ms: 0.0,
-			success_rate: 0.0,
 			total_requests: 0,
 			successful_requests: 0,
 			failed_requests: 0,
@@ -542,19 +540,10 @@ impl SolverMetrics {
 	}
 
 	/// Record a successful request
-	pub fn record_success(&mut self, response_time_ms: u64) {
+	pub fn record_success(&mut self, _response_time_ms: u64) {
 		self.total_requests += 1;
 		self.successful_requests += 1;
 		self.consecutive_failures = 0;
-
-		// Update average response time
-		let total_time = self.avg_response_time_ms * (self.total_requests - 1) as f64;
-		self.avg_response_time_ms =
-			(total_time + response_time_ms as f64) / self.total_requests as f64;
-
-		// Update success rate
-		self.success_rate = self.successful_requests as f64 / self.total_requests as f64;
-
 		self.last_updated = Utc::now();
 	}
 
@@ -567,9 +556,6 @@ impl SolverMetrics {
 		if is_timeout {
 			self.timeout_requests += 1;
 		}
-
-		// Update success rate
-		self.success_rate = self.successful_requests as f64 / self.total_requests as f64;
 
 		self.last_updated = Utc::now();
 	}
@@ -632,15 +618,15 @@ mod tests {
 
 		assert_eq!(solver.metrics.total_requests, 2);
 		assert_eq!(solver.metrics.successful_requests, 2);
-		assert_eq!(solver.metrics.success_rate, 1.0);
-		assert_eq!(solver.metrics.avg_response_time_ms, 150.0);
+		assert_eq!(solver.metrics.consecutive_failures, 0);
 
 		// Record a failure
 		solver.record_failure(false);
 
 		assert_eq!(solver.metrics.total_requests, 3);
+		assert_eq!(solver.metrics.successful_requests, 2);
 		assert_eq!(solver.metrics.failed_requests, 1);
-		assert!((solver.metrics.success_rate - 0.6667).abs() < 0.001);
+		assert_eq!(solver.metrics.consecutive_failures, 1);
 	}
 
 	#[test]
