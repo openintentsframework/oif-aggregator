@@ -4,7 +4,7 @@
 //! It encapsulates the solver configuration and provides a clean interface
 //! for interacting with that particular solver.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::Instant;
 
 use async_trait::async_trait;
@@ -14,6 +14,7 @@ use oif_storage::Storage;
 use oif_types::adapters::models::{SubmitOrderRequest, SubmitOrderResponse};
 use oif_types::adapters::{GetOrderResponse, GetQuoteResponse};
 use oif_types::{GetQuoteRequest, Solver, SolverAdapter, SolverRuntimeConfig};
+use regex::Regex;
 use thiserror::Error;
 
 use crate::jobs::{BackgroundJob, JobScheduler, SolverMetricsUpdate};
@@ -47,29 +48,21 @@ impl SolverAdapterError {
 	}
 
 	/// Helper to extract status code from error string (fallback method)
+	///
+	/// Uses regex to find patterns like "HTTP 404:" or "status 500" in error messages.
+	/// This provides clean pattern matching that's easy to extend.
 	fn extract_status_from_string(error_str: &str) -> Option<u16> {
-		// Look for patterns like "HTTP 404:" or "status 500"
-		if let Some(start) = error_str.find("HTTP ") {
-			if let Some(end) = error_str[start + 5..].find(':') {
-				if let Ok(code) = error_str[start + 5..start + 5 + end].parse::<u16>() {
-					return Some(code);
-				}
-			}
-		}
+		static STATUS_REGEX: OnceLock<Regex> = OnceLock::new();
+		let regex = STATUS_REGEX.get_or_init(|| {
+			// Matches "HTTP 404:" or "status 500" patterns and captures the 3-digit code
+			Regex::new(r"(?:HTTP\s+(\d{3}):|status\s+(\d{3}))").unwrap()
+		});
 
-		// Look for "status XXX" patterns
-		if let Some(start) = error_str.find("status ") {
-			let after_status = &error_str[start + 7..];
-			if let Some(end) = after_status.find(|c: char| !c.is_ascii_digit()) {
-				if let Ok(code) = after_status[..end].parse::<u16>() {
-					return Some(code);
-				}
-			} else if let Ok(code) = after_status.parse::<u16>() {
-				return Some(code);
-			}
-		}
-
-		None
+		regex
+			.captures(error_str)
+			.and_then(|caps| caps.get(1).or_else(|| caps.get(2)))
+			.and_then(|m| m.as_str().parse().ok())
+			.filter(|&code| (100..600).contains(&code))
 	}
 }
 

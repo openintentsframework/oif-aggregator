@@ -1,5 +1,6 @@
 //! Metrics update job handler for processing solver performance data
 
+use chrono::{Duration, Utc};
 use futures::stream::{self, StreamExt};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -8,6 +9,10 @@ use tracing::{debug, warn};
 use crate::jobs::types::{JobError, JobResult, SolverMetricsUpdate};
 use oif_storage::Storage;
 use oif_types::{MetricsDataPoint, MetricsTimeSeries};
+
+/// Rolling metrics update interval - only recalculate if staler than this
+/// Set to 30 seconds to provide good performance while maintaining responsiveness
+const ROLLING_METRICS_UPDATE_INTERVAL: Duration = Duration::seconds(30);
 
 /// Handler for metrics update jobs
 pub struct MetricsUpdateHandler {
@@ -231,8 +236,10 @@ impl MetricsUpdateHandler {
 		// Add the data point to the time-series
 		timeseries.add_data_point(data_point);
 
-		// Update rolling metrics (this can be expensive, consider doing it less frequently)
-		timeseries.update_rolling_metrics();
+		// Update rolling metrics only if they're stale (every 30 seconds)
+		if should_update_rolling_metrics(&timeseries) {
+			timeseries.update_rolling_metrics();
+		}
 
 		// Save updated time-series back to storage
 		storage
@@ -353,6 +360,24 @@ impl MetricsUpdateHandler {
 			}
 		}
 	}
+}
+
+/// Check if rolling metrics should be updated based on staleness
+fn should_update_rolling_metrics(timeseries: &MetricsTimeSeries) -> bool {
+	let now = Utc::now();
+	let last_update = timeseries.rolling_metrics.last_updated;
+
+	// Always update if rolling metrics have never been properly calculated
+	// (all aggregates are None means no calculations have been done yet)
+	if timeseries.rolling_metrics.last_hour.is_none()
+		&& timeseries.rolling_metrics.last_day.is_none()
+		&& timeseries.rolling_metrics.last_week.is_none()
+	{
+		return true;
+	}
+
+	// Otherwise, only update if stale enough
+	now - last_update >= ROLLING_METRICS_UPDATE_INTERVAL
 }
 
 #[cfg(test)]
