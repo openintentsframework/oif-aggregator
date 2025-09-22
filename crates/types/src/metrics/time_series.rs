@@ -4,6 +4,10 @@ use chrono::{DateTime, Duration, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
+/// Coefficient for p95 response time approximation formula: p95 ≈ avg + COEFF * (max - avg)
+/// This value (0.7) assumes most response times cluster around the average with some higher outliers
+const P95_APPROXIMATION_COEFFICIENT: f64 = 0.7;
+
 /// Metrics data point for a single solver interaction
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MetricsDataPoint {
@@ -138,10 +142,10 @@ impl OperationStats {
 		} else if self.min_response_time_ms == self.max_response_time_ms {
 			self.p95_response_time_ms = self.min_response_time_ms;
 		} else {
-			// p95 ≈ avg + 0.7 * (max - avg)
+			// p95 ≈ avg + COEFF * (max - avg)
 			let avg = self.avg_response_time_ms;
 			let max = self.max_response_time_ms as f64;
-			self.p95_response_time_ms = (avg + 0.7 * (max - avg)) as u64;
+			self.p95_response_time_ms = (avg + P95_APPROXIMATION_COEFFICIENT * (max - avg)) as u64;
 		}
 	}
 }
@@ -314,11 +318,11 @@ impl MetricsAggregate {
 			return self.max_response_time_ms;
 		}
 
-		// Use mathematical approximation: p95 ≈ avg + 0.7 * (max - avg)
+		// Use mathematical approximation: p95 ≈ avg + COEFF * (max - avg)
 		// This assumes most values cluster around average with some higher outliers
 		let avg_ms = self.avg_response_time_ms;
 		let max_ms = self.max_response_time_ms as f64;
-		let p95_estimate = avg_ms + 0.7 * (max_ms - avg_ms);
+		let p95_estimate = avg_ms + P95_APPROXIMATION_COEFFICIENT * (max_ms - avg_ms);
 
 		// Ensure result is within bounds [avg, max] and convert to u64
 		p95_estimate.max(avg_ms).min(max_ms) as u64
@@ -933,7 +937,7 @@ mod tests {
 			aggregate.add_data_point(&data_point);
 		}
 
-		// Expected: avg = 160, max = 300, p95 ≈ 160 + 0.7 * (300 - 160) = 160 + 98 = 258
+		// Expected: avg = 160, max = 300, p95 ≈ 160 + P95_APPROXIMATION_COEFFICIENT * (300 - 160) = 160 + 98 = 258
 		assert_eq!(aggregate.avg_response_time_ms, 160.0);
 		assert_eq!(aggregate.min_response_time_ms, 50);
 		assert_eq!(aggregate.max_response_time_ms, 300);
