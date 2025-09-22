@@ -476,9 +476,7 @@ impl Solver {
 
 		let failure_penalty = self.metrics.consecutive_failures as f64 * 10.0;
 
-		let final_score = (base_score + success_rate_bonus - failure_penalty).max(0.0);
-
-		final_score
+		(base_score + success_rate_bonus - failure_penalty).max(0.0)
 	}
 
 	/// Check if solver has been inactive for too long

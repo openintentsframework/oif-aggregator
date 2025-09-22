@@ -215,7 +215,7 @@ impl SolverAdapterService {
 			},
 		};
 
-		let metrics = SolverMetricsUpdate {
+		SolverMetricsUpdate {
 			response_time_ms,
 			was_successful,
 			was_timeout,
@@ -224,9 +224,7 @@ impl SolverAdapterService {
 			status_code,
 			error_type,
 			operation: operation.to_string(),
-		};
-
-		metrics
+		}
 	}
 
 	/// Schedule individual metrics job for this solver operation

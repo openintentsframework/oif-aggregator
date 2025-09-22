@@ -293,10 +293,9 @@ impl MetricsUpdateHandler {
 		let new_status = match current_status {
 			SolverStatus::Active => {
 				// From Active to Error: Need strong evidence of problems
-				if consecutive_failures >= CONSECUTIVE_FAILURE_THRESHOLD {
-					SolverStatus::Error
-				} else if total_requests >= MIN_REQUESTS_FOR_ERROR_RATE
-					&& current_error_rate >= ERROR_RATE_THRESHOLD
+				if consecutive_failures >= CONSECUTIVE_FAILURE_THRESHOLD
+					|| (total_requests >= MIN_REQUESTS_FOR_ERROR_RATE
+						&& current_error_rate >= ERROR_RATE_THRESHOLD)
 				{
 					SolverStatus::Error
 				} else {
@@ -307,11 +306,10 @@ impl MetricsUpdateHandler {
 
 			SolverStatus::Error => {
 				// From Error to Active: Need evidence of recovery
-				if consecutive_failures == 0 && is_currently_healthy {
-					SolverStatus::Active
-				} else if consecutive_failures <= 1
-					&& current_error_rate < 0.3
-					&& total_requests >= MIN_REQUESTS_FOR_ERROR_RATE
+				if (consecutive_failures == 0 && is_currently_healthy)
+					|| (consecutive_failures <= 1
+						&& current_error_rate < 0.3
+						&& total_requests >= MIN_REQUESTS_FOR_ERROR_RATE)
 				{
 					SolverStatus::Active
 				} else {
