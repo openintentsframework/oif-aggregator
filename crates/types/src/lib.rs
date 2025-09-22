@@ -61,6 +61,7 @@ pub use storage::{
 };
 
 pub use metrics::{
-	ErrorType, MetricsAggregate, MetricsBucket, MetricsDataPoint, MetricsTimeSeries,
-	RollingMetrics, TimeBucket, TimeRange, TimeWindow,
+	ErrorType, MetricsAggregate, MetricsBucket, MetricsComputationError, MetricsDataPoint,
+	MetricsTimeSeries, Operation, OperationStats, RollingMetrics, TimeBucket, TimeRange,
+	TimeWindow,
 };

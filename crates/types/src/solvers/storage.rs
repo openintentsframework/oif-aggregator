@@ -59,7 +59,6 @@ pub struct HealthStatusStorage {
 	pub is_healthy: bool,
 	pub last_check_at: DateTime<Utc>,
 	pub error_message: Option<String>,
-	pub storage_id: String,
 }
 
 impl From<HealthStatus> for HealthStatusStorage {
@@ -68,7 +67,6 @@ impl From<HealthStatus> for HealthStatusStorage {
 			is_healthy: health_status.is_healthy,
 			last_check_at: health_status.last_check_at,
 			error_message: health_status.error_message,
-			storage_id: format!("health_{}", chrono::Utc::now().timestamp()),
 		}
 	}
 }

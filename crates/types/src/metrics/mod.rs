@@ -7,6 +7,7 @@
 pub mod time_series;
 
 pub use time_series::{
-	ErrorType, MetricsAggregate, MetricsBucket, MetricsDataPoint, MetricsTimeSeries,
-	OperationStats, RollingMetrics, TimeBucket, TimeRange, TimeWindow,
+	ErrorType, MetricsAggregate, MetricsBucket, MetricsComputationError, MetricsDataPoint,
+	MetricsTimeSeries, Operation, OperationStats, RollingMetrics, TimeBucket, TimeRange,
+	TimeWindow,
 };

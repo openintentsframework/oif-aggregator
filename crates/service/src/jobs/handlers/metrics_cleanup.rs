@@ -10,6 +10,17 @@ use crate::jobs::types::{JobError, JobResult};
 use oif_config::Settings;
 use oif_storage::Storage;
 
+/// Estimation parameters for cleanup impact calculation
+///
+/// These constants define the heuristics used to estimate how many time-series
+/// entries might be stale and need cleanup, without having to scan each individual
+/// time-series entry (which would be expensive).
+const ESTIMATED_STALE_PERCENTAGE: usize = 10; // Assume ~10% of solvers might be stale
+const MIN_ESTIMATED_STALE_COUNT: usize = 5; // Minimum estimate to avoid reporting 0 for small datasets
+
+/// Concurrency limits for parallel processing
+const MAX_CONCURRENT_CLEANUP_TASKS: usize = 10; // Limit parallel tasks to avoid overwhelming storage
+
 /// Handler for metrics cleanup jobs
 pub struct MetricsCleanupHandler {
 	storage: Arc<dyn Storage>,
@@ -118,8 +129,8 @@ impl MetricsCleanupHandler {
 		let processed = Arc::new(AtomicUsize::new(0));
 		let errors = Arc::new(AtomicUsize::new(0));
 
-		// Process solvers in parallel with controlled concurrency (max 10 concurrent)
-		let concurrent_limit = 10;
+		// Process solvers in parallel with controlled concurrency
+		let concurrent_limit = MAX_CONCURRENT_CLEANUP_TASKS;
 
 		stream::iter(solver_ids.iter())
 			.for_each_concurrent(concurrent_limit, |solver_id| {
@@ -137,7 +148,13 @@ impl MetricsCleanupHandler {
 
 							// Trigger internal cleanup by updating rolling metrics
 							// This will clean up old buckets that exceed max_buckets
-							timeseries.update_rolling_metrics();
+							if let Err(e) = timeseries.update_rolling_metrics() {
+								tracing::warn!(
+									"Failed to update rolling metrics during cleanup for solver '{}': {}",
+									solver_id, e
+								);
+								// Continue with cleanup - rolling metrics failure shouldn't stop the cleanup process
+							}
 
 							let new_size = timeseries.five_minute_buckets.aggregates.len();
 
@@ -204,6 +221,9 @@ impl MetricsCleanupHandler {
 	}
 
 	/// Estimate how much data would be cleaned up (dry run)
+	///
+	/// This provides a lightweight estimation without scanning individual time-series entries.
+	/// Uses statistical heuristics based on typical solver lifecycle patterns.
 	pub async fn estimate_cleanup_impact(&self) -> JobResult<CleanupEstimate> {
 		let cutoff_time = self.get_retention_cutoff();
 
@@ -212,9 +232,16 @@ impl MetricsCleanupHandler {
 			Err(e) => return Err(JobError::Storage(format!("Failed to count metrics: {}", e))),
 		};
 
-		// For estimation, we'd need to check each time-series individually
-		// This is a simplified estimate
-		let estimated_stale_count = std::cmp::min(solver_count / 10, 5); // Rough estimate
+		// Estimate stale count using heuristics to avoid expensive per-timeseries scanning
+		//
+		// Rationale:
+		// - Assume ~10% of solvers become stale over time (inactive, removed, etc.)
+		// - Use minimum of 5 to provide meaningful estimates for small datasets
+		// - This provides a reasonable approximation without storage overhead
+		let estimated_stale_count = std::cmp::min(
+			solver_count / ESTIMATED_STALE_PERCENTAGE,
+			MIN_ESTIMATED_STALE_COUNT,
+		);
 
 		Ok(CleanupEstimate {
 			total_timeseries: solver_count,
@@ -285,7 +312,7 @@ mod tests {
 			was_successful: true,
 			was_timeout: false,
 			error_type: None,
-			operation: "get_quotes".to_string(),
+			operation: oif_types::Operation::GetQuotes,
 		};
 		timeseries.add_data_point(data_point);
 

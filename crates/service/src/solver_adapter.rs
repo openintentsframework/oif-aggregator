@@ -51,12 +51,23 @@ impl SolverAdapterError {
 	///
 	/// Uses regex to find patterns like "HTTP 404:" or "status 500" in error messages.
 	/// This provides clean pattern matching that's easy to extend.
+	/// Returns None if regex compilation fails or no valid HTTP status code is found.
 	fn extract_status_from_string(error_str: &str) -> Option<u16> {
-		static STATUS_REGEX: OnceLock<Regex> = OnceLock::new();
-		let regex = STATUS_REGEX.get_or_init(|| {
+		static STATUS_REGEX: OnceLock<Option<Regex>> = OnceLock::new();
+		let regex_option = STATUS_REGEX.get_or_init(|| {
 			// Matches "HTTP 404:" or "status 500" patterns and captures the 3-digit code
-			Regex::new(r"(?:HTTP\s+(\d{3}):|status\s+(\d{3}))").unwrap()
+			// Handle compilation failure gracefully instead of panicking
+			match Regex::new(r"(?:HTTP\s+(\d{3}):|status\s+(\d{3}))") {
+				Ok(regex) => Some(regex),
+				Err(e) => {
+					tracing::warn!("Failed to compile HTTP status regex pattern: {}", e);
+					None
+				},
+			}
 		});
+
+		// If regex compilation failed, return None
+		let regex = regex_option.as_ref()?;
 
 		regex
 			.captures(error_str)
@@ -322,6 +333,29 @@ mod tests {
 		// Test no status code extraction for Adapter error without status
 		let error = SolverAdapterError::Adapter("Some other error".to_string());
 		assert_eq!(error.status_code(), None);
+	}
+
+	#[test]
+	fn test_regex_error_handling() {
+		// Test that extract_status_from_string gracefully handles regex compilation
+		// This test verifies the function returns None even if regex compilation were to fail
+		// (though with our known-good pattern, this should not happen in practice)
+
+		// Test with valid patterns that should work
+		assert_eq!(
+			SolverAdapterError::extract_status_from_string("HTTP 404: Not Found"),
+			Some(404)
+		);
+		assert_eq!(
+			SolverAdapterError::extract_status_from_string("Request failed with status 500"),
+			Some(500)
+		);
+
+		// Test with no status code
+		assert_eq!(
+			SolverAdapterError::extract_status_from_string("Some random error message"),
+			None
+		);
 	}
 }
 

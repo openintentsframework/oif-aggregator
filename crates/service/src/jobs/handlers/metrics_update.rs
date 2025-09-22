@@ -215,7 +215,10 @@ impl MetricsUpdateHandler {
 			was_successful: metrics_data.was_successful,
 			was_timeout: metrics_data.was_timeout,
 			error_type: metrics_data.error_type.clone(),
-			operation: metrics_data.operation.clone(),
+			operation: metrics_data
+				.operation
+				.parse()
+				.unwrap_or(oif_types::Operation::Other),
 		};
 
 		// Get or create time-series for this solver
@@ -238,7 +241,17 @@ impl MetricsUpdateHandler {
 
 		// Update rolling metrics only if they're stale (every 30 seconds)
 		if should_update_rolling_metrics(&timeseries) {
-			timeseries.update_rolling_metrics();
+			// Handle rolling metrics update failures properly
+			if let Err(e) = timeseries.update_rolling_metrics() {
+				// This is a critical failure that indicates potential data corruption or memory issues
+				// Log as error and propagate up to caller for proper handling
+				return Err(JobError::ProcessingFailed {
+					message: format!(
+						"Critical failure updating rolling metrics for solver '{}': {}",
+						solver_id, e
+					),
+				});
+			}
 		}
 
 		// Save updated time-series back to storage
