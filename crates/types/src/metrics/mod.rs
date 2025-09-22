@@ -8,5 +8,5 @@ pub mod time_series;
 
 pub use time_series::{
 	ErrorType, MetricsAggregate, MetricsBucket, MetricsDataPoint, MetricsTimeSeries,
-	RollingMetrics, TimeBucket, TimeRange, TimeWindow,
+	OperationStats, RollingMetrics, TimeBucket, TimeRange, TimeWindow,
 };

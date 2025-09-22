@@ -285,6 +285,7 @@ mod tests {
 			was_successful: true,
 			was_timeout: false,
 			error_type: None,
+			operation: "get_quotes".to_string(),
 		};
 		timeseries.add_data_point(data_point);
 

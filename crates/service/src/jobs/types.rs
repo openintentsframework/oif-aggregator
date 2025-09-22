@@ -49,6 +49,8 @@ pub struct SolverMetricsUpdate {
 	pub status_code: Option<u16>,
 	/// Error type classification
 	pub error_type: Option<oif_types::ErrorType>,
+	/// Operation type being performed (get_quotes, submit_order, health_check, etc.)
+	pub operation: String,
 }
 
 /// Background job types that can be processed

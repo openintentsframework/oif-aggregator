@@ -58,9 +58,6 @@ pub const DEFAULT_ORDER_RETENTION_DAYS: u32 = 10;
 /// Set to false for more predictable results - only include solvers with known compatibility
 pub const DEFAULT_INCLUDE_UNKNOWN_COMPATIBILITY: bool = false;
 
-/// Default metrics collection enabled state
-pub const DEFAULT_METRICS_COLLECTION_ENABLED: bool = true;
-
 /// Default metrics retention period in hours (7 days)
 pub const DEFAULT_METRICS_RETENTION_HOURS: u32 = 168;
 

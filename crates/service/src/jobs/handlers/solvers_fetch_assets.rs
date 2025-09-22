@@ -75,11 +75,10 @@ mod tests {
 			metrics: SolverMetrics {
 				total_requests: 0,
 				successful_requests: 0,
-				failed_requests: 0,
 				timeout_requests: 0,
 				service_errors: 0,
 				client_errors: 0,
-				last_health_check: None,
+				health_status: None,
 				consecutive_failures: 0,
 				last_updated: chrono::Utc::now(),
 			},

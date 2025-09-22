@@ -186,7 +186,7 @@ impl SolverAdapterService {
 		&self,
 		result: &Result<T, SolverAdapterError>,
 		start_time: Instant,
-		_operation: &str,
+		operation: &str,
 	) -> SolverMetricsUpdate {
 		let response_time_ms = start_time.elapsed().as_millis() as u64;
 		let was_successful = result.is_ok();
@@ -215,7 +215,7 @@ impl SolverAdapterService {
 			},
 		};
 
-		SolverMetricsUpdate {
+		let metrics = SolverMetricsUpdate {
 			response_time_ms,
 			was_successful,
 			was_timeout,
@@ -223,7 +223,10 @@ impl SolverAdapterService {
 			error_message,
 			status_code,
 			error_type,
-		}
+			operation: operation.to_string(),
+		};
+
+		metrics
 	}
 
 	/// Schedule individual metrics job for this solver operation
@@ -248,6 +251,7 @@ impl SolverAdapterService {
 			self.solver.solver_id,
 			Utc::now().timestamp_millis()
 		);
+
 		let metrics_job = BackgroundJob::AggregationMetricsUpdate {
 			aggregation_id: job_id.clone(),
 			solver_metrics: vec![(self.solver.solver_id.clone(), metrics)],

@@ -135,6 +135,7 @@ impl AdapterError {
 			401 => "Unauthorized".to_string(),
 			403 => "Forbidden".to_string(),
 			404 => "Not Found".to_string(),
+			408 => "Request Timeout".to_string(),
 			429 => "Too Many Requests".to_string(),
 			500 => "Internal Server Error".to_string(),
 			502 => "Bad Gateway".to_string(),
@@ -183,6 +184,10 @@ mod tests {
 		let error = AdapterError::from_http_failure(404);
 		assert!(error.to_string().contains("404"));
 		assert!(error.to_string().contains("Not Found"));
+
+		let error = AdapterError::from_http_failure(408);
+		assert!(error.to_string().contains("408"));
+		assert!(error.to_string().contains("Request Timeout"));
 
 		let error = AdapterError::from_http_failure(500);
 		assert!(error.to_string().contains("500"));

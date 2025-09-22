@@ -5,8 +5,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use super::{
-	HealthCheckResult, Solver, SolverError, SolverMetadata, SolverMetrics, SolverStatus,
-	SupportedAssets,
+	HealthStatus, Solver, SolverError, SolverMetadata, SolverMetrics, SolverStatus, SupportedAssets,
 };
 
 /// Storage representation of a solver
@@ -46,27 +45,42 @@ pub struct SolverMetadataStorage {
 pub struct SolverMetricsStorage {
 	pub total_requests: u64,
 	pub successful_requests: u64,
-	pub failed_requests: u64,
 	pub timeout_requests: u64,
 	pub service_errors: u64,
 	pub client_errors: u64,
-	pub last_health_check: Option<HealthCheckStorage>,
+	pub health_status: Option<HealthStatusStorage>,
 	pub consecutive_failures: u32,
 	pub last_updated: DateTime<Utc>,
-
-	pub last_error_message: Option<String>,
-	pub last_error_timestamp: Option<DateTime<Utc>>,
 }
 
-/// Storage-compatible health check result
+/// Storage-compatible health status (new improved structure)
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HealthCheckStorage {
+pub struct HealthStatusStorage {
 	pub is_healthy: bool,
-	pub response_time_ms: u64,
+	pub last_check_at: DateTime<Utc>,
 	pub error_message: Option<String>,
-	pub last_check: DateTime<Utc>,
-	pub consecutive_failures: u32,
-	pub check_id: String,
+	pub storage_id: String,
+}
+
+impl From<HealthStatus> for HealthStatusStorage {
+	fn from(health_status: HealthStatus) -> Self {
+		Self {
+			is_healthy: health_status.is_healthy,
+			last_check_at: health_status.last_check_at,
+			error_message: health_status.error_message,
+			storage_id: format!("health_{}", chrono::Utc::now().timestamp()),
+		}
+	}
+}
+
+impl From<HealthStatusStorage> for HealthStatus {
+	fn from(storage: HealthStatusStorage) -> Self {
+		Self {
+			is_healthy: storage.is_healthy,
+			last_check_at: storage.last_check_at,
+			error_message: storage.error_message,
+		}
+	}
 }
 
 impl From<Solver> for SolverStorage {
@@ -133,19 +147,6 @@ impl SolverStorage {
 		let stale_threshold = Utc::now() - chrono::Duration::hours(max_age_hours);
 		self.last_updated < stale_threshold
 	}
-
-	/// Compact the storage (remove old data, optimize size)
-	pub fn compact(&mut self) {
-		// Clear old error messages (older than 7 days)
-		if let Some(error_time) = self.metrics.last_error_timestamp {
-			if Utc::now() - error_time > chrono::Duration::days(7) {
-				self.metrics.last_error_message = None;
-				self.metrics.last_error_timestamp = None;
-			}
-		}
-
-		self.last_updated = Utc::now();
-	}
 }
 
 impl From<SolverMetadata> for SolverMetadataStorage {
@@ -177,15 +178,12 @@ impl From<SolverMetrics> for SolverMetricsStorage {
 		Self {
 			total_requests: metrics.total_requests,
 			successful_requests: metrics.successful_requests,
-			failed_requests: metrics.failed_requests,
 			timeout_requests: metrics.timeout_requests,
 			service_errors: metrics.service_errors,
 			client_errors: metrics.client_errors,
-			last_health_check: metrics.last_health_check.map(HealthCheckStorage::from),
+			health_status: metrics.health_status.map(HealthStatusStorage::from),
 			consecutive_failures: metrics.consecutive_failures,
 			last_updated: metrics.last_updated,
-			last_error_message: None,
-			last_error_timestamp: None,
 		}
 	}
 }
@@ -194,46 +192,19 @@ impl TryFrom<SolverMetricsStorage> for SolverMetrics {
 	type Error = SolverError;
 
 	fn try_from(storage: SolverMetricsStorage) -> Result<Self, Self::Error> {
+		let health_status = storage
+			.health_status
+			.map(|health_status_storage| health_status_storage.into());
+
 		Ok(SolverMetrics {
 			total_requests: storage.total_requests,
 			successful_requests: storage.successful_requests,
-			failed_requests: storage.failed_requests,
 			timeout_requests: storage.timeout_requests,
 			service_errors: storage.service_errors,
 			client_errors: storage.client_errors,
-			last_health_check: storage
-				.last_health_check
-				.map(|hc| hc.try_into())
-				.transpose()?,
+			health_status,
 			consecutive_failures: storage.consecutive_failures,
 			last_updated: storage.last_updated,
-		})
-	}
-}
-
-impl From<HealthCheckResult> for HealthCheckStorage {
-	fn from(health_check: HealthCheckResult) -> Self {
-		Self {
-			is_healthy: health_check.is_healthy,
-			response_time_ms: health_check.response_time_ms,
-			error_message: health_check.error_message,
-			last_check: health_check.last_check,
-			consecutive_failures: health_check.consecutive_failures,
-			check_id: uuid::Uuid::new_v4().to_string(),
-		}
-	}
-}
-
-impl TryFrom<HealthCheckStorage> for HealthCheckResult {
-	type Error = SolverError;
-
-	fn try_from(storage: HealthCheckStorage) -> Result<Self, Self::Error> {
-		Ok(HealthCheckResult {
-			is_healthy: storage.is_healthy,
-			response_time_ms: storage.response_time_ms,
-			error_message: storage.error_message,
-			last_check: storage.last_check,
-			consecutive_failures: storage.consecutive_failures,
 		})
 	}
 }
@@ -265,22 +236,6 @@ mod tests {
 		// Convert back to domain
 		let domain_solver = Solver::try_from(storage).unwrap();
 		assert_eq!(domain_solver.solver_id, solver_id);
-	}
-
-	#[test]
-	fn test_storage_compaction() {
-		let solver = create_test_solver();
-		let mut storage = SolverStorage::from(solver);
-
-		// Add some data that should be compacted
-		storage.metrics.last_error_message = Some("Old error".to_string());
-		storage.metrics.last_error_timestamp = Some(Utc::now() - chrono::Duration::days(10));
-
-		storage.compact();
-
-		// Error message should be cleared for old errors
-		assert!(storage.metrics.last_error_message.is_none());
-		assert!(storage.metrics.last_error_timestamp.is_none());
 	}
 
 	#[test]

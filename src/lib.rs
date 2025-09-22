@@ -465,6 +465,7 @@ where
 			Arc::clone(&solver_filter_service),
 			settings.get_aggregation().into(),
 			Some(Arc::clone(&job_scheduler)),
+			settings.get_metrics().min_timeout_for_metrics_ms, // Get from metrics settings
 		)) as Arc<dyn oif_service::AggregatorTrait>;
 		let solver_service = Arc::new(SolverService::new(
 			Arc::clone(&storage_arc),
@@ -683,34 +684,32 @@ where
 			info!("Scheduled daily orders cleanup to run every 24 hours");
 		}
 
-		// Schedule metrics cleanup based on configuration
+		// Schedule metrics cleanup (always enabled since metrics collection is always on)
 		if let Some(ref settings) = self.settings {
-			if settings.is_metrics_collection_enabled() {
-				let cleanup_interval_hours = settings.get_metrics_cleanup_interval_hours();
-				let cleanup_interval_minutes = cleanup_interval_hours * 60;
+			let cleanup_interval_hours = settings.get_metrics_cleanup_interval_hours();
+			let cleanup_interval_minutes = cleanup_interval_hours * 60;
 
-				if let Err(e) = job_processor
-					.schedule_job(
-						cleanup_interval_minutes as u64,
-						BackgroundJob::MetricsCleanup,
-						format!(
-							"Cleanup of old time-series metrics data (retention: {}h)",
-							settings.get_metrics_retention_hours()
-						),
-						Some("metrics-cleanup-periodic".to_string()),
-						false, // Don't run immediately on startup, wait for first interval
-						None,  // No retry policy for now
-					)
-					.await
-				{
-					warn!("Failed to schedule metrics cleanup job: {}", e);
-				} else {
-					info!(
-						"Scheduled metrics cleanup to run every {} hours (retention: {} hours)",
-						cleanup_interval_hours,
+			if let Err(e) = job_processor
+				.schedule_job(
+					cleanup_interval_minutes as u64,
+					BackgroundJob::MetricsCleanup,
+					format!(
+						"Cleanup of old time-series metrics data (retention: {}h)",
 						settings.get_metrics_retention_hours()
-					);
-				}
+					),
+					Some("metrics-cleanup-periodic".to_string()),
+					false, // Don't run immediately on startup, wait for first interval
+					None,  // No retry policy for now
+				)
+				.await
+			{
+				warn!("Failed to schedule metrics cleanup job: {}", e);
+			} else {
+				info!(
+					"Scheduled metrics cleanup to run every {} hours (retention: {} hours)",
+					cleanup_interval_hours,
+					settings.get_metrics_retention_hours()
+				);
 			}
 		}
 	}

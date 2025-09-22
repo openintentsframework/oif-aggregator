@@ -53,8 +53,8 @@ impl MetricsUpdateHandler {
 
 				async move {
 					debug!(
-						"Processing metrics for solver '{}': success={}, response_time={}ms",
-						solver_id, metrics_data.was_successful, metrics_data.response_time_ms
+						"Processing metrics for solver '{}': operation='{}', success={}, response_time={}ms",
+						solver_id, metrics_data.operation, metrics_data.was_successful, metrics_data.response_time_ms
 					);
 
 					// Run both updates in parallel for each solver
@@ -145,11 +145,24 @@ impl MetricsUpdateHandler {
 		if metrics_data.was_successful {
 			solver.metrics.record_success(metrics_data.response_time_ms);
 		} else {
-			solver.metrics.record_failure(metrics_data.was_timeout);
+			// Record failure with proper error categorization
+			solver.metrics.record_categorized_failure(
+				metrics_data.was_timeout,
+				metrics_data.error_type.clone(),
+			);
 		}
 
 		// Update last seen timestamp
 		solver.mark_seen();
+
+		// Load time-series data for intelligent status evaluation
+		let timeseries = storage
+			.get_metrics_timeseries(solver_id)
+			.await
+			.unwrap_or(None);
+
+		// Evaluate and update solver status based on comprehensive metrics data
+		Self::evaluate_and_update_solver_status(&mut solver, timeseries.as_ref());
 
 		// Save updated solver back to storage
 		storage
@@ -158,8 +171,8 @@ impl MetricsUpdateHandler {
 			.map_err(|e| JobError::Storage(format!("Failed to update solver: {}", e)))?;
 
 		debug!(
-			"Updated current metrics for solver '{}': success={}, response_time={}ms",
-			solver_id, metrics_data.was_successful, metrics_data.response_time_ms
+			"Updated current metrics for solver '{}': operation='{}', success={}, response_time={}ms",
+			solver_id, metrics_data.operation, metrics_data.was_successful, metrics_data.response_time_ms
 		);
 
 		Ok(())
@@ -197,6 +210,7 @@ impl MetricsUpdateHandler {
 			was_successful: metrics_data.was_successful,
 			was_timeout: metrics_data.was_timeout,
 			error_type: metrics_data.error_type.clone(),
+			operation: metrics_data.operation.clone(),
 		};
 
 		// Get or create time-series for this solver
@@ -238,6 +252,108 @@ impl MetricsUpdateHandler {
 		);
 
 		Ok(())
+	}
+
+	/// Intelligent status evaluation based on comprehensive metrics data
+	/// This uses circuit breaker patterns and thresholds instead of immediate status changes
+	fn evaluate_and_update_solver_status(
+		solver: &mut oif_types::solvers::Solver,
+		timeseries: Option<&MetricsTimeSeries>,
+	) {
+		use oif_types::solvers::SolverStatus;
+
+		let solver_id = &solver.solver_id;
+
+		// Circuit breaker thresholds - configurable in the future
+		const CONSECUTIVE_FAILURE_THRESHOLD: u32 = 3;
+		const MIN_REQUESTS_FOR_ERROR_RATE: u64 = 5;
+		const ERROR_RATE_THRESHOLD: f64 = 0.7; // 70% error rate to mark as Error
+
+		let current_status = solver.status.clone();
+		let consecutive_failures = solver.metrics.consecutive_failures;
+		let total_requests = solver.metrics.total_requests;
+
+		// Calculate current error rate
+		let current_error_rate = if total_requests > 0 {
+			let failed_requests = total_requests - solver.metrics.successful_requests;
+			failed_requests as f64 / total_requests as f64
+		} else {
+			0.0
+		};
+
+		// Get recent health status
+		let is_currently_healthy = solver
+			.metrics
+			.health_status
+			.as_ref()
+			.map(|h| h.is_healthy)
+			.unwrap_or(false);
+
+		// Status evaluation logic
+		let new_status = match current_status {
+			SolverStatus::Active => {
+				// From Active to Error: Need strong evidence of problems
+				if consecutive_failures >= CONSECUTIVE_FAILURE_THRESHOLD {
+					SolverStatus::Error
+				} else if total_requests >= MIN_REQUESTS_FOR_ERROR_RATE
+					&& current_error_rate >= ERROR_RATE_THRESHOLD
+				{
+					SolverStatus::Error
+				} else {
+					// Stay Active - single failures don't immediately affect status
+					SolverStatus::Active
+				}
+			},
+
+			SolverStatus::Error => {
+				// From Error to Active: Need evidence of recovery
+				if consecutive_failures == 0 && is_currently_healthy {
+					SolverStatus::Active
+				} else if consecutive_failures <= 1
+					&& current_error_rate < 0.3
+					&& total_requests >= MIN_REQUESTS_FOR_ERROR_RATE
+				{
+					SolverStatus::Active
+				} else {
+					// Stay Error - need sustained recovery to change status
+					SolverStatus::Error
+				}
+			},
+
+			SolverStatus::Inactive | SolverStatus::Initializing => {
+				// From Inactive/Initializing to Active: Health check success
+				if is_currently_healthy && consecutive_failures == 0 {
+					SolverStatus::Active
+				} else {
+					current_status.clone() // Keep current status
+				}
+			},
+
+			SolverStatus::Maintenance => {
+				// Maintenance status is manually set - don't change automatically
+				// Only move to Active if explicitly healthy and no failures
+				if is_currently_healthy && consecutive_failures == 0 {
+					SolverStatus::Active
+				} else {
+					current_status.clone() // Stay in Maintenance
+				}
+			},
+		};
+
+		// Update status if changed
+		if new_status != current_status {
+			solver.status = new_status.clone();
+		}
+
+		// Optional: Use time-series data for additional insights (future enhancement)
+		if let Some(ts) = timeseries {
+			if let Some(rolling) = &ts.rolling_metrics.last_hour {
+				debug!(
+					"Time-series context for '{}': last_hour success_rate={:.3}, p95_response={}ms",
+					solver_id, rolling.success_rate, rolling.p95_response_time_ms
+				);
+			}
+		}
 	}
 }
 
@@ -287,6 +403,7 @@ mod tests {
 			error_message: None,
 			status_code: None,
 			error_type: None,
+			operation: "get_quotes".to_string(),
 		};
 
 		let result = handler
@@ -301,7 +418,10 @@ mod tests {
 		let updated_solver = storage.get_solver("test-solver").await.unwrap().unwrap();
 		assert_eq!(updated_solver.metrics.total_requests, 1);
 		assert_eq!(updated_solver.metrics.successful_requests, 1);
-		assert_eq!(updated_solver.metrics.failed_requests, 0);
+		// failed_requests is now calculated as: total_requests - successful_requests
+		let failed_requests =
+			updated_solver.metrics.total_requests - updated_solver.metrics.successful_requests;
+		assert_eq!(failed_requests, 0);
 
 		// Verify time-series was created
 		let timeseries = storage
@@ -327,6 +447,7 @@ mod tests {
 			error_message: Some("Connection timeout".to_string()),
 			status_code: None,
 			error_type: Some(oif_types::ErrorType::ServiceError),
+			operation: "get_quotes".to_string(),
 		};
 
 		let result = handler
@@ -341,7 +462,10 @@ mod tests {
 		let updated_solver = storage.get_solver("test-solver").await.unwrap().unwrap();
 		assert_eq!(updated_solver.metrics.total_requests, 1);
 		assert_eq!(updated_solver.metrics.successful_requests, 0);
-		assert_eq!(updated_solver.metrics.failed_requests, 1);
+		// failed_requests is now calculated as: total_requests - successful_requests
+		let failed_requests =
+			updated_solver.metrics.total_requests - updated_solver.metrics.successful_requests;
+		assert_eq!(failed_requests, 1);
 		assert_eq!(updated_solver.metrics.timeout_requests, 1);
 	}
 
@@ -358,6 +482,7 @@ mod tests {
 			error_message: None,
 			status_code: None,
 			error_type: None,
+			operation: "health_check".to_string(),
 		};
 
 		let result = handler

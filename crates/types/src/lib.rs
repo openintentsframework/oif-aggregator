@@ -26,8 +26,8 @@ pub use quotes::{
 };
 
 pub use solvers::{
-	HealthCheckResult, Solver, SolverConfig, SolverError, SolverResponse, SolverResult,
-	SolverStatus, SolverStorage, SolverValidationError, SolverValidationResult,
+	HealthStatus, Solver, SolverConfig, SolverError, SolverResponse, SolverResult, SolverStatus,
+	SolverStorage, SolverValidationError, SolverValidationResult,
 };
 
 pub use adapters::{

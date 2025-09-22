@@ -30,10 +30,10 @@ impl MetricsTestEnvironment {
 		// Create test settings with metrics enabled
 		let mut settings = MockConfigs::test_settings();
 		settings.metrics = Some(oif_config::settings::MetricsSettings {
-			collection_enabled: true,
 			retention_hours: 24,             // 24 hour retention for testing
 			cleanup_interval_hours: 1,       // 1 hour cleanup interval
 			aggregation_interval_minutes: 5, // 5 minute aggregation
+			min_timeout_for_metrics_ms: 5000,
 		});
 
 		// Create storage
@@ -82,6 +82,7 @@ impl MetricsTestEnvironment {
 			error_message: None,
 			status_code: None,
 			error_type: None,
+			operation: "get_quotes".to_string(),
 		}
 	}
 }
@@ -407,6 +408,7 @@ async fn test_rolling_metrics_calculation_integration() {
 				} else {
 					Some(oif_types::ErrorType::Unknown)
 				},
+				operation: "get_quotes".to_string(),
 			};
 
 			let result = env

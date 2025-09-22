@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Duration, Timelike, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Metrics data point for a single solver interaction
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -17,6 +17,8 @@ pub struct MetricsDataPoint {
 	pub was_timeout: bool,
 	/// Optional error classification
 	pub error_type: Option<ErrorType>,
+	/// Operation type (get_quotes, submit_order, health_check, etc.)
+	pub operation: String,
 }
 
 /// Simple error categorization for circuit breaker and monitoring decisions
@@ -46,14 +48,100 @@ impl ErrorType {
 	/// Create error type from HTTP status code
 	pub fn from_http_status(status_code: u16) -> Self {
 		match status_code {
-			// 4xx client errors - except rate limiting
-			400..=428 | 430..=499 => ErrorType::ClientError,
+			// 4xx client errors - except timeouts and rate limiting
+			400..=407 | 409..=428 | 430..=499 => ErrorType::ClientError,
+			// 408 request timeout - often indicates solver performance issues
+			408 => ErrorType::ServiceError,
 			// 429 rate limiting - service overload, affects circuit breaker
 			429 => ErrorType::ServiceError,
 			// 5xx server errors - service problems
 			500..=599 => ErrorType::ServiceError,
 			// Everything else
 			_ => ErrorType::Unknown,
+		}
+	}
+}
+
+/// Operation-specific metrics for a single operation type
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OperationStats {
+	/// Name of the operation (get_quotes, submit_order, etc.)
+	pub operation: String,
+	/// Total number of requests for this operation
+	pub total_requests: u64,
+	/// Number of successful requests
+	pub successful_requests: u64,
+	/// Number of failed requests (calculated)
+	pub failed_requests: u64,
+	/// Success rate (0.0 to 1.0)
+	pub success_rate: f64,
+	/// Average response time in milliseconds
+	pub avg_response_time_ms: f64,
+	/// Minimum response time in milliseconds
+	pub min_response_time_ms: u64,
+	/// Maximum response time in milliseconds
+	pub max_response_time_ms: u64,
+	/// 95th percentile response time in milliseconds
+	pub p95_response_time_ms: u64,
+	/// Number of service errors (5xx, timeouts, network issues)
+	pub service_errors: u64,
+	/// Number of client errors (4xx except 429)
+	pub client_errors: u64,
+	/// Number of application errors (internal issues)
+	pub application_errors: u64,
+	/// Number of timeout requests
+	pub timeout_requests: u64,
+}
+
+impl OperationStats {
+	/// Create a new OperationStats with default values
+	pub fn new(operation: String) -> Self {
+		Self {
+			operation,
+			total_requests: 0,
+			successful_requests: 0,
+			failed_requests: 0,
+			success_rate: 0.0,
+			avg_response_time_ms: 0.0,
+			min_response_time_ms: 0,
+			max_response_time_ms: 0,
+			p95_response_time_ms: 0,
+			service_errors: 0,
+			client_errors: 0,
+			application_errors: 0,
+			timeout_requests: 0,
+		}
+	}
+
+	/// Calculate success rate from total and successful requests
+	fn calculate_success_rate(&mut self) {
+		if self.total_requests > 0 {
+			self.success_rate = self.successful_requests as f64 / self.total_requests as f64;
+		} else {
+			self.success_rate = 0.0;
+		}
+	}
+
+	/// Calculate failed requests from total and successful
+	fn calculate_failed_requests(&mut self) {
+		if self.total_requests >= self.successful_requests {
+			self.failed_requests = self.total_requests - self.successful_requests;
+		} else {
+			self.failed_requests = 0;
+		}
+	}
+
+	/// Calculate p95 using approximation formula
+	fn calculate_p95(&mut self) {
+		if self.total_requests == 0 {
+			self.p95_response_time_ms = 0;
+		} else if self.min_response_time_ms == self.max_response_time_ms {
+			self.p95_response_time_ms = self.min_response_time_ms;
+		} else {
+			// p95 ≈ avg + 0.7 * (max - avg)
+			let avg = self.avg_response_time_ms;
+			let max = self.max_response_time_ms as f64;
+			self.p95_response_time_ms = (avg + 0.7 * (max - avg)) as u64;
 		}
 	}
 }
@@ -81,6 +169,9 @@ pub struct MetricsAggregate {
 	pub p95_response_time_ms: u64,
 	/// Success rate (0.0 to 1.0)
 	pub success_rate: f64,
+	/// Per-operation breakdown of metrics within this time bucket
+	/// Only tracks get_quotes and submit_order operations
+	pub operation_breakdown: HashMap<String, OperationStats>,
 	/// When this aggregate was last updated
 	pub last_updated: DateTime<Utc>,
 }
@@ -99,6 +190,7 @@ impl MetricsAggregate {
 			max_response_time_ms: 0,
 			p95_response_time_ms: 0,
 			success_rate: 0.0,
+			operation_breakdown: HashMap::new(),
 			last_updated: Utc::now(),
 		}
 	}
@@ -137,6 +229,63 @@ impl MetricsAggregate {
 		// Calculate p95 response time using mathematical approximation
 		// This provides a reasonable estimate without storing all individual response times
 		self.p95_response_time_ms = self.calculate_p95_approximation();
+
+		// Update operation-specific metrics (only for get_quotes and submit_order)
+		if point.operation == "get_quotes" || point.operation == "submit_order" {
+			let operation_stats = self
+				.operation_breakdown
+				.entry(point.operation.clone())
+				.or_insert_with(|| OperationStats::new(point.operation.clone()));
+
+			// Update operation totals
+			let old_operation_total = operation_stats.total_requests;
+			operation_stats.total_requests += 1;
+
+			if point.was_successful {
+				operation_stats.successful_requests += 1;
+			}
+
+			if point.was_timeout {
+				operation_stats.timeout_requests += 1;
+			}
+
+			// Update operation error counts
+			if let Some(ref error_type) = point.error_type {
+				match error_type {
+					ErrorType::ServiceError => operation_stats.service_errors += 1,
+					ErrorType::ClientError => operation_stats.client_errors += 1,
+					ErrorType::ApplicationError => operation_stats.application_errors += 1,
+					ErrorType::Unknown => operation_stats.service_errors += 1, // Treat unknown as service error
+				}
+			}
+
+			// Update operation response time statistics
+			if old_operation_total == 0 {
+				// First data point for this operation
+				operation_stats.min_response_time_ms = point.response_time_ms;
+				operation_stats.max_response_time_ms = point.response_time_ms;
+				operation_stats.avg_response_time_ms = point.response_time_ms as f64;
+			} else {
+				// Update running averages and min/max
+				operation_stats.avg_response_time_ms = (operation_stats.avg_response_time_ms
+					* old_operation_total as f64
+					+ point.response_time_ms as f64)
+					/ operation_stats.total_requests as f64;
+
+				if point.response_time_ms < operation_stats.min_response_time_ms {
+					operation_stats.min_response_time_ms = point.response_time_ms;
+				}
+
+				if point.response_time_ms > operation_stats.max_response_time_ms {
+					operation_stats.max_response_time_ms = point.response_time_ms;
+				}
+			}
+
+			// Recalculate derived values for this operation
+			operation_stats.calculate_failed_requests();
+			operation_stats.calculate_success_rate();
+			operation_stats.calculate_p95();
+		}
 
 		self.last_updated = Utc::now();
 	}
@@ -580,6 +729,141 @@ impl MetricsTimeSeries {
 		// The cleanup happens automatically in MetricsBucket based on max_buckets
 		// This method is here for future enhancements
 	}
+
+	/// Get operation-specific success rates for the given time window
+	/// Focus on get_quotes and submit_order operations
+	pub fn get_operation_success_rates(&self, window: Duration) -> HashMap<String, f64> {
+		let now = Utc::now();
+		let window_start = now - window;
+
+		let mut operation_totals: HashMap<String, (u64, u64)> = HashMap::new(); // (total, successful)
+
+		// Get aggregates from appropriate bucket based on window duration
+		let aggregates = if window <= Duration::hours(1) {
+			self.five_minute_buckets.get_range(window_start, now)
+		} else if window <= Duration::days(1) {
+			self.fifteen_minute_buckets.get_range(window_start, now)
+		} else if window <= Duration::weeks(1) {
+			self.hourly_buckets.get_range(window_start, now)
+		} else {
+			self.daily_buckets.get_range(window_start, now)
+		};
+
+		// Combine operation stats from all matching aggregates
+		for aggregate in aggregates {
+			for (operation, stats) in &aggregate.operation_breakdown {
+				if operation == "get_quotes" || operation == "submit_order" {
+					let totals = operation_totals.entry(operation.clone()).or_insert((0, 0));
+					totals.0 += stats.total_requests;
+					totals.1 += stats.successful_requests;
+				}
+			}
+		}
+
+		// Calculate success rates
+		operation_totals
+			.into_iter()
+			.map(|(operation, (total, successful))| {
+				let success_rate = if total > 0 {
+					successful as f64 / total as f64
+				} else {
+					0.0
+				};
+				(operation, success_rate)
+			})
+			.collect()
+	}
+
+	/// Get comprehensive operation statistics for a specific operation
+	pub fn get_operation_stats(&self, operation: &str, window: Duration) -> Option<OperationStats> {
+		// Only process get_quotes and submit_order
+		if operation != "get_quotes" && operation != "submit_order" {
+			return None;
+		}
+
+		let now = Utc::now();
+		let window_start = now - window;
+
+		// Get aggregates from appropriate bucket based on window duration
+		let aggregates = if window <= Duration::hours(1) {
+			self.five_minute_buckets.get_range(window_start, now)
+		} else if window <= Duration::days(1) {
+			self.fifteen_minute_buckets.get_range(window_start, now)
+		} else if window <= Duration::weeks(1) {
+			self.hourly_buckets.get_range(window_start, now)
+		} else {
+			self.daily_buckets.get_range(window_start, now)
+		};
+
+		// Combine operation stats from all matching aggregates
+		let mut combined_stats = OperationStats::new(operation.to_string());
+		let mut found_data = false;
+		let mut response_time_sum = 0.0;
+		let mut response_time_count = 0u64;
+
+		for aggregate in aggregates {
+			if let Some(operation_stats) = aggregate.operation_breakdown.get(operation) {
+				found_data = true;
+
+				// Accumulate totals
+				combined_stats.total_requests += operation_stats.total_requests;
+				combined_stats.successful_requests += operation_stats.successful_requests;
+				combined_stats.timeout_requests += operation_stats.timeout_requests;
+				combined_stats.service_errors += operation_stats.service_errors;
+				combined_stats.client_errors += operation_stats.client_errors;
+				combined_stats.application_errors += operation_stats.application_errors;
+
+				// For response times, we need to calculate weighted averages
+				// and track min/max across all aggregates
+				if operation_stats.total_requests > 0 {
+					response_time_sum += operation_stats.avg_response_time_ms
+						* operation_stats.total_requests as f64;
+					response_time_count += operation_stats.total_requests;
+
+					if combined_stats.min_response_time_ms == 0
+						|| operation_stats.min_response_time_ms
+							< combined_stats.min_response_time_ms
+					{
+						combined_stats.min_response_time_ms = operation_stats.min_response_time_ms;
+					}
+
+					if operation_stats.max_response_time_ms > combined_stats.max_response_time_ms {
+						combined_stats.max_response_time_ms = operation_stats.max_response_time_ms;
+					}
+				}
+			}
+		}
+
+		if !found_data {
+			return None;
+		}
+
+		// Calculate final averages and derived values
+		if response_time_count > 0 {
+			combined_stats.avg_response_time_ms = response_time_sum / response_time_count as f64;
+		}
+
+		combined_stats.calculate_failed_requests();
+		combined_stats.calculate_success_rate();
+		combined_stats.calculate_p95();
+
+		Some(combined_stats)
+	}
+
+	/// Get operation statistics for all important operations (get_quotes, submit_order)
+	pub fn get_all_operation_stats(&self, window: Duration) -> Vec<OperationStats> {
+		let mut results = Vec::new();
+
+		if let Some(get_quotes_stats) = self.get_operation_stats("get_quotes", window) {
+			results.push(get_quotes_stats);
+		}
+
+		if let Some(submit_order_stats) = self.get_operation_stats("submit_order", window) {
+			results.push(submit_order_stats);
+		}
+
+		results
+	}
 }
 
 #[cfg(test)]
@@ -597,6 +881,7 @@ mod tests {
 			was_successful: true,
 			was_timeout: false,
 			error_type: None,
+			operation: "test_operation".to_string(),
 		};
 
 		aggregate.add_data_point(&data_point);
@@ -617,6 +902,7 @@ mod tests {
 				was_successful: true,
 				was_timeout: false,
 				error_type: None,
+				operation: "test_operation".to_string(),
 			};
 			aggregate.add_data_point(&data_point);
 		}
@@ -642,6 +928,7 @@ mod tests {
 				was_successful: true,
 				was_timeout: false,
 				error_type: None,
+				operation: "get_quotes".to_string(),
 			};
 			aggregate.add_data_point(&data_point);
 		}
@@ -665,6 +952,7 @@ mod tests {
 			was_successful: true,
 			was_timeout: false,
 			error_type: None,
+			operation: "health_check".to_string(),
 		};
 		let data_point2 = MetricsDataPoint {
 			timestamp: Utc::now(),
@@ -672,6 +960,7 @@ mod tests {
 			was_successful: true,
 			was_timeout: false,
 			error_type: None,
+			operation: "health_check".to_string(),
 		};
 
 		aggregate.add_data_point(&data_point1);
@@ -689,5 +978,31 @@ mod tests {
 
 		// Empty aggregate should have p95 = 0
 		assert_eq!(aggregate.calculate_p95_approximation(), 0);
+	}
+
+	#[test]
+	fn test_error_type_from_http_status() {
+		// Test client errors (4xx except 408 and 429)
+		assert_eq!(ErrorType::from_http_status(400), ErrorType::ClientError);
+		assert_eq!(ErrorType::from_http_status(401), ErrorType::ClientError);
+		assert_eq!(ErrorType::from_http_status(404), ErrorType::ClientError);
+		assert_eq!(ErrorType::from_http_status(409), ErrorType::ClientError);
+		assert_eq!(ErrorType::from_http_status(422), ErrorType::ClientError);
+
+		// Test 408 (Request Timeout) - should be ServiceError in our context
+		assert_eq!(ErrorType::from_http_status(408), ErrorType::ServiceError);
+
+		// Test 429 (Rate Limiting) - should be ServiceError
+		assert_eq!(ErrorType::from_http_status(429), ErrorType::ServiceError);
+
+		// Test server errors (5xx)
+		assert_eq!(ErrorType::from_http_status(500), ErrorType::ServiceError);
+		assert_eq!(ErrorType::from_http_status(502), ErrorType::ServiceError);
+		assert_eq!(ErrorType::from_http_status(503), ErrorType::ServiceError);
+		assert_eq!(ErrorType::from_http_status(504), ErrorType::ServiceError);
+
+		// Test unknown status codes
+		assert_eq!(ErrorType::from_http_status(200), ErrorType::Unknown);
+		assert_eq!(ErrorType::from_http_status(600), ErrorType::Unknown);
 	}
 }

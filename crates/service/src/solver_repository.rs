@@ -143,26 +143,24 @@ impl SolverService {
 		is_healthy: bool,
 	) -> Result<(), SolverServiceError> {
 		use chrono::Utc;
+		use oif_types::solvers::HealthStatus;
 
-		// Clone solver and update status and metrics
+		// Clone solver and update ONLY health status and timestamp
+		// Note: Both metrics AND status are now intelligently updated by MetricsUpdateHandler
+		// which has access to comprehensive historical data for better decision making
 		let mut updated_solver = solver.clone();
 
-		let new_status = if is_healthy {
-			SolverStatus::Active
-		} else {
-			SolverStatus::Error
-		};
-
-		updated_solver.status = new_status;
+		// Only update last_seen and health status here - status decisions moved to MetricsUpdateHandler
 		updated_solver.last_seen = Some(Utc::now());
 
-		// Update metrics
-		if is_healthy {
-			updated_solver.metrics.successful_requests += 1;
+		// Update health status using our new structure (immediate health state only)
+		let health_status = if is_healthy {
+			HealthStatus::healthy()
 		} else {
-			updated_solver.metrics.failed_requests += 1;
-			updated_solver.metrics.consecutive_failures += 1;
-		}
+			HealthStatus::unhealthy("Health check failed".to_string())
+		};
+		updated_solver.metrics.health_status = Some(health_status);
+		updated_solver.metrics.last_updated = Utc::now();
 
 		// Save to storage
 		storage
@@ -431,25 +429,26 @@ impl SolverServiceTrait for SolverService {
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
-		// Business logic: Update solver status and metrics based on health check result
-		let new_status = if is_healthy {
+		// Business logic: Update ONLY health status based on health check result
+		// Note: Both metrics AND status are now intelligently updated by MetricsUpdateHandler
+		// which has access to comprehensive historical data for better decision making
+		if is_healthy {
 			info!("Health check passed for solver: {}", solver_id);
-			SolverStatus::Active
 		} else {
 			warn!("Health check failed for solver: {}", solver_id);
-			SolverStatus::Error
-		};
+		}
 
-		// Business logic: Update solver in storage with new status and metrics
-		updated_solver.status = new_status;
+		// Update solver health status and timestamp only - status decisions moved to MetricsUpdateHandler
 		updated_solver.last_seen = Some(Utc::now());
 
-		if is_healthy {
-			updated_solver.metrics.successful_requests += 1;
+		// Update health status using our new structure (immediate health state only)
+		let health_status = if is_healthy {
+			oif_types::solvers::HealthStatus::healthy()
 		} else {
-			updated_solver.metrics.failed_requests += 1;
-			updated_solver.metrics.consecutive_failures += 1;
-		}
+			oif_types::solvers::HealthStatus::unhealthy("Health check failed".to_string())
+		};
+		updated_solver.metrics.health_status = Some(health_status);
+		updated_solver.metrics.last_updated = chrono::Utc::now();
 
 		self.storage
 			.update_solver(updated_solver)

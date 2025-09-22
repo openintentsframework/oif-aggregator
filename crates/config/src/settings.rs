@@ -5,8 +5,7 @@ use oif_types::constants::limits::{
 	DEFAULT_GLOBAL_TIMEOUT_MS, DEFAULT_INCLUDE_UNKNOWN_COMPATIBILITY,
 	DEFAULT_MAX_CONCURRENT_SOLVERS, DEFAULT_MAX_RETRIES_PER_SOLVER,
 	DEFAULT_METRICS_AGGREGATION_INTERVAL_MINUTES, DEFAULT_METRICS_CLEANUP_INTERVAL_HOURS,
-	DEFAULT_METRICS_COLLECTION_ENABLED, DEFAULT_METRICS_RETENTION_HOURS,
-	DEFAULT_ORDER_RETENTION_DAYS, DEFAULT_RATE_LIMIT_BURST_SIZE,
+	DEFAULT_METRICS_RETENTION_HOURS, DEFAULT_ORDER_RETENTION_DAYS, DEFAULT_RATE_LIMIT_BURST_SIZE,
 	DEFAULT_RATE_LIMIT_REQUESTS_PER_MINUTE, DEFAULT_RETRY_DELAY_MS,
 };
 use oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS;
@@ -78,10 +77,10 @@ fn default_logging_settings() -> Option<LoggingSettings> {
 /// Default metrics settings
 fn default_metrics_settings() -> Option<MetricsSettings> {
 	Some(MetricsSettings {
-		collection_enabled: DEFAULT_METRICS_COLLECTION_ENABLED,
 		retention_hours: DEFAULT_METRICS_RETENTION_HOURS,
 		cleanup_interval_hours: DEFAULT_METRICS_CLEANUP_INTERVAL_HOURS,
 		aggregation_interval_minutes: DEFAULT_METRICS_AGGREGATION_INTERVAL_MINUTES,
+		min_timeout_for_metrics_ms: DEFAULT_SOLVER_TIMEOUT_MS,
 	})
 }
 
@@ -273,14 +272,6 @@ pub struct MaintenanceSettings {
 /// Metrics collection and management configuration
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct MetricsSettings {
-	/// Whether metrics collection is enabled
-	///
-	/// When enabled, solver performance data will be collected and stored
-	/// for circuit breaker decisions and scoring engine analysis.
-	///
-	/// Default: true
-	pub collection_enabled: bool,
-
 	/// Number of hours to retain metrics time-series data
 	///
 	/// Metrics older than this will be automatically cleaned up.
@@ -303,6 +294,15 @@ pub struct MetricsSettings {
 	///
 	/// Default: 5 minutes
 	pub aggregation_interval_minutes: u32,
+
+	/// Minimum timeout threshold for collecting timeout metrics in milliseconds
+	///
+	/// Timeouts below this value will be treated as user-induced cancellations,
+	/// not solver performance issues, and won't affect circuit breaker decisions
+	/// or solver priority scoring.
+	///
+	/// Default: 5000ms (5 seconds)
+	pub min_timeout_for_metrics_ms: u64,
 }
 
 impl Default for Settings {
@@ -526,16 +526,11 @@ impl Settings {
 	/// Get metrics configuration with defaults
 	pub fn get_metrics(&self) -> MetricsSettings {
 		self.metrics.clone().unwrap_or(MetricsSettings {
-			collection_enabled: DEFAULT_METRICS_COLLECTION_ENABLED,
 			retention_hours: DEFAULT_METRICS_RETENTION_HOURS,
 			cleanup_interval_hours: DEFAULT_METRICS_CLEANUP_INTERVAL_HOURS,
 			aggregation_interval_minutes: DEFAULT_METRICS_AGGREGATION_INTERVAL_MINUTES,
+			min_timeout_for_metrics_ms: DEFAULT_SOLVER_TIMEOUT_MS,
 		})
-	}
-
-	/// Check if metrics collection is enabled
-	pub fn is_metrics_collection_enabled(&self) -> bool {
-		self.get_metrics().collection_enabled
 	}
 
 	/// Get metrics retention period in hours

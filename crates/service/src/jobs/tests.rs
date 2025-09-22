@@ -47,6 +47,7 @@ fn create_test_services(
 		solver_filter_service,
 		Default::default(),
 		None,
+		oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS, // Default timeout threshold
 	)) as Arc<dyn AggregatorTrait>;
 
 	(solver_service, aggregator_service, integrity_service)

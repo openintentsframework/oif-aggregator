@@ -205,6 +205,7 @@ pub struct TaskExecutor {
 	config: AggregationConfig,
 	concurrency_limiter: Arc<Semaphore>,
 	job_scheduler: Option<Arc<dyn JobScheduler>>,
+	min_timeout_for_metrics_ms: u64,
 }
 
 impl TaskExecutor {
@@ -215,6 +216,7 @@ impl TaskExecutor {
 		config: AggregationConfig,
 		concurrency_limiter: Arc<Semaphore>,
 		job_scheduler: Option<Arc<dyn JobScheduler>>,
+		min_timeout_for_metrics_ms: u64,
 	) -> Self {
 		Self {
 			adapter_registry,
@@ -222,6 +224,121 @@ impl TaskExecutor {
 			config,
 			concurrency_limiter,
 			job_scheduler,
+			min_timeout_for_metrics_ms,
+		}
+	}
+
+	/// Collect timeout metrics when aggregator-level timeout occurs
+	/// Only collects metrics if the timeout is above the minimum threshold to avoid
+	/// polluting metrics with user-induced short timeouts
+	async fn collect_timeout_metrics(
+		&self,
+		scheduler: &Arc<dyn JobScheduler>,
+		solver: &Solver,
+		start_time: Instant,
+		timeout_ms: u64,
+	) {
+		use crate::jobs::{BackgroundJob, SolverMetricsUpdate};
+		use chrono::Utc;
+		use oif_types::ErrorType;
+
+		// Check if timeout is above the minimum threshold for metrics collection
+		if timeout_ms < self.min_timeout_for_metrics_ms {
+			debug!(
+				"Skipping timeout metrics for solver {} - timeout {}ms is below threshold {}ms (user-induced timeout)",
+				solver.solver_id,
+				timeout_ms,
+				self.min_timeout_for_metrics_ms
+			);
+			return;
+		}
+
+		let response_time_ms = start_time.elapsed().as_millis() as u64;
+
+		let metrics_data = SolverMetricsUpdate {
+			response_time_ms,
+			was_successful: false,
+			was_timeout: true, // This is a timeout
+			timestamp: Utc::now(),
+			error_message: Some(format!("Timed out after {}ms", timeout_ms)),
+			status_code: None,                         // No HTTP status for timeout
+			error_type: Some(ErrorType::ServiceError), // Timeout is a service error
+			operation: "get_quotes".to_string(),
+		};
+
+		// Schedule individual metrics job for this timeout
+		let now = Utc::now();
+		let metrics_job = BackgroundJob::AggregationMetricsUpdate {
+			aggregation_id: format!("timeout-{}-{}", solver.solver_id, now.timestamp()),
+			solver_metrics: vec![(solver.solver_id.clone(), metrics_data)],
+			aggregation_timestamp: now,
+		};
+
+		// Schedule with minimal delay
+		if let Err(e) = scheduler
+			.schedule_with_delay(metrics_job, tokio::time::Duration::from_millis(0), None)
+			.await
+		{
+			warn!(
+				"Failed to schedule timeout metrics job for solver {}: {}",
+				solver.solver_id, e
+			);
+		} else {
+			debug!(
+				"Scheduled timeout metrics job for solver {} (timeout {}ms >= threshold {}ms)",
+				solver.solver_id, timeout_ms, self.min_timeout_for_metrics_ms
+			);
+		}
+	}
+
+	/// Collect cancellation metrics when task is cancelled
+	/// Cancellations are generally application-level decisions (early termination, etc.)
+	/// so they are always collected regardless of timeout thresholds
+	async fn collect_cancellation_metrics(
+		&self,
+		scheduler: &Arc<dyn JobScheduler>,
+		solver: &Solver,
+		start_time: Instant,
+	) {
+		use crate::jobs::{BackgroundJob, SolverMetricsUpdate};
+		use chrono::Utc;
+		use oif_types::ErrorType;
+
+		let response_time_ms = start_time.elapsed().as_millis() as u64;
+
+		let metrics_data = SolverMetricsUpdate {
+			response_time_ms,
+			was_successful: false,
+			was_timeout: false,
+			timestamp: Utc::now(),
+			error_message: Some("Task cancelled".to_string()),
+			status_code: None,                             // No HTTP status for cancellation
+			error_type: Some(ErrorType::ApplicationError), // Cancellation is an application-level decision
+			operation: "get_quotes".to_string(),
+		};
+
+		// Schedule individual metrics job for this cancellation
+		let now = Utc::now();
+		let metrics_job = BackgroundJob::AggregationMetricsUpdate {
+			aggregation_id: format!("cancelled-{}-{}", solver.solver_id, now.timestamp()),
+			solver_metrics: vec![(solver.solver_id.clone(), metrics_data)],
+			aggregation_timestamp: now,
+		};
+
+		// Schedule with minimal delay
+		if let Err(e) = scheduler
+			.schedule_with_delay(metrics_job, tokio::time::Duration::from_millis(0), None)
+			.await
+		{
+			warn!(
+				"Failed to schedule cancellation metrics job for solver {}: {}",
+				solver.solver_id, e
+			);
+		} else {
+			debug!(
+				"Scheduled cancellation metrics job for solver {} (application-level cancellation)",
+				solver.solver_id
+			);
 		}
 	}
 }
@@ -376,6 +493,9 @@ impl TaskExecutorTrait for TaskExecutor {
 		let get_quote_request = GetQuoteRequest::try_from(request.clone())
 			.map_err(|e| format!("Failed to convert QuoteRequest: {}", e))?;
 
+		// Track timing for metrics collection
+		let start_time = Instant::now();
+
 		// Execute request with timeout and cancellation
 		let solver_future = solver_adapter.get_quotes(&get_quote_request);
 		let solver_timeout_duration = Duration::from_millis(timeout_ms);
@@ -384,12 +504,25 @@ impl TaskExecutorTrait for TaskExecutor {
 			result = timeout(solver_timeout_duration, solver_future) => {
 				match result {
 					Ok(Ok(response)) => Ok(response),
-					Ok(Err(e)) => Err(format!("Solver error: {}", e)),
-					Err(_) => Err(format!("Timed out after {}ms", timeout_ms)),
+					Ok(Err(e)) => {
+						// Adapter error - metrics were already collected by SolverAdapterService
+						Err(format!("Solver error: {}", e))
+					},
+					Err(_) => {
+						// Timeout occurred - collect timeout metrics manually since SolverAdapterService was cancelled
+						if let Some(ref scheduler) = self.job_scheduler {
+							self.collect_timeout_metrics(scheduler, solver, start_time, timeout_ms).await;
+						}
+						Err(format!("Timed out after {}ms", timeout_ms))
+					},
 				}
 			}
 			_ = cancel_rx.recv() => {
 				debug!("Solver {} task cancelled during execution", solver.solver_id);
+				// Cancellation - collect cancellation metrics
+				if let Some(ref scheduler) = self.job_scheduler {
+					self.collect_cancellation_metrics(scheduler, solver, start_time).await;
+				}
 				return Err("Task cancelled".to_string());
 			}
 		}?;
@@ -451,6 +584,7 @@ impl AggregatorService {
 			solver_filter_service,
 			AggregationConfig::default(),
 			None,
+			oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS, // Default timeout threshold
 		)
 	}
 
@@ -462,6 +596,7 @@ impl AggregatorService {
 		solver_filter_service: Arc<dyn SolverFilterTrait>,
 		config: AggregationConfig,
 		job_scheduler: Option<Arc<dyn JobScheduler>>,
+		min_timeout_for_metrics_ms: u64,
 	) -> Self {
 		// Create TaskExecutor with the configuration
 		let concurrency_limiter = Arc::new(Semaphore::new(config.max_concurrent_solvers));
@@ -471,6 +606,7 @@ impl AggregatorService {
 			config.clone(),
 			concurrency_limiter,
 			job_scheduler.clone(),
+			min_timeout_for_metrics_ms,
 		)) as Arc<dyn TaskExecutorTrait>;
 
 		Self {
@@ -1481,6 +1617,7 @@ mod tests {
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
 			test_config,
 			None,
+			oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS, // Default timeout threshold
 		)
 	}
 
@@ -1511,6 +1648,7 @@ mod tests {
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
 			test_config,
 			None,
+			oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS, // Default timeout threshold
 		)
 	}
 
