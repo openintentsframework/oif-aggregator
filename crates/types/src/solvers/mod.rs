@@ -316,7 +316,8 @@ impl Solver {
 
 	/// Record a failed request
 	pub fn record_failure(&mut self, is_timeout: bool) {
-		self.metrics.record_failure(is_timeout);
+		self.metrics
+			.record_failure(is_timeout, Some(ErrorType::ServiceError));
 		self.mark_seen();
 
 		// Auto-deactivate if too many failures
@@ -568,20 +569,8 @@ impl SolverMetrics {
 		self.last_updated = Utc::now();
 	}
 
-	/// Record a failed request (legacy method)
-	pub fn record_failure(&mut self, is_timeout: bool) {
-		self.total_requests += 1;
-		self.consecutive_failures += 1;
-
-		if is_timeout {
-			self.timeout_requests += 1;
-		}
-
-		self.last_updated = Utc::now();
-	}
-
 	/// Record a failed request with error type categorization
-	pub fn record_categorized_failure(&mut self, is_timeout: bool, error_type: Option<ErrorType>) {
+	pub fn record_failure(&mut self, is_timeout: bool, error_type: Option<ErrorType>) {
 		self.total_requests += 1;
 		self.consecutive_failures += 1;
 

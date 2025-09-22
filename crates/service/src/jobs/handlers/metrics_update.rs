@@ -151,10 +151,9 @@ impl MetricsUpdateHandler {
 			solver.metrics.record_success(metrics_data.response_time_ms);
 		} else {
 			// Record failure with proper error categorization
-			solver.metrics.record_categorized_failure(
-				metrics_data.was_timeout,
-				metrics_data.error_type.clone(),
-			);
+			solver
+				.metrics
+				.record_failure(metrics_data.was_timeout, metrics_data.error_type.clone());
 		}
 
 		// Update last seen timestamp
