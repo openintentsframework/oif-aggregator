@@ -820,4 +820,361 @@ mod tests {
 		assert!(solver.supports_asset_on_chain(1, "0x1234567890123456789012345678901234567890"));
 		// mixed case
 	}
+
+	// ===== SolverMetrics Tests =====
+
+	#[test]
+	fn test_solver_metrics_new() {
+		let metrics = SolverMetrics::new();
+		let now = Utc::now();
+
+		// All counters should start at zero
+		assert_eq!(metrics.total_requests, 0);
+		assert_eq!(metrics.successful_requests, 0);
+		assert_eq!(metrics.service_errors, 0);
+		assert_eq!(metrics.recent_total_requests, 0);
+		assert_eq!(metrics.recent_successful_requests, 0);
+		assert_eq!(metrics.recent_service_errors, 0);
+		assert_eq!(metrics.consecutive_failures, 0);
+
+		// Timestamps should be recent
+		let time_diff = (now - metrics.last_updated).num_milliseconds().abs();
+		assert!(time_diff < 1000, "last_updated should be recent");
+
+		let time_diff = (now - metrics.window_start).num_milliseconds().abs();
+		assert!(time_diff < 1000, "window_start should be recent");
+	}
+
+	#[test]
+	fn test_solver_metrics_default() {
+		let metrics = SolverMetrics::default();
+		let new_metrics = SolverMetrics::new();
+
+		// Default should be equivalent to new()
+		assert_eq!(metrics.total_requests, new_metrics.total_requests);
+		assert_eq!(metrics.successful_requests, new_metrics.successful_requests);
+		assert_eq!(metrics.service_errors, new_metrics.service_errors);
+		assert_eq!(metrics.consecutive_failures, new_metrics.consecutive_failures);
+	}
+
+	#[test]
+	fn test_solver_metrics_record_success() {
+		let mut metrics = SolverMetrics::new();
+		let response_time = 150;
+
+		metrics.record_success(response_time, 15, 60, 5);
+
+		// Check lifetime counters
+		assert_eq!(metrics.total_requests, 1);
+		assert_eq!(metrics.successful_requests, 1);
+		assert_eq!(metrics.service_errors, 0);
+
+		// Check windowed counters
+		assert_eq!(metrics.recent_total_requests, 1);
+		assert_eq!(metrics.recent_successful_requests, 1);
+		assert_eq!(metrics.recent_service_errors, 0);
+
+		// Success should reset consecutive failures
+		assert_eq!(metrics.consecutive_failures, 0);
+
+		// Test multiple successes
+		metrics.record_success(200, 15, 60, 5);
+		assert_eq!(metrics.total_requests, 2);
+		assert_eq!(metrics.successful_requests, 2);
+		assert_eq!(metrics.recent_total_requests, 2);
+		assert_eq!(metrics.recent_successful_requests, 2);
+	}
+
+	#[test]
+	fn test_solver_metrics_record_failure_service_error() {
+		let mut metrics = SolverMetrics::new();
+
+		metrics.record_failure(Some(ErrorType::ServiceError), 15, 60, 5);
+
+		// Check lifetime counters
+		assert_eq!(metrics.total_requests, 1);
+		assert_eq!(metrics.successful_requests, 0);
+		assert_eq!(metrics.service_errors, 1);
+
+		// Check windowed counters
+		assert_eq!(metrics.recent_total_requests, 1);
+		assert_eq!(metrics.recent_successful_requests, 0);
+		assert_eq!(metrics.recent_service_errors, 1);
+
+		// Check consecutive failures
+		assert_eq!(metrics.consecutive_failures, 1);
+	}
+
+	#[test]
+	fn test_solver_metrics_record_failure_client_error() {
+		let mut metrics = SolverMetrics::new();
+
+		metrics.record_failure(Some(ErrorType::ClientError), 15, 60, 5);
+
+		// Check lifetime counters
+		assert_eq!(metrics.total_requests, 1);
+		assert_eq!(metrics.successful_requests, 0);
+		assert_eq!(metrics.service_errors, 0); // Client errors don't count as service errors
+
+		// Check windowed counters
+		assert_eq!(metrics.recent_total_requests, 1);
+		assert_eq!(metrics.recent_successful_requests, 0);
+		assert_eq!(metrics.recent_service_errors, 0); // Client errors don't count
+
+		// Still increments consecutive failures
+		assert_eq!(metrics.consecutive_failures, 1);
+	}
+
+	#[test]
+	fn test_solver_metrics_record_failure_application_error() {
+		let mut metrics = SolverMetrics::new();
+
+		metrics.record_failure(Some(ErrorType::ApplicationError), 15, 60, 5);
+
+		// Application errors are treated as service errors
+		assert_eq!(metrics.total_requests, 1);
+		assert_eq!(metrics.service_errors, 1);
+		assert_eq!(metrics.recent_service_errors, 1);
+		assert_eq!(metrics.consecutive_failures, 1);
+	}
+
+	#[test]
+	fn test_solver_metrics_record_failure_unknown_error() {
+		let mut metrics = SolverMetrics::new();
+
+		metrics.record_failure(Some(ErrorType::Unknown), 15, 60, 5);
+
+		// Unknown errors are treated as service errors (fail-safe)
+		assert_eq!(metrics.total_requests, 1);
+		assert_eq!(metrics.service_errors, 1);
+		assert_eq!(metrics.recent_service_errors, 1);
+		assert_eq!(metrics.consecutive_failures, 1);
+	}
+
+	#[test]
+	fn test_solver_metrics_record_failure_no_error_type() {
+		let mut metrics = SolverMetrics::new();
+
+		metrics.record_failure(None, 15, 60, 5);
+
+		// No error type defaults to service error
+		assert_eq!(metrics.total_requests, 1);
+		assert_eq!(metrics.service_errors, 1);
+		assert_eq!(metrics.recent_service_errors, 1);
+		assert_eq!(metrics.consecutive_failures, 1);
+	}
+
+	#[test]
+	fn test_solver_metrics_consecutive_failures_reset_on_success() {
+		let mut metrics = SolverMetrics::new();
+
+		// Record multiple failures
+		metrics.record_failure(Some(ErrorType::ServiceError), 15, 60, 5);
+		metrics.record_failure(Some(ErrorType::ServiceError), 15, 60, 5);
+		metrics.record_failure(Some(ErrorType::ServiceError), 15, 60, 5);
+
+		assert_eq!(metrics.consecutive_failures, 3);
+
+		// Success should reset consecutive failures
+		metrics.record_success(100, 15, 60, 5);
+		assert_eq!(metrics.consecutive_failures, 0);
+	}
+
+	#[test]
+	fn test_solver_metrics_window_reset_normal_expiration_sufficient_data() {
+		let mut metrics = SolverMetrics::new();
+		
+		// Manually set window_start to simulate expired window
+		metrics.window_start = Utc::now() - chrono::Duration::minutes(20); // Expired (>15 min)
+		
+		// Add sufficient recent data
+		metrics.recent_total_requests = 10; // >= min_requests_for_rate_check (5)
+		metrics.recent_successful_requests = 8;
+		metrics.recent_service_errors = 2;
+		
+		metrics.maybe_reset_window(15, 60, 5); // 15 min window, 60 min max, 5 min requests
+		
+		// Window should reset because it expired AND we have sufficient data
+		assert_eq!(metrics.recent_total_requests, 0);
+		assert_eq!(metrics.recent_successful_requests, 0);
+		assert_eq!(metrics.recent_service_errors, 0);
+		
+		// window_start should be recent
+		let now = Utc::now();
+		let time_diff = (now - metrics.window_start).num_milliseconds().abs();
+		assert!(time_diff < 1000, "window_start should be recent after reset");
+	}
+
+	#[test]
+	fn test_solver_metrics_window_reset_normal_expiration_insufficient_data() {
+		let mut metrics = SolverMetrics::new();
+		
+		// Set up scenario: window expired but insufficient recent data
+		let old_window_start = Utc::now() - chrono::Duration::minutes(20);
+		metrics.window_start = old_window_start;
+		
+		// Insufficient recent data but sufficient lifetime data
+		metrics.recent_total_requests = 2; // < min_requests_for_rate_check (5)
+		metrics.total_requests = 10; // >= min_requests_for_rate_check (5)
+		
+		metrics.maybe_reset_window(15, 60, 5);
+		
+		// Window should NOT reset - preserve to accumulate more data
+		assert_eq!(metrics.recent_total_requests, 2); // Unchanged
+		assert_eq!(metrics.window_start, old_window_start); // Unchanged
+	}
+
+	#[test]
+	fn test_solver_metrics_window_reset_max_age_exceeded() {
+		let mut metrics = SolverMetrics::new();
+		
+		// Set window_start to exceed max age
+		metrics.window_start = Utc::now() - chrono::Duration::minutes(70); // > 60 min max
+		
+		// Even with insufficient data
+		metrics.recent_total_requests = 1; // < min_requests_for_rate_check (5)
+		metrics.total_requests = 2; // < min_requests_for_rate_check (5)
+		
+		metrics.maybe_reset_window(15, 60, 5);
+		
+		// Should force reset due to max age
+		assert_eq!(metrics.recent_total_requests, 0);
+		assert_eq!(metrics.recent_successful_requests, 0);
+		assert_eq!(metrics.recent_service_errors, 0);
+		
+		let now = Utc::now();
+		let time_diff = (now - metrics.window_start).num_milliseconds().abs();
+		assert!(time_diff < 1000, "window_start should be recent after forced reset");
+	}
+
+	#[test]
+	fn test_solver_metrics_window_reset_brand_new_solver() {
+		let mut metrics = SolverMetrics::new();
+		
+		// Simulate brand new solver: window expired, no data anywhere
+		metrics.window_start = Utc::now() - chrono::Duration::minutes(20);
+		metrics.recent_total_requests = 1; // < min_requests_for_rate_check (5)
+		metrics.total_requests = 2; // < min_requests_for_rate_check (5)
+		
+		let original_recent_requests = metrics.recent_total_requests;
+		
+		metrics.maybe_reset_window(15, 60, 5);
+		
+		// Should extend window (set to half the normal duration ago)
+		assert_eq!(metrics.recent_total_requests, original_recent_requests); // Preserved
+		
+		// window_start should be set to ~7.5 minutes ago (half of 15 min)
+		let expected_window_start = Utc::now() - chrono::Duration::minutes(7);
+		let time_diff = (metrics.window_start - expected_window_start).num_minutes().abs();
+		assert!(time_diff <= 1, "window_start should be about half duration ago");
+	}
+
+	#[test]
+	fn test_solver_metrics_window_no_reset_when_not_expired() {
+		let mut metrics = SolverMetrics::new();
+		
+		// Window not expired yet
+		let recent_window_start = Utc::now() - chrono::Duration::minutes(5); // < 15 min
+		metrics.window_start = recent_window_start;
+		metrics.recent_total_requests = 3;
+		
+		metrics.maybe_reset_window(15, 60, 5);
+		
+		// Nothing should change
+		assert_eq!(metrics.recent_total_requests, 3);
+		assert_eq!(metrics.window_start, recent_window_start);
+	}
+
+	#[test]
+	fn test_solver_metrics_mixed_success_and_failure() {
+		let mut metrics = SolverMetrics::new();
+		
+		// Mix of successes and different error types
+		metrics.record_success(100, 15, 60, 5);
+		metrics.record_failure(Some(ErrorType::ServiceError), 15, 60, 5);
+		metrics.record_success(150, 15, 60, 5);
+		metrics.record_failure(Some(ErrorType::ClientError), 15, 60, 5);
+		metrics.record_failure(Some(ErrorType::ApplicationError), 15, 60, 5);
+		
+		// Check final counts
+		assert_eq!(metrics.total_requests, 5);
+		assert_eq!(metrics.successful_requests, 2);
+		assert_eq!(metrics.service_errors, 2); // ServiceError + ApplicationError
+		assert_eq!(metrics.recent_total_requests, 5);
+		assert_eq!(metrics.recent_successful_requests, 2);
+		assert_eq!(metrics.recent_service_errors, 2);
+		
+		// Consecutive failures should be 2 (last two were failures)
+		assert_eq!(metrics.consecutive_failures, 2);
+	}
+
+	#[test]
+	fn test_solver_metrics_reset() {
+		let mut metrics = SolverMetrics::new();
+		
+		// Add some data
+		metrics.record_success(100, 15, 60, 5);
+		metrics.record_failure(Some(ErrorType::ServiceError), 15, 60, 5);
+		
+		assert_eq!(metrics.total_requests, 2);
+		assert_eq!(metrics.consecutive_failures, 1);
+		
+		// Reset should restore to initial state
+		metrics.reset();
+		
+		assert_eq!(metrics.total_requests, 0);
+		assert_eq!(metrics.successful_requests, 0);
+		assert_eq!(metrics.service_errors, 0);
+		assert_eq!(metrics.recent_total_requests, 0);
+		assert_eq!(metrics.recent_successful_requests, 0);
+		assert_eq!(metrics.recent_service_errors, 0);
+		assert_eq!(metrics.consecutive_failures, 0);
+	}
+
+	#[test]
+	fn test_solver_metrics_timestamp_updates() {
+		let mut metrics = SolverMetrics::new();
+		let initial_update = metrics.last_updated;
+		
+		// Small delay to ensure timestamp difference
+		std::thread::sleep(std::time::Duration::from_millis(10));
+		
+		metrics.record_success(100, 15, 60, 5);
+		assert!(metrics.last_updated > initial_update, "Success should update timestamp");
+		
+		let success_update = metrics.last_updated;
+		std::thread::sleep(std::time::Duration::from_millis(10));
+		
+		metrics.record_failure(Some(ErrorType::ServiceError), 15, 60, 5);
+		assert!(metrics.last_updated > success_update, "Failure should update timestamp");
+	}
+
+	#[test]
+	fn test_solver_metrics_window_reset_preserves_important_state() {
+		let mut metrics = SolverMetrics::new();
+		
+		// Set up state that should be preserved across window resets
+		metrics.record_failure(Some(ErrorType::ServiceError), 15, 60, 5);
+		metrics.record_failure(Some(ErrorType::ServiceError), 15, 60, 5);
+		
+		let original_consecutive_failures = metrics.consecutive_failures;
+		let original_lifetime_requests = metrics.total_requests;
+		let original_lifetime_successes = metrics.successful_requests;
+		let original_lifetime_service_errors = metrics.service_errors;
+		
+		// Force window reset by setting old window_start
+		metrics.window_start = Utc::now() - chrono::Duration::minutes(70); // > 60 min max
+		metrics.maybe_reset_window(15, 60, 5);
+		
+		// Windowed counters should reset
+		assert_eq!(metrics.recent_total_requests, 0);
+		assert_eq!(metrics.recent_successful_requests, 0);
+		assert_eq!(metrics.recent_service_errors, 0);
+		
+		// Important state should be preserved
+		assert_eq!(metrics.consecutive_failures, original_consecutive_failures);
+		assert_eq!(metrics.total_requests, original_lifetime_requests);
+		assert_eq!(metrics.successful_requests, original_lifetime_successes);
+		assert_eq!(metrics.service_errors, original_lifetime_service_errors);
+	}
 }

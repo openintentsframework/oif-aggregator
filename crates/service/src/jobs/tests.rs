@@ -101,6 +101,7 @@ async fn test_job_processor_basic_functionality() {
 		order_service,
 		job_scheduler,
 		oif_config::Settings::default(),
+		None, // No circuit breaker for tests
 	));
 
 	// Create job processor with minimal config for testing
@@ -176,6 +177,7 @@ async fn test_job_processor_queue_capacity() {
 		order_service,
 		job_scheduler,
 		oif_config::Settings::default(),
+		None, // No circuit breaker for tests
 	));
 
 	// Create processor with very small queue
@@ -272,6 +274,7 @@ async fn test_solver_maintenance_handler() {
 		order_service,
 		job_scheduler,
 		oif_config::Settings::default(),
+		None, // No circuit breaker for tests
 	);
 
 	// Test health check job
@@ -370,6 +373,7 @@ async fn test_job_scheduling() {
 		order_service,
 		job_scheduler,
 		oif_config::Settings::default(),
+		None, // No circuit breaker for tests
 	));
 
 	let config = JobProcessorConfig {
@@ -577,6 +581,7 @@ async fn test_job_memory_management() {
 		order_service,
 		job_scheduler,
 		oif_config::Settings::default(),
+		None, // No circuit breaker for tests
 	));
 
 	// Create processor with very small max entries to test LRU eviction
@@ -714,6 +719,7 @@ async fn test_orders_cleanup_job() {
 		order_service,
 		job_scheduler,
 		oif_config::Settings::default(),
+		None, // No circuit breaker for tests
 	);
 
 	// Test orders cleanup job

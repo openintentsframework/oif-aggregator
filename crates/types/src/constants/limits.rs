@@ -68,8 +68,8 @@ pub const DEFAULT_METRICS_CLEANUP_INTERVAL_HOURS: u32 = 24;
 pub const DEFAULT_METRICS_AGGREGATION_INTERVAL_MINUTES: u32 = 5;
 
 // Circuit Breaker Defaults
-/// Default circuit breaker enabled state (disabled by default for safety)
-pub const DEFAULT_CIRCUIT_BREAKER_ENABLED: bool = false;
+/// Default circuit breaker enabled state (enabled by default)
+pub const DEFAULT_CIRCUIT_BREAKER_ENABLED: bool = true;
 
 /// Default consecutive failure threshold before opening circuit
 pub const DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD: u32 = 5;
@@ -100,10 +100,6 @@ pub const DEFAULT_CIRCUIT_BREAKER_SERVICE_ERROR_THRESHOLD: f64 = 0.5;
 /// Even if window has insufficient data, force reset after this duration
 /// 60 minutes = 4x normal window, good balance for low-traffic solvers
 pub const DEFAULT_METRICS_MAX_WINDOW_AGE_MINUTES: u32 = 60;
-
-/// Default minimum lifetime requests before allowing window reset
-/// Prevents blind spots for new solvers by requiring some historical data as fallback
-pub const DEFAULT_METRICS_MIN_LIFETIME_REQUESTS_FOR_RESET: u64 = 5;
 
 /// Default maximum test requests allowed in half-open state
 pub const DEFAULT_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS: u32 = 3;

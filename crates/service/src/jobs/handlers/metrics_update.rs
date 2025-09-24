@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tracing::{debug, warn};
 
 use crate::jobs::types::{JobError, JobResult, SolverMetricsUpdate};
+use crate::circuit_breaker::CircuitBreakerTrait;
 use oif_config::Settings;
 use oif_storage::Storage;
 use oif_types::{MetricsDataPoint, MetricsTimeSeries};
@@ -19,12 +20,30 @@ const ROLLING_METRICS_UPDATE_INTERVAL: Duration = Duration::seconds(30);
 pub struct MetricsUpdateHandler {
 	storage: Arc<dyn Storage>,
 	settings: Settings,
+	circuit_breaker: Option<Arc<dyn CircuitBreakerTrait>>,
 }
 
 impl MetricsUpdateHandler {
 	/// Create a new metrics update handler
 	pub fn new(storage: Arc<dyn Storage>, settings: Settings) -> Self {
-		Self { storage, settings }
+		Self { 
+			storage, 
+			settings,
+			circuit_breaker: None,
+		}
+	}
+
+	/// Create a new metrics update handler with circuit breaker
+	pub fn with_circuit_breaker(
+		storage: Arc<dyn Storage>, 
+		settings: Settings,
+		circuit_breaker: Arc<dyn CircuitBreakerTrait>
+	) -> Self {
+		Self { 
+			storage, 
+			settings,
+			circuit_breaker: Some(circuit_breaker),
+		}
 	}
 
 	/// Handle aggregation metrics update job with multiple solvers
@@ -64,18 +83,18 @@ impl MetricsUpdateHandler {
 						solver_id, metrics_data.operation, metrics_data.was_successful, metrics_data.response_time_ms
 					);
 
-					// Run both updates in parallel for each solver
-					let (current_result, timeseries_result) = tokio::join!(
-						Self::update_current_solver_metrics(
+					// Run all updates in parallel for each solver (metrics, timeseries, and circuit breaker)
+					let (current_result, timeseries_result, circuit_result) = tokio::join!(
+						self.update_current_solver_metrics(
 							&storage,
-							&self.settings,
 							&solver_id,
 							&metrics_data
 						),
-						Self::update_timeseries_metrics(&storage, &solver_id, &metrics_data)
+						Self::update_timeseries_metrics(&storage, &solver_id, &metrics_data),
+						self.record_circuit_breaker_result(&solver_id, &metrics_data)
 					);
 
-					// Track results - count errors per operation, success only if both succeed
+					// Track results - count errors per operation, success only if all succeed
 					let mut solver_errors = 0;
 
 					// Handle current metrics update result
@@ -91,6 +110,15 @@ impl MetricsUpdateHandler {
 					if let Err(e) = timeseries_result {
 						warn!(
 							"Failed to update time-series metrics for solver '{}': {}",
+							solver_id, e
+						);
+						solver_errors += 1;
+					}
+
+					// Handle circuit breaker update result
+					if let Err(e) = circuit_result {
+						warn!(
+							"Failed to update circuit breaker for solver '{}': {}",
 							solver_id, e
 						);
 						solver_errors += 1;
@@ -126,10 +154,28 @@ impl MetricsUpdateHandler {
 		Ok(())
 	}
 
-	/// Static version of update_current_solver_metrics for parallel processing
+	/// Handle circuit breaker state transitions (parallel operation)
+	async fn record_circuit_breaker_result(
+		&self,
+		solver_id: &str,
+		metrics_data: &SolverMetricsUpdate,
+	) -> JobResult<()> {
+		// Only call circuit breaker if enabled and available
+		if let Some(circuit_breaker) = &self.circuit_breaker {
+			let circuit_breaker_settings = self.settings.get_circuit_breaker();
+			if circuit_breaker_settings.enabled {
+				circuit_breaker
+					.record_request_result(solver_id, metrics_data.was_successful)
+					.await;
+			}
+		}
+		Ok(())
+	}
+
+	/// Update current solver metrics for parallel processing
 	async fn update_current_solver_metrics(
+		&self,
 		storage: &Arc<dyn Storage>,
-		settings: &Settings,
 		solver_id: &str,
 		metrics_data: &SolverMetricsUpdate,
 	) -> JobResult<()> {
@@ -151,7 +197,7 @@ impl MetricsUpdateHandler {
 		};
 
 		// Update the solver's current metrics
-		let circuit_breaker_settings = settings.get_circuit_breaker();
+		let circuit_breaker_settings = self.settings.get_circuit_breaker();
 
 		if metrics_data.was_successful {
 			solver.metrics.record_success(

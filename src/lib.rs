@@ -488,8 +488,8 @@ where
 		);
 
 		// Add circuit breaker if enabled
-		if let Some(cb) = circuit_breaker {
-			aggregator_service = aggregator_service.with_circuit_breaker(cb);
+		if let Some(cb) = &circuit_breaker {
+			aggregator_service = aggregator_service.with_circuit_breaker(Arc::clone(cb));
 		}
 
 		let aggregator_service =
@@ -520,6 +520,7 @@ where
 			Arc::clone(&order_service),
 			Arc::clone(&job_scheduler),
 			settings.clone(),
+			circuit_breaker.clone(),
 		));
 
 		// Create the JobProcessor with the real handler
