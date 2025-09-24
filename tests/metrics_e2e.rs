@@ -15,7 +15,7 @@ use oif_types::solvers::Solver;
 use std::sync::Arc;
 
 mod mocks;
-use mocks::configs::MockConfigs;
+use mocks::configs::CircuitBreakerConfigs;
 
 /// Integration test helper to set up complete metrics testing environment
 struct MetricsTestEnvironment {
@@ -28,7 +28,7 @@ impl MetricsTestEnvironment {
 	/// Create a complete test environment with metrics collection enabled
 	async fn new() -> Result<Self, Box<dyn std::error::Error>> {
 		// Create test settings with metrics enabled
-		let mut settings = MockConfigs::test_settings();
+		let mut settings = CircuitBreakerConfigs::test_settings();
 		settings.metrics = Some(oif_config::settings::MetricsSettings {
 			retention_hours: 24,             // 24 hour retention for testing
 			cleanup_interval_hours: 1,       // 1 hour cleanup interval
@@ -40,7 +40,7 @@ impl MetricsTestEnvironment {
 		let storage = Arc::new(MemoryStore::new());
 
 		// Create handlers
-		let metrics_handler = MetricsUpdateHandler::new(storage.clone());
+		let metrics_handler = MetricsUpdateHandler::new(storage.clone(), settings.clone());
 		let cleanup_handler = MetricsCleanupHandler::new(storage.clone(), settings.clone());
 
 		Ok(Self {

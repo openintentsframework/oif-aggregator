@@ -4,9 +4,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use super::{
-	HealthStatus, Solver, SolverError, SolverMetadata, SolverMetrics, SolverStatus, SupportedAssets,
-};
+use super::{Solver, SolverError, SolverMetadata, SolverMetrics, SolverStatus, SupportedAssets};
 
 /// Storage representation of a solver
 ///
@@ -45,40 +43,13 @@ pub struct SolverMetadataStorage {
 pub struct SolverMetricsStorage {
 	pub total_requests: u64,
 	pub successful_requests: u64,
-	pub timeout_requests: u64,
 	pub service_errors: u64,
-	pub client_errors: u64,
-	pub health_status: Option<HealthStatusStorage>,
 	pub consecutive_failures: u32,
 	pub last_updated: DateTime<Utc>,
-}
-
-/// Storage-compatible health status (new improved structure)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct HealthStatusStorage {
-	pub is_healthy: bool,
-	pub last_check_at: DateTime<Utc>,
-	pub error_message: Option<String>,
-}
-
-impl From<HealthStatus> for HealthStatusStorage {
-	fn from(health_status: HealthStatus) -> Self {
-		Self {
-			is_healthy: health_status.is_healthy,
-			last_check_at: health_status.last_check_at,
-			error_message: health_status.error_message,
-		}
-	}
-}
-
-impl From<HealthStatusStorage> for HealthStatus {
-	fn from(storage: HealthStatusStorage) -> Self {
-		Self {
-			is_healthy: storage.is_healthy,
-			last_check_at: storage.last_check_at,
-			error_message: storage.error_message,
-		}
-	}
+	pub recent_total_requests: u64,
+	pub recent_successful_requests: u64,
+	pub recent_service_errors: u64,
+	pub window_start: DateTime<Utc>,
 }
 
 impl From<Solver> for SolverStorage {
@@ -176,12 +147,13 @@ impl From<SolverMetrics> for SolverMetricsStorage {
 		Self {
 			total_requests: metrics.total_requests,
 			successful_requests: metrics.successful_requests,
-			timeout_requests: metrics.timeout_requests,
 			service_errors: metrics.service_errors,
-			client_errors: metrics.client_errors,
-			health_status: metrics.health_status.map(HealthStatusStorage::from),
 			consecutive_failures: metrics.consecutive_failures,
 			last_updated: metrics.last_updated,
+			recent_total_requests: metrics.recent_total_requests,
+			recent_successful_requests: metrics.recent_successful_requests,
+			recent_service_errors: metrics.recent_service_errors,
+			window_start: metrics.window_start,
 		}
 	}
 }
@@ -190,19 +162,16 @@ impl TryFrom<SolverMetricsStorage> for SolverMetrics {
 	type Error = SolverError;
 
 	fn try_from(storage: SolverMetricsStorage) -> Result<Self, Self::Error> {
-		let health_status = storage
-			.health_status
-			.map(|health_status_storage| health_status_storage.into());
-
 		Ok(SolverMetrics {
 			total_requests: storage.total_requests,
 			successful_requests: storage.successful_requests,
-			timeout_requests: storage.timeout_requests,
 			service_errors: storage.service_errors,
-			client_errors: storage.client_errors,
-			health_status,
 			consecutive_failures: storage.consecutive_failures,
 			last_updated: storage.last_updated,
+			recent_total_requests: storage.recent_total_requests,
+			recent_successful_requests: storage.recent_successful_requests,
+			recent_service_errors: storage.recent_service_errors,
+			window_start: storage.window_start,
 		})
 	}
 }

@@ -106,6 +106,7 @@
 use crate::integrity::{IntegrityError, IntegrityTrait};
 use crate::solver_adapter::{SolverAdapterError, SolverAdapterService, SolverAdapterTrait};
 use crate::solver_filter::SolverFilterTrait;
+use crate::CircuitBreakerTrait;
 use async_trait::async_trait;
 use oif_adapters::AdapterRegistry;
 use oif_config::AggregationConfig;
@@ -567,6 +568,7 @@ pub struct AggregatorService {
 	config: AggregationConfig,
 	solver_filter_service: Arc<dyn SolverFilterTrait>,
 	task_executor: Arc<dyn TaskExecutorTrait>,
+	circuit_breaker: Option<Arc<dyn CircuitBreakerTrait>>,
 }
 
 impl AggregatorService {
@@ -614,7 +616,69 @@ impl AggregatorService {
 			config,
 			solver_filter_service,
 			task_executor,
+			circuit_breaker: None,
 		}
+	}
+
+	/// Configure circuit breaker for automatic failure protection
+	pub fn with_circuit_breaker(mut self, circuit_breaker: Arc<dyn CircuitBreakerTrait>) -> Self {
+		self.circuit_breaker = Some(circuit_breaker);
+		self
+	}
+
+	/// Apply circuit breaker filtering to solvers in parallel
+	async fn apply_circuit_breaker_filter(
+		&self,
+		solvers: Vec<Solver>,
+		circuit_breaker: &Arc<dyn CircuitBreakerTrait>,
+	) -> Vec<Solver> {
+		if solvers.is_empty() {
+			return solvers;
+		}
+
+		if !circuit_breaker.is_enabled() {
+			return solvers;
+		}
+
+		// Spawn concurrent tasks for each circuit breaker check
+		let mut tasks = Vec::new();
+
+		for solver in solvers {
+			let cb = circuit_breaker.clone();
+			let task = tokio::spawn(async move {
+				let allowed = cb.should_allow_request(&solver).await;
+				(solver, allowed)
+			});
+			tasks.push(task);
+		}
+
+		// Collect results from all tasks
+		let mut filtered_solvers = Vec::new();
+		let mut blocked_count = 0;
+
+		for task in tasks {
+			match task.await {
+				Ok((solver, allowed)) => {
+					if allowed {
+						filtered_solvers.push(solver);
+					} else {
+						blocked_count += 1;
+						debug!("Circuit breaker blocked solver: {}", solver.solver_id);
+					}
+				},
+				Err(e) => {
+					warn!("Circuit breaker task failed: {}", e);
+					// Treat task failure as blocked (fail-safe)
+					blocked_count += 1;
+				},
+			}
+		}
+
+		if blocked_count > 0 {
+			info!("Circuit breaker blocked {} solvers", blocked_count);
+		}
+
+		filtered_solvers
 	}
 
 	/// Extract and validate aggregation configuration from request
@@ -753,16 +817,33 @@ impl AggregatorService {
 		min_quotes_required: usize,
 		aggregation_start: Instant,
 	) -> AggregatorResult<(Vec<Solver>, AggregationMetadata)> {
+		// Step 1: Get only active solvers
 		let available_solvers = self
 			.storage
-			.list_all_solvers()
+			.get_active_solvers()
 			.await
 			.map_err(|e| AggregatorServiceError::Storage(e.to_string()))?;
 
+		debug!("Found {} active solvers", available_solvers.len());
+
+		// Step 2: Apply circuit breaker filtering (if configured and enabled)
+		let circuit_filtered_solvers = if let Some(circuit_breaker) = &self.circuit_breaker {
+			self.apply_circuit_breaker_filter(available_solvers, circuit_breaker)
+				.await
+		} else {
+			available_solvers
+		};
+
+		debug!(
+			"After circuit breaker filtering: {} solvers",
+			circuit_filtered_solvers.len()
+		);
+
+		// Step 3: Apply compatibility and selection filtering
 		let selected_solvers = self
 			.solver_filter_service
 			.filter_solvers(
-				&available_solvers,
+				&circuit_filtered_solvers,
 				request,
 				request
 					.solver_options
@@ -881,6 +962,13 @@ impl AggregatorService {
 			}
 		} {
 			completed_solvers += 1;
+
+			// Record result for circuit breaker
+			if let Some(circuit_breaker) = &self.circuit_breaker {
+				circuit_breaker
+					.record_request_result(&result.solver_id, result.success)
+					.await;
+			}
 
 			if result.success {
 				success_count += 1;

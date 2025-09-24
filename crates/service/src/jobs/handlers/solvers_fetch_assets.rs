@@ -75,12 +75,13 @@ mod tests {
 			metrics: SolverMetrics {
 				total_requests: 0,
 				successful_requests: 0,
-				timeout_requests: 0,
 				service_errors: 0,
-				client_errors: 0,
-				health_status: None,
 				consecutive_failures: 0,
 				last_updated: chrono::Utc::now(),
+				recent_total_requests: 0,
+				recent_successful_requests: 0,
+				recent_service_errors: 0,
+				window_start: chrono::Utc::now(),
 			},
 			headers: None,
 			adapter_metadata: None,
@@ -122,7 +123,7 @@ mod tests {
 
 		// Create and store test solvers with empty assets (will need refresh)
 		let solver1 = create_test_solver("solver1", SolverStatus::Active);
-		let solver2 = create_test_solver("solver2", SolverStatus::Inactive);
+		let solver2 = create_test_solver("solver2", SolverStatus::Active);
 
 		storage.create_solver(solver1).await.unwrap();
 		storage.create_solver(solver2).await.unwrap();

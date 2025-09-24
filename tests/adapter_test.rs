@@ -9,7 +9,7 @@ use oif_types::orders::OrderStatus;
 
 mod mocks;
 
-use mocks::{configs::MockConfigs, entities::MockEntities};
+use mocks::{configs::CircuitBreakerConfigs, entities::MockEntities};
 
 use crate::mocks::api_fixtures::INTEGRITY_SECRET;
 
@@ -200,7 +200,7 @@ async fn test_adapter_registry_duplicate_prevention() {
 
 #[test]
 fn test_solver_config_creation() {
-	let config = MockConfigs::test_solver_config();
+	let config = CircuitBreakerConfigs::test_solver_config();
 
 	assert_eq!(config.solver_id, "test-solver");
 	assert_eq!(config.adapter_id, "test-adapter");

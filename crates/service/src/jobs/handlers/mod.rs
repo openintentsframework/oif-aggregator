@@ -85,7 +85,10 @@ impl BackgroundJobHandler {
 				Arc::clone(&job_scheduler),
 				None, // Use default monitoring configuration
 			),
-			metrics_update_handler: MetricsUpdateHandler::new(Arc::clone(&storage)),
+			metrics_update_handler: MetricsUpdateHandler::new(
+				Arc::clone(&storage),
+				settings.clone(),
+			),
 			metrics_cleanup_handler: MetricsCleanupHandler::new(
 				Arc::clone(&storage),
 				settings.clone(),

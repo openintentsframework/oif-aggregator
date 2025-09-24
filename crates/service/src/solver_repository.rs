@@ -18,7 +18,7 @@ use oif_types::solvers::{AssetSource, SupportedAssets};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use oif_types::{SolverRuntimeConfig, SolverStatus};
+use oif_types::SolverRuntimeConfig;
 
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -135,41 +135,6 @@ impl SolverService {
 
 		Ok((page_items, total, active_count, healthy_count))
 	}
-
-	/// Update solver status and metrics in storage based on health check result
-	async fn update_solver_status(
-		storage: &Arc<dyn Storage>,
-		solver: &Solver,
-		is_healthy: bool,
-	) -> Result<(), SolverServiceError> {
-		use chrono::Utc;
-		use oif_types::solvers::HealthStatus;
-
-		// Clone solver and update ONLY health status and timestamp
-		// Note: Both metrics AND status are now intelligently updated by MetricsUpdateHandler
-		// which has access to comprehensive historical data for better decision making
-		let mut updated_solver = solver.clone();
-
-		// Only update last_seen and health status here - status decisions moved to MetricsUpdateHandler
-		updated_solver.last_seen = Some(Utc::now());
-
-		// Update health status using our new structure (immediate health state only)
-		let health_status = if is_healthy {
-			HealthStatus::healthy()
-		} else {
-			HealthStatus::unhealthy("Health check failed".to_string())
-		};
-		updated_solver.metrics.health_status = Some(health_status);
-		updated_solver.metrics.last_updated = Utc::now();
-
-		// Save to storage
-		storage
-			.update_solver(updated_solver)
-			.await
-			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
-
-		Ok(())
-	}
 }
 
 #[async_trait]
@@ -235,7 +200,7 @@ impl SolverServiceTrait for SolverService {
 
 		let solvers = self
 			.storage
-			.list_all_solvers()
+			.get_active_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
@@ -400,7 +365,6 @@ impl SolverServiceTrait for SolverService {
 
 	async fn health_check_solver(&self, solver_id: &str) -> Result<bool, SolverServiceError> {
 		use crate::solver_adapter::SolverAdapterService;
-		use chrono::Utc;
 
 		// Get solver from storage
 		let solver = self
@@ -411,9 +375,6 @@ impl SolverServiceTrait for SolverService {
 			.ok_or_else(|| {
 				SolverServiceError::NotFound(format!("Solver '{}' not found", solver_id))
 			})?;
-
-		// Clone solver before moving it to adapter service
-		let mut updated_solver = solver.clone();
 
 		// Create adapter service for the solver
 		let adapter_service = SolverAdapterService::from_solver(
@@ -429,31 +390,15 @@ impl SolverServiceTrait for SolverService {
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
-		// Business logic: Update ONLY health status based on health check result
-		// Note: Both metrics AND status are now intelligently updated by MetricsUpdateHandler
-		// which has access to comprehensive historical data for better decision making
+		// Log the result
 		if is_healthy {
 			info!("Health check passed for solver: {}", solver_id);
 		} else {
 			warn!("Health check failed for solver: {}", solver_id);
 		}
 
-		// Update solver health status and timestamp only - status decisions moved to MetricsUpdateHandler
-		updated_solver.last_seen = Some(Utc::now());
-
-		// Update health status using our new structure (immediate health state only)
-		let health_status = if is_healthy {
-			oif_types::solvers::HealthStatus::healthy()
-		} else {
-			oif_types::solvers::HealthStatus::unhealthy("Health check failed".to_string())
-		};
-		updated_solver.metrics.health_status = Some(health_status);
-		updated_solver.metrics.last_updated = chrono::Utc::now();
-
-		self.storage
-			.update_solver(updated_solver)
-			.await
-			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
+		// Note: No manual health status update needed - the adapter_service.health_check() call
+		// automatically emits metrics that are processed by the metrics_update handler.
 
 		debug!("Health check completed for solver: {}", solver_id);
 
@@ -466,22 +411,13 @@ impl SolverServiceTrait for SolverService {
 		// Get all solvers from storage
 		let solvers = self
 			.storage
-			.list_all_solvers()
+			.get_active_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
-		// Filter solvers that should have health checks (active/inactive)
-		let checkable_solvers: Vec<_> = solvers
-			.into_iter()
-			.filter(|solver| matches!(solver.status, SolverStatus::Active | SolverStatus::Inactive))
-			.collect();
+		info!("Found {} solvers eligible for health checks", solvers.len());
 
-		info!(
-			"Found {} solvers eligible for health checks",
-			checkable_solvers.len()
-		);
-
-		if checkable_solvers.is_empty() {
+		if solvers.is_empty() {
 			info!("No solvers found for health checks - all done");
 			return Ok(());
 		}
@@ -490,9 +426,9 @@ impl SolverServiceTrait for SolverService {
 		let success_count = Arc::new(AtomicUsize::new(0));
 		let error_count = Arc::new(AtomicUsize::new(0));
 
-		let results: Vec<(String, bool)> = stream::iter(checkable_solvers)
+		let results: Vec<(String, bool)> = stream::iter(solvers)
 			.map(|solver| {
-				let storage = Arc::clone(&self.storage);
+				let _storage = Arc::clone(&self.storage); // Not used in this closure anymore
 				let adapter_registry = Arc::clone(&self.adapter_registry);
 				let job_scheduler = self.job_scheduler.clone();
 				let success_count = Arc::clone(&success_count);
@@ -538,10 +474,8 @@ impl SolverServiceTrait for SolverService {
 						},
 					};
 
-					// Update solver status in storage
-					if let Err(e) = Self::update_solver_status(&storage, &solver, is_healthy).await {
-						warn!("Failed to update solver status for {}: {}", solver_id, e);
-					}
+					// Note: Health status is automatically updated via metrics_update handler
+					// when the solver_adapter emits health_check metrics.
 
 					(solver_id, is_healthy)
 				}
@@ -576,7 +510,7 @@ impl SolverServiceTrait for SolverService {
 		// Get all solvers from storage
 		let solvers = self
 			.storage
-			.list_all_solvers()
+			.get_active_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 

@@ -338,7 +338,7 @@ mod tests {
 
 		let mut solver2 = create_test_solver();
 		solver2.solver_id = "solver-2".to_string();
-		solver2.update_status(SolverStatus::Error);
+		solver2.update_status(SolverStatus::Disabled);
 
 		let solvers = vec![solver1, solver2];
 		let response = SolversResponse::try_from(solvers).unwrap();

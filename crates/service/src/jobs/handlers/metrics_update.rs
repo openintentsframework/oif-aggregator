@@ -7,6 +7,7 @@ use std::sync::Arc;
 use tracing::{debug, warn};
 
 use crate::jobs::types::{JobError, JobResult, SolverMetricsUpdate};
+use oif_config::Settings;
 use oif_storage::Storage;
 use oif_types::{MetricsDataPoint, MetricsTimeSeries};
 
@@ -17,12 +18,13 @@ const ROLLING_METRICS_UPDATE_INTERVAL: Duration = Duration::seconds(30);
 /// Handler for metrics update jobs
 pub struct MetricsUpdateHandler {
 	storage: Arc<dyn Storage>,
+	settings: Settings,
 }
 
 impl MetricsUpdateHandler {
 	/// Create a new metrics update handler
-	pub fn new(storage: Arc<dyn Storage>) -> Self {
-		Self { storage }
+	pub fn new(storage: Arc<dyn Storage>, settings: Settings) -> Self {
+		Self { storage, settings }
 	}
 
 	/// Handle aggregation metrics update job with multiple solvers
@@ -64,12 +66,13 @@ impl MetricsUpdateHandler {
 
 					// Run both updates in parallel for each solver
 					let (current_result, timeseries_result) = tokio::join!(
-						Self::update_current_solver_metrics_static(
+						Self::update_current_solver_metrics(
 							&storage,
+							&self.settings,
 							&solver_id,
 							&metrics_data
 						),
-						Self::update_timeseries_metrics_static(&storage, &solver_id, &metrics_data)
+						Self::update_timeseries_metrics(&storage, &solver_id, &metrics_data)
 					);
 
 					// Track results - count errors per operation, success only if both succeed
@@ -124,8 +127,9 @@ impl MetricsUpdateHandler {
 	}
 
 	/// Static version of update_current_solver_metrics for parallel processing
-	async fn update_current_solver_metrics_static(
+	async fn update_current_solver_metrics(
 		storage: &Arc<dyn Storage>,
+		settings: &Settings,
 		solver_id: &str,
 		metrics_data: &SolverMetricsUpdate,
 	) -> JobResult<()> {
@@ -147,26 +151,27 @@ impl MetricsUpdateHandler {
 		};
 
 		// Update the solver's current metrics
+		let circuit_breaker_settings = settings.get_circuit_breaker();
+
 		if metrics_data.was_successful {
-			solver.metrics.record_success(metrics_data.response_time_ms);
+			solver.metrics.record_success(
+				metrics_data.response_time_ms,
+				circuit_breaker_settings.metrics_window_duration_minutes,
+				circuit_breaker_settings.metrics_max_window_age_minutes,
+				circuit_breaker_settings.min_requests_for_rate_check,
+			);
 		} else {
 			// Record failure with proper error categorization
-			solver
-				.metrics
-				.record_failure(metrics_data.was_timeout, metrics_data.error_type.clone());
+			solver.metrics.record_failure(
+				metrics_data.error_type.clone(),
+				circuit_breaker_settings.metrics_window_duration_minutes,
+				circuit_breaker_settings.metrics_max_window_age_minutes,
+				circuit_breaker_settings.min_requests_for_rate_check,
+			);
 		}
 
 		// Update last seen timestamp
 		solver.mark_seen();
-
-		// Load time-series data for intelligent status evaluation
-		let timeseries = storage
-			.get_metrics_timeseries(solver_id)
-			.await
-			.unwrap_or(None);
-
-		// Evaluate and update solver status based on comprehensive metrics data
-		Self::evaluate_and_update_solver_status(&mut solver, timeseries.as_ref());
 
 		// Save updated solver back to storage
 		storage
@@ -183,7 +188,7 @@ impl MetricsUpdateHandler {
 	}
 
 	/// Static version of update_timeseries_metrics for parallel processing
-	async fn update_timeseries_metrics_static(
+	async fn update_timeseries_metrics(
 		storage: &Arc<dyn Storage>,
 		solver_id: &str,
 		metrics_data: &SolverMetricsUpdate,
@@ -272,106 +277,6 @@ impl MetricsUpdateHandler {
 
 		Ok(())
 	}
-
-	/// Intelligent status evaluation based on comprehensive metrics data
-	/// This uses circuit breaker patterns and thresholds instead of immediate status changes
-	fn evaluate_and_update_solver_status(
-		solver: &mut oif_types::solvers::Solver,
-		timeseries: Option<&MetricsTimeSeries>,
-	) {
-		use oif_types::solvers::SolverStatus;
-
-		let solver_id = &solver.solver_id;
-
-		// Circuit breaker thresholds - configurable in the future
-		const CONSECUTIVE_FAILURE_THRESHOLD: u32 = 3;
-		const MIN_REQUESTS_FOR_ERROR_RATE: u64 = 5;
-		const ERROR_RATE_THRESHOLD: f64 = 0.7; // 70% error rate to mark as Error
-
-		let current_status = solver.status.clone();
-		let consecutive_failures = solver.metrics.consecutive_failures;
-		let total_requests = solver.metrics.total_requests;
-
-		// Calculate current error rate
-		let current_error_rate = if total_requests > 0 {
-			let failed_requests = total_requests - solver.metrics.successful_requests;
-			failed_requests as f64 / total_requests as f64
-		} else {
-			0.0
-		};
-
-		// Get recent health status
-		let is_currently_healthy = solver
-			.metrics
-			.health_status
-			.as_ref()
-			.map(|h| h.is_healthy)
-			.unwrap_or(false);
-
-		// Status evaluation logic
-		let new_status = match current_status {
-			SolverStatus::Active => {
-				// From Active to Error: Need strong evidence of problems
-				if consecutive_failures >= CONSECUTIVE_FAILURE_THRESHOLD
-					|| (total_requests >= MIN_REQUESTS_FOR_ERROR_RATE
-						&& current_error_rate >= ERROR_RATE_THRESHOLD)
-				{
-					SolverStatus::Error
-				} else {
-					// Stay Active - single failures don't immediately affect status
-					SolverStatus::Active
-				}
-			},
-
-			SolverStatus::Error => {
-				// From Error to Active: Need evidence of recovery
-				if (consecutive_failures == 0 && is_currently_healthy)
-					|| (consecutive_failures <= 1
-						&& current_error_rate < 0.3
-						&& total_requests >= MIN_REQUESTS_FOR_ERROR_RATE)
-				{
-					SolverStatus::Active
-				} else {
-					// Stay Error - need sustained recovery to change status
-					SolverStatus::Error
-				}
-			},
-
-			SolverStatus::Inactive | SolverStatus::Initializing => {
-				// From Inactive/Initializing to Active: Health check success
-				if is_currently_healthy && consecutive_failures == 0 {
-					SolverStatus::Active
-				} else {
-					current_status.clone() // Keep current status
-				}
-			},
-
-			SolverStatus::Maintenance => {
-				// Maintenance status is manually set - don't change automatically
-				// Only move to Active if explicitly healthy and no failures
-				if is_currently_healthy && consecutive_failures == 0 {
-					SolverStatus::Active
-				} else {
-					current_status.clone() // Stay in Maintenance
-				}
-			},
-		};
-
-		// Update status if changed
-		if new_status != current_status {
-			solver.status = new_status.clone();
-		}
-
-		// Optional: Use time-series data for additional insights (future enhancement)
-		if let Some(ts) = timeseries {
-			if let Some(rolling) = &ts.rolling_metrics.last_hour {
-				debug!(
-					"Time-series context for '{}': last_hour success_rate={:.3}, p95_response={}ms",
-					solver_id, rolling.success_rate, rolling.p95_response_time_ms
-				);
-			}
-		}
-	}
 }
 
 /// Check if rolling metrics should be updated based on staleness
@@ -418,7 +323,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_metrics_update_handler_creation() {
 		let storage = create_test_services().await;
-		let handler = MetricsUpdateHandler::new(storage as Arc<dyn Storage>);
+		let handler = MetricsUpdateHandler::new(storage as Arc<dyn Storage>, Settings::default());
 
 		// Verify we can create the handler
 		assert!(std::ptr::addr_of!(handler).is_aligned());
@@ -428,7 +333,8 @@ mod tests {
 	async fn test_handle_successful_metrics_update() {
 		let storage = create_test_services().await;
 		let _solver = create_test_solver(&storage).await;
-		let handler = MetricsUpdateHandler::new(storage.clone() as Arc<dyn Storage>);
+		let handler =
+			MetricsUpdateHandler::new(storage.clone() as Arc<dyn Storage>, Settings::default());
 
 		let metrics_data = SolverMetricsUpdate {
 			response_time_ms: 250,
@@ -472,7 +378,8 @@ mod tests {
 	async fn test_handle_failed_metrics_update() {
 		let storage = create_test_services().await;
 		let _solver = create_test_solver(&storage).await;
-		let handler = MetricsUpdateHandler::new(storage.clone() as Arc<dyn Storage>);
+		let handler =
+			MetricsUpdateHandler::new(storage.clone() as Arc<dyn Storage>, Settings::default());
 
 		let metrics_data = SolverMetricsUpdate {
 			response_time_ms: 5000,
@@ -501,13 +408,12 @@ mod tests {
 		let failed_requests =
 			updated_solver.metrics.total_requests - updated_solver.metrics.successful_requests;
 		assert_eq!(failed_requests, 1);
-		assert_eq!(updated_solver.metrics.timeout_requests, 1);
 	}
 
 	#[tokio::test]
 	async fn test_handle_metrics_update_nonexistent_solver() {
 		let storage = create_test_services().await;
-		let handler = MetricsUpdateHandler::new(storage as Arc<dyn Storage>);
+		let handler = MetricsUpdateHandler::new(storage as Arc<dyn Storage>, Settings::default());
 
 		let metrics_data = SolverMetricsUpdate {
 			response_time_ms: 250,

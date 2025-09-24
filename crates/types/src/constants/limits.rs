@@ -66,3 +66,52 @@ pub const DEFAULT_METRICS_CLEANUP_INTERVAL_HOURS: u32 = 24;
 
 /// Default metrics aggregation update interval in minutes (update rolling metrics every 5 minutes)
 pub const DEFAULT_METRICS_AGGREGATION_INTERVAL_MINUTES: u32 = 5;
+
+// Circuit Breaker Defaults
+/// Default circuit breaker enabled state (disabled by default for safety)
+pub const DEFAULT_CIRCUIT_BREAKER_ENABLED: bool = false;
+
+/// Default consecutive failure threshold before opening circuit
+pub const DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD: u32 = 5;
+
+/// Default success rate threshold (below this rate, circuit opens)
+/// 0.3 = 30% success rate required to keep circuit closed
+pub const DEFAULT_CIRCUIT_BREAKER_SUCCESS_RATE_THRESHOLD: f64 = 0.3;
+
+/// Default minimum requests needed before evaluating success rate
+pub const DEFAULT_CIRCUIT_BREAKER_MIN_REQUESTS_FOR_RATE_CHECK: u64 = 20;
+
+/// Default base timeout in seconds for exponential backoff calculation
+pub const DEFAULT_CIRCUIT_BREAKER_BASE_TIMEOUT_SECONDS: u64 = 30;
+
+/// Default maximum timeout in seconds (caps exponential backoff)
+pub const DEFAULT_CIRCUIT_BREAKER_MAX_TIMEOUT_SECONDS: u64 = 600; // 10 minutes
+
+/// Default metrics window duration in minutes
+/// Window size for recent metrics used in circuit breaker decisions
+/// 15 minutes provides good balance between recent data and statistical significance
+pub const DEFAULT_METRICS_WINDOW_DURATION_MINUTES: u32 = 15;
+
+/// Default service error rate threshold (below this rate, circuit opens)
+/// 0.5 = 50% service error rate threshold (more lenient than success rate)
+pub const DEFAULT_CIRCUIT_BREAKER_SERVICE_ERROR_THRESHOLD: f64 = 0.5;
+
+/// Default maximum window age in minutes before forcing reset
+/// Even if window has insufficient data, force reset after this duration
+/// 60 minutes = 4x normal window, good balance for low-traffic solvers
+pub const DEFAULT_METRICS_MAX_WINDOW_AGE_MINUTES: u32 = 60;
+
+/// Default minimum lifetime requests before allowing window reset
+/// Prevents blind spots for new solvers by requiring some historical data as fallback
+pub const DEFAULT_METRICS_MIN_LIFETIME_REQUESTS_FOR_RESET: u64 = 5;
+
+/// Default maximum test requests allowed in half-open state
+pub const DEFAULT_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS: u32 = 3;
+
+/// Default maximum recovery attempts before applying persistent failure action
+pub const DEFAULT_CIRCUIT_BREAKER_MAX_RECOVERY_ATTEMPTS: u32 = 10;
+
+/// Default metrics freshness window in minutes (how recent metrics must be)
+/// Prevents circuit breaker decisions based on stale data - if metrics are older
+/// than this, success rate evaluation is skipped (fail-open approach)
+pub const DEFAULT_CIRCUIT_BREAKER_METRICS_MAX_AGE_MINUTES: u64 = 30;

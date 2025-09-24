@@ -42,11 +42,8 @@ pub enum SolverError {
 	#[error("Solver not found: {solver_id}")]
 	NotFound { solver_id: String },
 
-	#[error("Solver is inactive: {solver_id}")]
-	Inactive { solver_id: String },
-
-	#[error("Solver is in maintenance mode: {solver_id}")]
-	Maintenance { solver_id: String },
+	#[error("Solver is disabled: {solver_id}")]
+	Disabled { solver_id: String },
 
 	#[error("Solver health check failed: {solver_id} - {reason}")]
 	HealthCheckFailed { solver_id: String, reason: String },

@@ -6,7 +6,12 @@ use axum::Router;
 use oif_aggregator::{api::routes::create_router, AggregatorBuilder};
 use tokio::task::JoinHandle;
 
-use super::adapters::{MockDemoAdapter, TimingControlledAdapter};
+use super::{
+	adapters::{MockDemoAdapter, TimingControlledAdapter},
+	configs,
+};
+use oif_config::CircuitBreakerSettings;
+use oif_types::{adapters::traits::SolverAdapter, Solver};
 
 /// Test server instance with configurable settings
 pub struct TestServer {
@@ -59,6 +64,68 @@ impl TestServer {
 		Self::spawn_server_with_app(app).await
 	}
 
+	/// Spawn a test server with circuit breaker configuration and specified adapters
+	#[allow(dead_code)]
+	pub async fn spawn_with_circuit_breaker_config(
+		cb_config: CircuitBreakerSettings,
+		adapters_and_solvers: Vec<(String, impl SolverAdapter + 'static)>,
+	) -> Result<Self, Box<dyn std::error::Error>> {
+		// Set required environment variable for tests
+		std::env::set_var("INTEGRITY_SECRET", super::api_fixtures::INTEGRITY_SECRET);
+
+		let settings = configs::create_test_settings_with_circuit_breaker(cb_config);
+
+		let mut builder = AggregatorBuilder::new().with_settings(settings);
+
+		// Add each adapter and corresponding solver
+		for (solver_id, adapter) in adapters_and_solvers {
+			let adapter_id = adapter.adapter_info().adapter_id.clone();
+			let mut solver =
+				Solver::new(solver_id, adapter_id, "http://test.example.com".to_string());
+
+			// Add test assets to make solver compatible with test fixtures
+			// This matches what mock_solver() does to ensure compatibility
+			use oif_types::models::Asset;
+			let assets = vec![
+				// Native ETH on Ethereum
+				Asset::from_chain_and_address(
+					1,
+					"0x0000000000000000000000000000000000000000".to_string(),
+					"ETH".to_string(),
+					"Ethereum".to_string(),
+					18,
+				)
+				.expect("Valid ETH asset"),
+				// WETH on Ethereum (matches test fixtures)
+				Asset::from_chain_and_address(
+					1,
+					"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
+					"WETH".to_string(),
+					"Wrapped Ethereum".to_string(),
+					18,
+				)
+				.expect("Valid WETH asset"),
+				// USDC on Ethereum (matches test fixtures)
+				Asset::from_chain_and_address(
+					1,
+					"0xA0b86a33E6417a77C9A0C65f8E69b8B6e2B0C4A0".to_string(),
+					"USDC".to_string(),
+					"USD Coin".to_string(),
+					6,
+				)
+				.expect("Valid USDC asset"),
+			];
+			solver = solver.with_assets(assets);
+
+			builder = builder.with_adapter(Box::new(adapter)).with_solver(solver);
+		}
+
+		let (_router, state) = builder.start().await?;
+		let app: Router = create_router().with_state(state);
+
+		Self::spawn_server_with_app(app).await
+	}
+
 	/// Spawn a test server with multiple timing-controlled adapters for sophisticated testing
 	#[allow(dead_code)]
 	pub async fn spawn_with_timing_controlled_adapters(
@@ -80,6 +147,9 @@ impl TestServer {
 				include_unknown_compatibility: Some(true),
 			});
 		}
+
+		// Explicitly disable circuit breaker for these tests to avoid interference
+		settings.circuit_breaker = None;
 		settings.security.integrity_secret =
 			oif_config::ConfigurableValue::from_env("INTEGRITY_SECRET");
 
@@ -89,27 +159,66 @@ impl TestServer {
 		let timeout_adapter = TimingControlledAdapter::timeout("timeout");
 		let failing_adapter = TimingControlledAdapter::failing("failing");
 
-		// Create corresponding solvers
+		// Create test assets that match test fixtures for compatibility
+		use oif_types::models::Asset;
+		let assets = vec![
+			// Native ETH on Ethereum
+			Asset::from_chain_and_address(
+				1,
+				"0x0000000000000000000000000000000000000000".to_string(),
+				"ETH".to_string(),
+				"Ethereum".to_string(),
+				18,
+			)
+			.expect("Valid ETH asset"),
+			// WETH on Ethereum (matches test fixtures)
+			Asset::from_chain_and_address(
+				1,
+				"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2".to_string(),
+				"WETH".to_string(),
+				"Wrapped Ethereum".to_string(),
+				18,
+			)
+			.expect("Valid WETH asset"),
+			// USDC on Ethereum (matches test fixtures)
+			Asset::from_chain_and_address(
+				1,
+				"0xA0b86a33E6417a77C9A0C65f8E69b8B6e2B0C4A0".to_string(),
+				"USDC".to_string(),
+				"USD Coin".to_string(),
+				6,
+			)
+			.expect("Valid USDC asset"),
+		];
+
+		// Create corresponding solvers with assets
 		let fast_solver = oif_types::Solver::new(
 			"fast-solver".to_string(),
 			"timing-fast".to_string(),
 			"http://localhost:8080".to_string(),
-		);
+		)
+		.with_assets(assets.clone());
+
 		let slow_solver = oif_types::Solver::new(
 			"slow-solver".to_string(),
 			"timing-slow".to_string(),
 			"http://localhost:8081".to_string(),
-		);
+		)
+		.with_assets(assets.clone());
+
 		let timeout_solver = oif_types::Solver::new(
 			"timeout-solver".to_string(),
 			"timing-timeout".to_string(),
 			"http://localhost:8082".to_string(),
-		);
+		)
+		.with_assets(assets.clone());
+
 		let failing_solver = oif_types::Solver::new(
 			"failing-solver".to_string(),
 			"timing-failing".to_string(),
 			"http://localhost:8083".to_string(),
-		);
+		)
+		.with_assets(assets.clone());
 
 		// Keep references to adapters for call tracking
 		let adapters = vec![

@@ -45,6 +45,8 @@ pub use oif_types::{
 // Service layer
 pub use oif_service::{
 	AggregatorService,
+	CircuitBreakerService,
+	CircuitBreakerTrait,
 	SolverServiceError,
 	SolverStats,
 	// Keep the full module for more advanced usage
@@ -458,7 +460,24 @@ where
 		let job_scheduler = Arc::new(UpgradableJobScheduler::new())
 			as Arc<dyn oif_service::jobs::scheduler::JobScheduler>;
 
-		let aggregator_service = Arc::new(AggregatorService::with_config(
+		// Create circuit breaker if enabled
+		let circuit_breaker = if settings.get_circuit_breaker().enabled {
+			info!("Initializing circuit breaker with thresholds: failures={}, success_rate={:.1}%, min_requests={}",
+				settings.get_circuit_breaker().failure_threshold,
+				settings.get_circuit_breaker().success_rate_threshold * 100.0,
+				settings.get_circuit_breaker().min_requests_for_rate_check
+			);
+			Some(Arc::new(CircuitBreakerService::new(
+				Arc::clone(&storage_arc),
+				settings.get_circuit_breaker(),
+			)) as Arc<dyn CircuitBreakerTrait>)
+		} else {
+			info!("Circuit breaker disabled");
+			None
+		};
+
+		// Create aggregator service and wire in circuit breaker if configured
+		let mut aggregator_service = AggregatorService::with_config(
 			Arc::clone(&storage_arc),
 			Arc::clone(&adapter_registry),
 			Arc::clone(&integrity_service),
@@ -466,7 +485,15 @@ where
 			settings.get_aggregation().into(),
 			Some(Arc::clone(&job_scheduler)),
 			settings.get_metrics().min_timeout_for_metrics_ms, // Get from metrics settings
-		)) as Arc<dyn oif_service::AggregatorTrait>;
+		);
+
+		// Add circuit breaker if enabled
+		if let Some(cb) = circuit_breaker {
+			aggregator_service = aggregator_service.with_circuit_breaker(cb);
+		}
+
+		let aggregator_service =
+			Arc::new(aggregator_service) as Arc<dyn oif_service::AggregatorTrait>;
 		let solver_service = Arc::new(SolverService::new(
 			Arc::clone(&storage_arc),
 			Arc::clone(&adapter_registry),
@@ -568,6 +595,11 @@ where
 			}
 		);
 		info!("Configuration loaded successfully");
+
+		// Validate configuration early - fail fast if invalid
+		if let Err(e) = settings.validate() {
+			return Err(format!("Configuration validation failed: {}", e).into());
+		}
 
 		info!("🔧 Configuring OIF Aggregator server");
 		// Log enabled solvers

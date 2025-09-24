@@ -167,7 +167,7 @@ impl MockEntities {
 	/// Create inactive solver
 	pub fn inactive_solver() -> Solver {
 		let mut solver = Self::solver();
-		solver.status = SolverStatus::Inactive;
+		solver.status = SolverStatus::Disabled;
 		solver
 	}
 
