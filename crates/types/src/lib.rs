@@ -7,6 +7,7 @@ pub mod adapters;
 pub mod auth;
 pub mod constants;
 pub mod integrity;
+pub mod metrics;
 pub mod models;
 pub mod orders;
 pub mod quotes;
@@ -25,8 +26,8 @@ pub use quotes::{
 };
 
 pub use solvers::{
-	HealthCheckResult, Solver, SolverConfig, SolverError, SolverResponse, SolverResult,
-	SolverStatus, SolverStorage, SolverValidationError, SolverValidationResult,
+	HealthStatus, Solver, SolverConfig, SolverError, SolverResponse, SolverResult, SolverStatus,
+	SolverStorage, SolverValidationError, SolverValidationResult,
 };
 
 pub use adapters::{
@@ -55,5 +56,12 @@ pub use auth::{
 };
 
 pub use storage::{
-	OrderStorageTrait, SolverStorageTrait, StorageError, StorageResult, StorageTrait,
+	MetricsStorageTrait, OrderStorageTrait, SolverStorageTrait, StorageError, StorageResult,
+	StorageTrait,
+};
+
+pub use metrics::{
+	ErrorType, MetricsAggregate, MetricsBucket, MetricsComputationError, MetricsDataPoint,
+	MetricsTimeSeries, Operation, OperationStats, RollingMetrics, TimeBucket, TimeRange,
+	TimeWindow,
 };

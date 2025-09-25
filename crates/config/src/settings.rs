@@ -3,8 +3,10 @@
 use crate::{configurable_value::ConfigurableValue, ConfigurableValueError};
 use oif_types::constants::limits::{
 	DEFAULT_GLOBAL_TIMEOUT_MS, DEFAULT_INCLUDE_UNKNOWN_COMPATIBILITY,
-	DEFAULT_MAX_CONCURRENT_SOLVERS, DEFAULT_MAX_RETRIES_PER_SOLVER, DEFAULT_ORDER_RETENTION_DAYS,
-	DEFAULT_RATE_LIMIT_BURST_SIZE, DEFAULT_RATE_LIMIT_REQUESTS_PER_MINUTE, DEFAULT_RETRY_DELAY_MS,
+	DEFAULT_MAX_CONCURRENT_SOLVERS, DEFAULT_MAX_RETRIES_PER_SOLVER,
+	DEFAULT_METRICS_AGGREGATION_INTERVAL_MINUTES, DEFAULT_METRICS_CLEANUP_INTERVAL_HOURS,
+	DEFAULT_METRICS_RETENTION_HOURS, DEFAULT_ORDER_RETENTION_DAYS, DEFAULT_RATE_LIMIT_BURST_SIZE,
+	DEFAULT_RATE_LIMIT_REQUESTS_PER_MINUTE, DEFAULT_RETRY_DELAY_MS,
 };
 use oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS;
 use oif_types::solvers::config::SupportedAssetsConfig;
@@ -28,6 +30,8 @@ pub struct Settings {
 	pub logging: Option<LoggingSettings>,
 	pub security: SecuritySettings,
 	pub maintenance: Option<MaintenanceSettings>,
+	#[serde(default = "default_metrics_settings")]
+	pub metrics: Option<MetricsSettings>,
 }
 
 /// Default server settings
@@ -67,6 +71,16 @@ fn default_logging_settings() -> Option<LoggingSettings> {
 		level: "info".to_string(),
 		format: LogFormat::Compact,
 		structured: false,
+	})
+}
+
+/// Default metrics settings
+fn default_metrics_settings() -> Option<MetricsSettings> {
+	Some(MetricsSettings {
+		retention_hours: DEFAULT_METRICS_RETENTION_HOURS,
+		cleanup_interval_hours: DEFAULT_METRICS_CLEANUP_INTERVAL_HOURS,
+		aggregation_interval_minutes: DEFAULT_METRICS_AGGREGATION_INTERVAL_MINUTES,
+		min_timeout_for_metrics_ms: DEFAULT_SOLVER_TIMEOUT_MS,
 	})
 }
 
@@ -255,6 +269,42 @@ pub struct MaintenanceSettings {
 	pub order_retention_days: u32,
 }
 
+/// Metrics collection and management configuration
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct MetricsSettings {
+	/// Number of hours to retain metrics time-series data
+	///
+	/// Metrics older than this will be automatically cleaned up.
+	/// Recommended values: 168 hours (7 days) to 720 hours (30 days)
+	///
+	/// Default: 168 hours (7 days)
+	pub retention_hours: u32,
+
+	/// Interval in hours between metrics cleanup jobs
+	///
+	/// How often the system should run cleanup to remove old metrics data.
+	///
+	/// Default: 24 hours (daily cleanup)
+	pub cleanup_interval_hours: u32,
+
+	/// Interval in minutes for updating rolling metrics aggregates
+	///
+	/// How often the system should recalculate rolling window metrics
+	/// (1 hour, 24 hour, 7 day windows) from the raw time-series data.
+	///
+	/// Default: 5 minutes
+	pub aggregation_interval_minutes: u32,
+
+	/// Minimum timeout threshold for collecting timeout metrics in milliseconds
+	///
+	/// Timeouts below this value will be treated as user-induced cancellations,
+	/// not solver performance issues, and won't affect circuit breaker decisions
+	/// or solver priority scoring.
+	///
+	/// Default: 5000ms (5 seconds)
+	pub min_timeout_for_metrics_ms: u64,
+}
+
 impl Default for Settings {
 	fn default() -> Self {
 		Self {
@@ -267,6 +317,7 @@ impl Default for Settings {
 				integrity_secret: ConfigurableValue::from_env("INTEGRITY_SECRET"),
 			},
 			maintenance: None, // Uses defaults when None
+			metrics: default_metrics_settings(),
 		}
 	}
 }
@@ -471,6 +522,31 @@ impl Settings {
 			.map(|m| m.order_retention_days)
 			.unwrap_or(DEFAULT_ORDER_RETENTION_DAYS)
 	}
+
+	/// Get metrics configuration with defaults
+	pub fn get_metrics(&self) -> MetricsSettings {
+		self.metrics.clone().unwrap_or(MetricsSettings {
+			retention_hours: DEFAULT_METRICS_RETENTION_HOURS,
+			cleanup_interval_hours: DEFAULT_METRICS_CLEANUP_INTERVAL_HOURS,
+			aggregation_interval_minutes: DEFAULT_METRICS_AGGREGATION_INTERVAL_MINUTES,
+			min_timeout_for_metrics_ms: DEFAULT_SOLVER_TIMEOUT_MS,
+		})
+	}
+
+	/// Get metrics retention period in hours
+	pub fn get_metrics_retention_hours(&self) -> u32 {
+		self.get_metrics().retention_hours
+	}
+
+	/// Get metrics cleanup interval in hours
+	pub fn get_metrics_cleanup_interval_hours(&self) -> u32 {
+		self.get_metrics().cleanup_interval_hours
+	}
+
+	/// Get metrics aggregation interval in minutes
+	pub fn get_metrics_aggregation_interval_minutes(&self) -> u32 {
+		self.get_metrics().aggregation_interval_minutes
+	}
 }
 
 #[cfg(test)]
@@ -520,6 +596,7 @@ mod tests {
 				integrity_secret: ConfigurableValue::from_plain("test-secret"),
 			},
 			maintenance: None,
+			metrics: None,
 		};
 
 		let result = settings.validate();
@@ -559,6 +636,7 @@ mod tests {
 				integrity_secret: ConfigurableValue::from_plain("test-secret"),
 			},
 			maintenance: None,
+			metrics: None,
 		};
 
 		let result = settings.validate();
@@ -599,6 +677,7 @@ mod tests {
 				integrity_secret: ConfigurableValue::from_plain("test-secret"),
 			},
 			maintenance: None,
+			metrics: None,
 		};
 
 		let result = settings.validate();
@@ -633,6 +712,7 @@ mod tests {
 				integrity_secret: ConfigurableValue::from_plain("test-secret"),
 			},
 			maintenance: None,
+			metrics: None,
 		};
 
 		let result = settings.validate();
@@ -657,6 +737,7 @@ mod tests {
 				integrity_secret: ConfigurableValue::from_plain("test-secret"),
 			},
 			maintenance: None,
+			metrics: None,
 		};
 
 		// Should return defaults when fields are None

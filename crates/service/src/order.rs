@@ -123,6 +123,7 @@ impl OrderServiceTrait for OrderService {
 			&request.quote_response.solver_id,
 			self.adapter_registry.clone(),
 			self.storage.clone(),
+			Some(self.job_scheduler.clone()),
 		)
 		.await?;
 
@@ -257,6 +258,7 @@ impl OrderServiceTrait for OrderService {
 			&current_order.solver_id,
 			self.adapter_registry.clone(),
 			self.storage.clone(),
+			Some(self.job_scheduler.clone()),
 		)
 		.await
 		{

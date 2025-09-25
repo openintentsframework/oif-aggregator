@@ -317,12 +317,11 @@ impl OifAdapter {
 			.map_err(AdapterError::HttpError)?;
 
 		if !response.status().is_success() {
-			return Err(AdapterError::InvalidResponse {
-				reason: format!(
-					"OIF auth register endpoint returned status {}",
-					response.status()
-				),
-			});
+			let status_code = response.status().as_u16();
+			return Err(AdapterError::http_failure(
+				status_code,
+				format!("OIF auth register endpoint returned status {}", status_code),
+			));
 		}
 
 		let body = response.text().await.unwrap_or_default();
@@ -427,17 +426,19 @@ impl OifAdapter {
 		debug!("Token refresh HTTP response status: {}", status);
 
 		if !status.is_success() {
+			let status_code = status.as_u16();
 			let error_body = response.text().await.unwrap_or_default();
 			error!(
 				"OIF auth refresh endpoint returned status {} for solver {}: {}",
-				status, config.solver_id, error_body
+				status_code, config.solver_id, error_body
 			);
-			return Err(AdapterError::InvalidResponse {
-				reason: format!(
+			return Err(AdapterError::http_failure(
+				status_code,
+				format!(
 					"OIF auth refresh endpoint returned status {}: {}",
-					status, error_body
+					status_code, error_body
 				),
-			});
+			));
 		}
 
 		let body = response.text().await.unwrap_or_default();
@@ -695,9 +696,11 @@ impl OifAdapter {
 			.map_err(AdapterError::HttpError)?;
 
 		if !response.status().is_success() {
-			return Err(AdapterError::InvalidResponse {
-				reason: format!("OIF tokens endpoint returned status {}", response.status()),
-			});
+			let status_code = response.status().as_u16();
+			return Err(AdapterError::http_failure(
+				status_code,
+				format!("OIF tokens endpoint returned status {}", status_code),
+			));
 		}
 
 		// Get response body as text first so we can print it
@@ -791,9 +794,11 @@ impl SolverAdapter for OifAdapter {
 			.map_err(AdapterError::HttpError)?;
 
 		if !response.status().is_success() {
-			return Err(AdapterError::InvalidResponse {
-				reason: format!("OIF quote endpoint returned status {}", response.status()),
-			});
+			let status_code = response.status().as_u16();
+			return Err(AdapterError::http_failure(
+				status_code,
+				format!("OIF quote endpoint returned status {}", status_code),
+			));
 		}
 
 		// Get response body as text first so we can print it
@@ -857,13 +862,15 @@ impl SolverAdapter for OifAdapter {
 			.map_err(AdapterError::HttpError)?;
 
 		if !response.status().is_success() {
-			return Err(AdapterError::InvalidResponse {
-				reason: format!(
+			let status_code = response.status().as_u16();
+			let error_body = response.text().await.unwrap_or_default();
+			return Err(AdapterError::http_failure(
+				status_code,
+				format!(
 					"OIF order endpoint returned status {} with body {}",
-					response.status(),
-					response.text().await.unwrap_or_default()
+					status_code, error_body
 				),
-			});
+			));
 		}
 
 		// Get response body as text first so we can print it
@@ -969,9 +976,11 @@ impl SolverAdapter for OifAdapter {
 			.map_err(AdapterError::HttpError)?;
 
 		if !response.status().is_success() {
-			return Err(AdapterError::InvalidResponse {
-				reason: format!("OIF order endpoint returned status {}", response.status()),
-			});
+			let status_code = response.status().as_u16();
+			return Err(AdapterError::http_failure(
+				status_code,
+				format!("OIF order endpoint returned status {}", status_code),
+			));
 		}
 
 		// Get response body as text first so we can print it

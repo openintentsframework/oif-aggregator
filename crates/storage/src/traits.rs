@@ -2,6 +2,6 @@
 
 // Re-export the storage traits from types crate
 pub use oif_types::storage::{
-	OrderStorageTrait as OrderStorage, SolverStorageTrait as SolverStorage, StorageError,
-	StorageResult, StorageTrait as Storage,
+	MetricsStorageTrait as MetricsStorage, OrderStorageTrait as OrderStorage,
+	SolverStorageTrait as SolverStorage, StorageError, StorageResult, StorageTrait as Storage,
 };

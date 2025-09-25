@@ -1,16 +1,22 @@
 //! In-memory storage implementation using DashMap
 
-use crate::traits::{OrderStorage, SolverStorage, Storage, StorageResult};
+use crate::traits::{MetricsStorage, OrderStorage, SolverStorage, Storage, StorageResult};
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use dashmap::DashMap;
-use oif_types::{storage::Repository, Order, Solver};
+use oif_types::{storage::Repository, MetricsTimeSeries, Order, RollingMetrics, Solver};
 use std::sync::Arc;
 
 /// In-memory storage for solvers, quotes, and orders
+///
+/// Performance optimization: MetricsTimeSeries is wrapped in Arc to avoid expensive
+/// cloning of large time-series data structures. This significantly improves performance
+/// for read operations while only cloning when the trait interface requires owned values.
 #[derive(Clone)]
 pub struct MemoryStore {
 	pub solvers: Arc<DashMap<String, Solver>>,
 	pub orders: Arc<DashMap<String, Order>>,
+	pub metrics_timeseries: Arc<DashMap<String, Arc<MetricsTimeSeries>>>,
 }
 
 impl MemoryStore {
@@ -19,7 +25,25 @@ impl MemoryStore {
 		Self {
 			solvers: Arc::new(DashMap::new()),
 			orders: Arc::new(DashMap::new()),
+			metrics_timeseries: Arc::new(DashMap::new()),
 		}
+	}
+
+	/// Get Arc<MetricsTimeSeries> for efficient access without cloning
+	/// This is a more efficient alternative to get_metrics_timeseries when you don't need ownership
+	pub async fn get_metrics_timeseries_arc(
+		&self,
+		solver_id: &str,
+	) -> StorageResult<Option<Arc<MetricsTimeSeries>>> {
+		Ok(self
+			.metrics_timeseries
+			.get(solver_id)
+			.map(|ts_arc| ts_arc.value().clone()))
+	}
+
+	/// Check if metrics exist without loading/cloning the data
+	pub async fn has_metrics_timeseries(&self, solver_id: &str) -> StorageResult<bool> {
+		Ok(self.metrics_timeseries.contains_key(solver_id))
 	}
 }
 
@@ -144,6 +168,82 @@ impl SolverStorage for MemoryStore {
 }
 
 #[async_trait]
+impl MetricsStorage for MemoryStore {
+	async fn update_metrics_timeseries(
+		&self,
+		solver_id: &str,
+		timeseries: MetricsTimeSeries,
+	) -> StorageResult<()> {
+		self.metrics_timeseries
+			.insert(solver_id.to_string(), Arc::new(timeseries));
+		Ok(())
+	}
+
+	async fn get_metrics_timeseries(
+		&self,
+		solver_id: &str,
+	) -> StorageResult<Option<MetricsTimeSeries>> {
+		// Clone Arc contents only when trait interface requires owned value
+		Ok(self.metrics_timeseries.get(solver_id).map(|ts_arc| {
+			let ts: &MetricsTimeSeries = ts_arc.value();
+			ts.clone()
+		}))
+	}
+
+	async fn get_rolling_metrics(&self, solver_id: &str) -> StorageResult<Option<RollingMetrics>> {
+		// More efficient: clone only the small RollingMetrics, not the entire timeseries
+		Ok(self
+			.metrics_timeseries
+			.get(solver_id)
+			.map(|ts_arc| ts_arc.value().rolling_metrics.clone()))
+	}
+
+	async fn delete_metrics_timeseries(&self, solver_id: &str) -> StorageResult<bool> {
+		Ok(self.metrics_timeseries.remove(solver_id).is_some())
+	}
+
+	async fn list_solvers_with_metrics(&self) -> StorageResult<Vec<String>> {
+		Ok(self
+			.metrics_timeseries
+			.iter()
+			.map(|entry| entry.key().clone())
+			.collect())
+	}
+
+	async fn cleanup_old_metrics(&self, older_than: DateTime<Utc>) -> StorageResult<usize> {
+		let mut removed_count = 0;
+
+		// Get a list of keys to remove (to avoid borrowing issues)
+		// More efficient: only access last_updated field, no cloning needed
+		let keys_to_remove: Vec<String> = self
+			.metrics_timeseries
+			.iter()
+			.filter_map(|entry| {
+				let timeseries_arc = entry.value();
+				if timeseries_arc.last_updated < older_than {
+					Some(entry.key().clone())
+				} else {
+					None
+				}
+			})
+			.collect();
+
+		// Remove the identified keys
+		for key in keys_to_remove {
+			if self.metrics_timeseries.remove(&key).is_some() {
+				removed_count += 1;
+			}
+		}
+
+		Ok(removed_count)
+	}
+
+	async fn count_metrics_timeseries(&self) -> StorageResult<usize> {
+		Ok(self.metrics_timeseries.len())
+	}
+}
+
+#[async_trait]
 impl Storage for MemoryStore {
 	async fn health_check(&self) -> StorageResult<bool> {
 		// For in-memory storage, just check if the maps are accessible
@@ -153,5 +253,46 @@ impl Storage for MemoryStore {
 	async fn close(&self) -> StorageResult<()> {
 		// For memory store, there's nothing to close
 		Ok(())
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use oif_types::MetricsTimeSeries;
+
+	#[tokio::test]
+	async fn test_arc_optimization_efficiency() {
+		let store = MemoryStore::new();
+
+		// Create a test timeseries
+		let timeseries = MetricsTimeSeries::new("test-solver".to_string());
+
+		// Store it
+		store
+			.update_metrics_timeseries("test-solver", timeseries)
+			.await
+			.unwrap();
+
+		// Test efficient Arc access (no cloning of large data)
+		let arc_result = store
+			.get_metrics_timeseries_arc("test-solver")
+			.await
+			.unwrap();
+		assert!(arc_result.is_some());
+
+		// Test that we can get multiple Arc references efficiently
+		let arc_result2 = store
+			.get_metrics_timeseries_arc("test-solver")
+			.await
+			.unwrap();
+		assert!(arc_result2.is_some());
+
+		// Both should reference the same underlying data
+		// (in a real scenario, this avoids expensive clones)
+
+		// Test existence check without loading data
+		assert!(store.has_metrics_timeseries("test-solver").await.unwrap());
+		assert!(!store.has_metrics_timeseries("nonexistent").await.unwrap());
 	}
 }

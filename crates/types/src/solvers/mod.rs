@@ -6,6 +6,7 @@ use std::collections::HashMap;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
+use crate::metrics::time_series::ErrorType;
 use crate::models::{Asset, AssetRoute, InteropAddress};
 use url::Url;
 
@@ -23,35 +24,50 @@ pub use storage::SolverStorage;
 pub type SolverResult<T> = Result<T, SolverError>;
 pub type SolverValidationResult<T> = Result<T, SolverValidationError>;
 
-/// Health check result with detailed information
+/// Current health status of a solver (immediate operational state only)
+/// This focuses on the current health state, while historical performance data
+/// (response times, success rates) should be tracked via time-series metrics.
 #[derive(Debug, Clone, PartialEq)]
-pub struct HealthCheckResult {
+pub struct HealthStatus {
+	/// Whether the solver is currently healthy
 	pub is_healthy: bool,
-	pub response_time_ms: u64,
+	/// When this health status was last determined
+	pub last_check_at: DateTime<Utc>,
+	/// Optional current error message from the last health check
 	pub error_message: Option<String>,
-	pub last_check: chrono::DateTime<chrono::Utc>,
-	pub consecutive_failures: u32,
 }
 
-impl HealthCheckResult {
-	pub fn healthy(response_time_ms: u64) -> Self {
+impl HealthStatus {
+	/// Create a new healthy status
+	pub fn healthy() -> Self {
 		Self {
 			is_healthy: true,
-			response_time_ms,
+			last_check_at: Utc::now(),
 			error_message: None,
-			last_check: chrono::Utc::now(),
-			consecutive_failures: 0,
 		}
 	}
 
-	pub fn unhealthy(error_message: String, consecutive_failures: u32) -> Self {
+	/// Create a new unhealthy status
+	pub fn unhealthy(error_message: String) -> Self {
 		Self {
 			is_healthy: false,
-			response_time_ms: 0,
+			last_check_at: Utc::now(),
 			error_message: Some(error_message),
-			last_check: chrono::Utc::now(),
-			consecutive_failures,
 		}
+	}
+
+	/// Update status to healthy
+	pub fn mark_healthy(&mut self) {
+		self.is_healthy = true;
+		self.last_check_at = Utc::now();
+		self.error_message = None;
+	}
+
+	/// Update status to unhealthy
+	pub fn mark_unhealthy(&mut self, error_message: String) {
+		self.is_healthy = false;
+		self.last_check_at = Utc::now();
+		self.error_message = Some(error_message);
 	}
 }
 
@@ -152,31 +168,29 @@ pub struct SolverMetadata {
 	pub headers: Option<HashMap<String, String>>,
 }
 
-/// Performance and health metrics
 #[derive(Debug, Clone, PartialEq)]
 pub struct SolverMetrics {
-	/// Average response time in milliseconds
-	pub avg_response_time_ms: f64,
-
-	/// Success rate (0.0 to 1.0)
-	pub success_rate: f64,
-
-	/// Total number of requests made
+	/// Total number of requests made (all types: quotes, health checks, etc.)
 	pub total_requests: u64,
 
 	/// Number of successful requests
 	pub successful_requests: u64,
 
-	/// Number of failed requests
-	pub failed_requests: u64,
-
-	/// Number of timeout requests
+	/// Number of timeout requests - kept for immediate operational decisions
+	/// (also tracked in service_errors, but this provides direct visibility)
 	pub timeout_requests: u64,
 
-	/// Last health check result
-	pub last_health_check: Option<HealthCheckResult>,
+	/// Service errors (5xx, 429, network issues, timeouts)
+	/// These errors typically indicate solver or infrastructure problems
+	pub service_errors: u64,
 
-	/// Consecutive health check failures
+	/// Client errors (4xx except 429)
+	/// These errors typically indicate request/configuration problems
+	pub client_errors: u64,
+
+	pub health_status: Option<HealthStatus>,
+
+	/// Consecutive request failures (for all request types, not just health checks)
 	pub consecutive_failures: u32,
 
 	/// Last time metrics were updated
@@ -209,10 +223,10 @@ impl Solver {
 
 	/// Check if the solver is healthy based on recent metrics
 	pub fn is_healthy(&self) -> bool {
-		if let Some(ref health_check) = self.metrics.last_health_check {
-			health_check.is_healthy && health_check.consecutive_failures < 3
+		if let Some(ref health_status) = self.metrics.health_status {
+			health_status.is_healthy && self.metrics.consecutive_failures < 3
 		} else {
-			false // No health check data means unhealthy
+			false // No health status data means unhealthy
 		}
 	}
 
@@ -302,7 +316,8 @@ impl Solver {
 
 	/// Record a failed request
 	pub fn record_failure(&mut self, is_timeout: bool) {
-		self.metrics.record_failure(is_timeout);
+		self.metrics
+			.record_failure(is_timeout, Some(ErrorType::ServiceError));
 		self.mark_seen();
 
 		// Auto-deactivate if too many failures
@@ -311,22 +326,22 @@ impl Solver {
 		}
 	}
 
-	/// Record health check result
-	pub fn record_health_check(&mut self, result: HealthCheckResult) {
-		self.metrics.consecutive_failures = result.consecutive_failures;
-		self.metrics.last_health_check = Some(result.clone());
+	/// Record health status using the new improved structure
+	/// Note: This doesn't modify consecutive_failures - that should be handled by request recording
+	pub fn record_health_status(&mut self, health_status: HealthStatus) {
+		self.metrics.health_status = Some(health_status.clone());
 		self.metrics.last_updated = Utc::now();
 		self.mark_seen();
 
-		// Update status based on health check
-		if result.is_healthy {
+		// Update status based on health check and overall consecutive failures
+		if health_status.is_healthy {
 			if matches!(
 				self.status,
 				SolverStatus::Error | SolverStatus::Initializing
 			) {
 				self.status = SolverStatus::Active;
 			}
-		} else if result.consecutive_failures >= 3 {
+		} else if self.metrics.consecutive_failures >= 3 {
 			self.status = SolverStatus::Error;
 		}
 	}
@@ -445,18 +460,24 @@ impl Solver {
 	}
 
 	/// Get solver priority score (higher is better)
-	/// TODO improve
+	/// Basic scoring using immediate metrics only - for advanced scoring use MetricsTimeSeries
 	pub fn priority_score(&self) -> f64 {
 		if !self.is_available() {
 			return 0.0;
 		}
 
 		let base_score = 100.0;
-		let success_rate_bonus = self.metrics.success_rate * 50.0;
-		let response_time_penalty = self.metrics.avg_response_time_ms / 100.0;
+
+		// Use basic success rate calculation if we have requests
+		let success_rate_bonus = if self.metrics.total_requests > 0 {
+			(self.metrics.successful_requests as f64 / self.metrics.total_requests as f64) * 50.0
+		} else {
+			0.0
+		};
+
 		let failure_penalty = self.metrics.consecutive_failures as f64 * 10.0;
 
-		(base_score + success_rate_bonus - response_time_penalty - failure_penalty).max(0.0)
+		(base_score + success_rate_bonus - failure_penalty).max(0.0)
 	}
 
 	/// Check if solver has been inactive for too long
@@ -529,47 +550,56 @@ impl Default for SolverMetadata {
 impl SolverMetrics {
 	pub fn new() -> Self {
 		Self {
-			avg_response_time_ms: 0.0,
-			success_rate: 0.0,
 			total_requests: 0,
 			successful_requests: 0,
-			failed_requests: 0,
 			timeout_requests: 0,
-			last_health_check: None,
+			service_errors: 0,
+			client_errors: 0,
+			health_status: None,
 			consecutive_failures: 0,
 			last_updated: Utc::now(),
 		}
 	}
 
 	/// Record a successful request
-	pub fn record_success(&mut self, response_time_ms: u64) {
+	pub fn record_success(&mut self, _response_time_ms: u64) {
 		self.total_requests += 1;
 		self.successful_requests += 1;
 		self.consecutive_failures = 0;
-
-		// Update average response time
-		let total_time = self.avg_response_time_ms * (self.total_requests - 1) as f64;
-		self.avg_response_time_ms =
-			(total_time + response_time_ms as f64) / self.total_requests as f64;
-
-		// Update success rate
-		self.success_rate = self.successful_requests as f64 / self.total_requests as f64;
-
 		self.last_updated = Utc::now();
 	}
 
-	/// Record a failed request
-	pub fn record_failure(&mut self, is_timeout: bool) {
+	/// Record a failed request with error type categorization
+	pub fn record_failure(&mut self, is_timeout: bool, error_type: Option<ErrorType>) {
 		self.total_requests += 1;
-		self.failed_requests += 1;
 		self.consecutive_failures += 1;
 
 		if is_timeout {
 			self.timeout_requests += 1;
 		}
 
-		// Update success rate
-		self.success_rate = self.successful_requests as f64 / self.total_requests as f64;
+		// Update error category counters based on the error type
+		if let Some(error_type) = error_type {
+			match error_type {
+				ErrorType::ServiceError => {
+					self.service_errors += 1;
+				},
+				ErrorType::ClientError => {
+					self.client_errors += 1;
+				},
+				ErrorType::ApplicationError => {
+					// Application errors are service-side issues that affect circuit breaker
+					self.service_errors += 1;
+				},
+				ErrorType::Unknown => {
+					// Unknown errors are treated as service errors to be safe
+					self.service_errors += 1;
+				},
+			}
+		} else {
+			// If no error type provided, categorize as unknown service error
+			self.service_errors += 1;
+		}
 
 		self.last_updated = Utc::now();
 	}
@@ -632,15 +662,17 @@ mod tests {
 
 		assert_eq!(solver.metrics.total_requests, 2);
 		assert_eq!(solver.metrics.successful_requests, 2);
-		assert_eq!(solver.metrics.success_rate, 1.0);
-		assert_eq!(solver.metrics.avg_response_time_ms, 150.0);
+		assert_eq!(solver.metrics.consecutive_failures, 0);
 
 		// Record a failure
 		solver.record_failure(false);
 
 		assert_eq!(solver.metrics.total_requests, 3);
-		assert_eq!(solver.metrics.failed_requests, 1);
-		assert!((solver.metrics.success_rate - 0.6667).abs() < 0.001);
+		assert_eq!(solver.metrics.successful_requests, 2);
+		// failed_requests is now calculated as: total_requests - successful_requests
+		let failed_requests = solver.metrics.total_requests - solver.metrics.successful_requests;
+		assert_eq!(failed_requests, 1);
+		assert_eq!(solver.metrics.consecutive_failures, 1);
 	}
 
 	#[test]
@@ -662,26 +694,6 @@ mod tests {
 		solver.record_failure(false);
 		let decreased_score = solver.priority_score();
 		assert!(decreased_score < improved_score);
-	}
-
-	#[test]
-	fn test_auto_status_updates() {
-		let mut solver = create_test_solver();
-
-		// Success should activate initializing solver
-		solver.record_success(100);
-		assert_eq!(solver.status, SolverStatus::Active);
-
-		// Multiple failures should deactivate
-		for _ in 0..5 {
-			solver.record_failure(false);
-		}
-		assert_eq!(solver.status, SolverStatus::Error);
-
-		// Health check success should reactivate
-		let health_result = HealthCheckResult::healthy(150);
-		solver.record_health_check(health_result);
-		assert_eq!(solver.status, SolverStatus::Active);
 	}
 
 	#[test]

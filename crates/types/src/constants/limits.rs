@@ -57,3 +57,12 @@ pub const DEFAULT_ORDER_RETENTION_DAYS: u32 = 10;
 /// Default behavior for including solvers with unknown compatibility
 /// Set to false for more predictable results - only include solvers with known compatibility
 pub const DEFAULT_INCLUDE_UNKNOWN_COMPATIBILITY: bool = false;
+
+/// Default metrics retention period in hours (7 days)
+pub const DEFAULT_METRICS_RETENTION_HOURS: u32 = 168;
+
+/// Default metrics cleanup interval in hours (run daily)
+pub const DEFAULT_METRICS_CLEANUP_INTERVAL_HOURS: u32 = 24;
+
+/// Default metrics aggregation update interval in minutes (update rolling metrics every 5 minutes)
+pub const DEFAULT_METRICS_AGGREGATION_INTERVAL_MINUTES: u32 = 5;

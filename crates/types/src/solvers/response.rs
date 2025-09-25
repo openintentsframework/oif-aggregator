@@ -104,8 +104,8 @@ pub enum SupportedAssetsResponse {
         ],
         "source": "autoDiscovered"
     },
-    "createdAt": 1756400000,
-    "lastSeen": 1756457492
+    "createdAt": "2025-08-28T00:00:00Z",
+    "lastSeen": "2025-08-28T16:04:52Z"
 })))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SolverResponse {
@@ -116,8 +116,8 @@ pub struct SolverResponse {
 	pub endpoint: String,
 	pub status: SolverStatus,
 	pub supported_assets: SupportedAssetsResponse,
-	pub created_at: i64,
-	pub last_seen: Option<i64>,
+	pub created_at: String,
+	pub last_seen: Option<String>,
 }
 
 /// Collection of solvers response for API endpoints
@@ -145,8 +145,8 @@ pub struct SolverResponse {
                 ],
                 "source": "autoDiscovered"
             },
-            "createdAt": 1756400000,
-            "lastSeen": 1756457492
+            "createdAt": "2025-08-28T00:00:00Z",
+            "lastSeen": "2025-08-28T16:04:52Z"
         },
         {
             "solverId": "uniswap-solver",
@@ -169,8 +169,8 @@ pub struct SolverResponse {
                 ],
                 "source": "config"
             },
-            "createdAt": 1756400000,
-            "lastSeen": 1756457490
+            "createdAt": "2025-08-28T00:00:00Z",
+            "lastSeen": "2025-08-28T16:04:50Z"
         }
     ],
     "totalSolvers": 2
@@ -253,8 +253,8 @@ impl TryFrom<&Solver> for SolverResponse {
 			endpoint: solver.endpoint.clone(),
 			status: solver.status.clone(),
 			supported_assets,
-			created_at: solver.created_at.timestamp(),
-			last_seen: solver.last_seen.map(|dt| dt.timestamp()),
+			created_at: solver.created_at.to_rfc3339(),
+			last_seen: solver.last_seen.map(|dt| dt.to_rfc3339()),
 		})
 	}
 }
