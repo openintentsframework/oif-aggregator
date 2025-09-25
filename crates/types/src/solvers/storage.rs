@@ -162,6 +162,10 @@ impl TryFrom<SolverMetricsStorage> for SolverMetrics {
 	type Error = SolverError;
 
 	fn try_from(storage: SolverMetricsStorage) -> Result<Self, Self::Error> {
+		let health_status = storage
+			.health_status
+			.map(|health_status_storage| health_status_storage.into());
+
 		Ok(SolverMetrics {
 			total_requests: storage.total_requests,
 			successful_requests: storage.successful_requests,
