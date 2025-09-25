@@ -135,41 +135,6 @@ impl SolverService {
 
 		Ok((page_items, total, active_count, healthy_count))
 	}
-
-	/// Update solver status and metrics in storage based on health check result
-	async fn update_solver_status(
-		storage: &Arc<dyn Storage>,
-		solver: &Solver,
-		is_healthy: bool,
-	) -> Result<(), SolverServiceError> {
-		use chrono::Utc;
-		use oif_types::solvers::HealthStatus;
-
-		// Clone solver and update ONLY health status and timestamp
-		// Note: Both metrics AND status are now intelligently updated by MetricsUpdateHandler
-		// which has access to comprehensive historical data for better decision making
-		let mut updated_solver = solver.clone();
-
-		// Only update last_seen and health status here - status decisions moved to MetricsUpdateHandler
-		updated_solver.last_seen = Some(Utc::now());
-
-		// Update health status using our new structure (immediate health state only)
-		let health_status = if is_healthy {
-			HealthStatus::healthy()
-		} else {
-			HealthStatus::unhealthy("Health check failed".to_string())
-		};
-		updated_solver.metrics.health_status = Some(health_status);
-		updated_solver.metrics.last_updated = Utc::now();
-
-		// Save to storage
-		storage
-			.update_solver(updated_solver)
-			.await
-			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
-
-		Ok(())
-	}
 }
 
 #[async_trait]
