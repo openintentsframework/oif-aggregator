@@ -76,13 +76,13 @@ pub const DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD: u32 = 5;
 
 /// Default success rate threshold (below this rate, circuit opens)
 /// 0.3 = 30% success rate required to keep circuit closed
-pub const DEFAULT_CIRCUIT_BREAKER_SUCCESS_RATE_THRESHOLD: f64 = 0.3;
+pub const DEFAULT_CIRCUIT_BREAKER_SUCCESS_RATE_THRESHOLD: f64 = 0.20;
 
 /// Default minimum requests needed before evaluating success rate
-pub const DEFAULT_CIRCUIT_BREAKER_MIN_REQUESTS_FOR_RATE_CHECK: u64 = 20;
+pub const DEFAULT_CIRCUIT_BREAKER_MIN_REQUESTS_FOR_RATE_CHECK: u64 = 30;
 
 /// Default base timeout in seconds for exponential backoff calculation
-pub const DEFAULT_CIRCUIT_BREAKER_BASE_TIMEOUT_SECONDS: u64 = 30;
+pub const DEFAULT_CIRCUIT_BREAKER_BASE_TIMEOUT_SECONDS: u64 = 10;
 
 /// Default maximum timeout in seconds (caps exponential backoff)
 pub const DEFAULT_CIRCUIT_BREAKER_MAX_TIMEOUT_SECONDS: u64 = 600; // 10 minutes
@@ -93,8 +93,8 @@ pub const DEFAULT_CIRCUIT_BREAKER_MAX_TIMEOUT_SECONDS: u64 = 600; // 10 minutes
 pub const DEFAULT_METRICS_WINDOW_DURATION_MINUTES: u32 = 15;
 
 /// Default service error rate threshold (below this rate, circuit opens)
-/// 0.5 = 50% service error rate threshold (more lenient than success rate)
-pub const DEFAULT_CIRCUIT_BREAKER_SERVICE_ERROR_THRESHOLD: f64 = 0.5;
+/// 0.2 = 20% service error rate threshold (more lenient than success rate)
+pub const DEFAULT_CIRCUIT_BREAKER_SERVICE_ERROR_THRESHOLD: f64 = 0.20;
 
 /// Default maximum window age in minutes before forcing reset
 /// Even if window has insufficient data, force reset after this duration
@@ -102,7 +102,7 @@ pub const DEFAULT_CIRCUIT_BREAKER_SERVICE_ERROR_THRESHOLD: f64 = 0.5;
 pub const DEFAULT_METRICS_MAX_WINDOW_AGE_MINUTES: u32 = 60;
 
 /// Default maximum test requests allowed in half-open state
-pub const DEFAULT_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS: u32 = 3;
+pub const DEFAULT_CIRCUIT_BREAKER_HALF_OPEN_MAX_CALLS: u32 = 5;
 
 /// Default maximum recovery attempts before applying persistent failure action
 pub const DEFAULT_CIRCUIT_BREAKER_MAX_RECOVERY_ATTEMPTS: u32 = 10;

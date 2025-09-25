@@ -461,36 +461,22 @@ where
 			as Arc<dyn oif_service::jobs::scheduler::JobScheduler>;
 
 		// Create circuit breaker if enabled
-		let circuit_breaker = if settings.get_circuit_breaker().enabled {
-			info!("Initializing circuit breaker with thresholds: failures={}, success_rate={:.1}%, min_requests={}",
-				settings.get_circuit_breaker().failure_threshold,
-				settings.get_circuit_breaker().success_rate_threshold * 100.0,
-				settings.get_circuit_breaker().min_requests_for_rate_check
-			);
-			Some(Arc::new(CircuitBreakerService::new(
-				Arc::clone(&storage_arc),
-				settings.get_circuit_breaker(),
-			)) as Arc<dyn CircuitBreakerTrait>)
-		} else {
-			info!("Circuit breaker disabled");
-			None
-		};
+		let circuit_breaker = Arc::new(CircuitBreakerService::new(
+			Arc::clone(&storage_arc),
+			settings.get_circuit_breaker(),
+		)) as Arc<dyn CircuitBreakerTrait>;
 
 		// Create aggregator service and wire in circuit breaker if configured
-		let mut aggregator_service = AggregatorService::with_config(
+		let aggregator_service = AggregatorService::with_config(
 			Arc::clone(&storage_arc),
 			Arc::clone(&adapter_registry),
 			Arc::clone(&integrity_service),
 			Arc::clone(&solver_filter_service),
 			settings.get_aggregation().into(),
 			Some(Arc::clone(&job_scheduler)),
+			Arc::clone(&circuit_breaker),
 			settings.get_metrics().min_timeout_for_metrics_ms, // Get from metrics settings
 		);
-
-		// Add circuit breaker if enabled
-		if let Some(cb) = &circuit_breaker {
-			aggregator_service = aggregator_service.with_circuit_breaker(Arc::clone(cb));
-		}
 
 		let aggregator_service =
 			Arc::new(aggregator_service) as Arc<dyn oif_service::AggregatorTrait>;
@@ -506,6 +492,7 @@ where
 			Arc::clone(&adapter_registry),
 			Arc::clone(&integrity_service),
 			Arc::clone(&job_scheduler),
+			Arc::clone(&circuit_breaker),
 		);
 		let order_service =
 			Arc::new(order_service_impl) as Arc<dyn oif_service::order::OrderServiceTrait>;
@@ -520,7 +507,7 @@ where
 			Arc::clone(&order_service),
 			Arc::clone(&job_scheduler),
 			settings.clone(),
-			circuit_breaker.clone(),
+			Arc::clone(&circuit_breaker),
 		));
 
 		// Create the JobProcessor with the real handler

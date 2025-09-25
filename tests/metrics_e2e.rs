@@ -6,9 +6,13 @@
 //! 3. Cleanup jobs work correctly with the stored data
 
 use chrono::{Duration, Utc};
-use oif_service::jobs::{
-	handlers::{MetricsCleanupHandler, MetricsUpdateHandler},
-	types::SolverMetricsUpdate,
+use oif_config::CircuitBreakerSettings;
+use oif_service::{
+	jobs::{
+		handlers::{MetricsCleanupHandler, MetricsUpdateHandler},
+		types::SolverMetricsUpdate,
+	},
+	CircuitBreakerService,
 };
 use oif_storage::{traits::MetricsStorage, MemoryStore, Storage};
 use oif_types::solvers::Solver;
@@ -40,7 +44,14 @@ impl MetricsTestEnvironment {
 		let storage = Arc::new(MemoryStore::new());
 
 		// Create handlers
-		let metrics_handler = MetricsUpdateHandler::new(storage.clone(), settings.clone());
+		let metrics_handler = MetricsUpdateHandler::new(
+			storage.clone(),
+			settings.clone(),
+			Arc::new(CircuitBreakerService::new(
+				storage.clone(),
+				CircuitBreakerSettings::default(),
+			)),
+		);
 		let cleanup_handler = MetricsCleanupHandler::new(storage.clone(), settings.clone());
 
 		Ok(Self {

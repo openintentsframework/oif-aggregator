@@ -6,8 +6,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tracing::{debug, warn};
 
-use crate::jobs::types::{JobError, JobResult, SolverMetricsUpdate};
 use crate::circuit_breaker::CircuitBreakerTrait;
+use crate::jobs::types::{JobError, JobResult, SolverMetricsUpdate};
 use oif_config::Settings;
 use oif_storage::Storage;
 use oif_types::{MetricsDataPoint, MetricsTimeSeries};
@@ -20,29 +20,33 @@ const ROLLING_METRICS_UPDATE_INTERVAL: Duration = Duration::seconds(30);
 pub struct MetricsUpdateHandler {
 	storage: Arc<dyn Storage>,
 	settings: Settings,
-	circuit_breaker: Option<Arc<dyn CircuitBreakerTrait>>,
+	circuit_breaker: Arc<dyn CircuitBreakerTrait>,
 }
 
 impl MetricsUpdateHandler {
 	/// Create a new metrics update handler
-	pub fn new(storage: Arc<dyn Storage>, settings: Settings) -> Self {
-		Self { 
-			storage, 
+	pub fn new(
+		storage: Arc<dyn Storage>,
+		settings: Settings,
+		circuit_breaker: Arc<dyn CircuitBreakerTrait>,
+	) -> Self {
+		Self {
+			storage,
 			settings,
-			circuit_breaker: None,
+			circuit_breaker,
 		}
 	}
 
 	/// Create a new metrics update handler with circuit breaker
 	pub fn with_circuit_breaker(
-		storage: Arc<dyn Storage>, 
+		storage: Arc<dyn Storage>,
 		settings: Settings,
-		circuit_breaker: Arc<dyn CircuitBreakerTrait>
+		circuit_breaker: Arc<dyn CircuitBreakerTrait>,
 	) -> Self {
-		Self { 
-			storage, 
+		Self {
+			storage,
 			settings,
-			circuit_breaker: Some(circuit_breaker),
+			circuit_breaker,
 		}
 	}
 
@@ -85,11 +89,7 @@ impl MetricsUpdateHandler {
 
 					// Run all updates in parallel for each solver (metrics, timeseries, and circuit breaker)
 					let (current_result, timeseries_result, circuit_result) = tokio::join!(
-						self.update_current_solver_metrics(
-							&storage,
-							&solver_id,
-							&metrics_data
-						),
+						self.update_current_solver_metrics(&storage, &solver_id, &metrics_data),
 						Self::update_timeseries_metrics(&storage, &solver_id, &metrics_data),
 						self.record_circuit_breaker_result(&solver_id, &metrics_data)
 					);
@@ -161,10 +161,10 @@ impl MetricsUpdateHandler {
 		metrics_data: &SolverMetricsUpdate,
 	) -> JobResult<()> {
 		// Only call circuit breaker if enabled and available
-		if let Some(circuit_breaker) = &self.circuit_breaker {
+		if self.circuit_breaker.is_enabled() {
 			let circuit_breaker_settings = self.settings.get_circuit_breaker();
 			if circuit_breaker_settings.enabled {
-				circuit_breaker
+				self.circuit_breaker
 					.record_request_result(solver_id, metrics_data.was_successful)
 					.await;
 			}
@@ -347,6 +347,7 @@ fn should_update_rolling_metrics(timeseries: &MetricsTimeSeries) -> bool {
 mod tests {
 	use super::*;
 	use chrono::Utc;
+	use oif_config::CircuitBreakerSettings;
 	use oif_storage::{traits::MetricsStorage, MemoryStore};
 	use oif_types::Solver;
 
@@ -369,7 +370,11 @@ mod tests {
 	#[tokio::test]
 	async fn test_metrics_update_handler_creation() {
 		let storage = create_test_services().await;
-		let handler = MetricsUpdateHandler::new(storage as Arc<dyn Storage>, Settings::default());
+		let handler = MetricsUpdateHandler::new(
+			storage as Arc<dyn Storage>,
+			Settings::default(),
+			Arc::new(crate::MockCircuitBreakerTrait::new()),
+		);
 
 		// Verify we can create the handler
 		assert!(std::ptr::addr_of!(handler).is_aligned());
@@ -379,8 +384,14 @@ mod tests {
 	async fn test_handle_successful_metrics_update() {
 		let storage = create_test_services().await;
 		let _solver = create_test_solver(&storage).await;
-		let handler =
-			MetricsUpdateHandler::new(storage.clone() as Arc<dyn Storage>, Settings::default());
+		let handler = MetricsUpdateHandler::new(
+			storage.clone() as Arc<dyn Storage>,
+			Settings::default(),
+			Arc::new(crate::CircuitBreakerService::new(
+				storage.clone(),
+				CircuitBreakerSettings::default(),
+			)),
+		);
 
 		let metrics_data = SolverMetricsUpdate {
 			response_time_ms: 250,
@@ -424,8 +435,14 @@ mod tests {
 	async fn test_handle_failed_metrics_update() {
 		let storage = create_test_services().await;
 		let _solver = create_test_solver(&storage).await;
-		let handler =
-			MetricsUpdateHandler::new(storage.clone() as Arc<dyn Storage>, Settings::default());
+		let handler = MetricsUpdateHandler::new(
+			storage.clone() as Arc<dyn Storage>,
+			Settings::default(),
+			Arc::new(crate::CircuitBreakerService::new(
+				storage.clone(),
+				CircuitBreakerSettings::default(),
+			)),
+		);
 
 		let metrics_data = SolverMetricsUpdate {
 			response_time_ms: 5000,
@@ -459,7 +476,14 @@ mod tests {
 	#[tokio::test]
 	async fn test_handle_metrics_update_nonexistent_solver() {
 		let storage = create_test_services().await;
-		let handler = MetricsUpdateHandler::new(storage as Arc<dyn Storage>, Settings::default());
+		let handler = MetricsUpdateHandler::new(
+			storage.clone() as Arc<dyn Storage>,
+			Settings::default(),
+			Arc::new(crate::CircuitBreakerService::new(
+				storage.clone(),
+				CircuitBreakerSettings::default(),
+			)),
+		);
 
 		let metrics_data = SolverMetricsUpdate {
 			response_time_ms: 250,

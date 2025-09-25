@@ -11,6 +11,7 @@ use oif_types::adapters::AssetAmount;
 /// Tracing target for structured logging
 const TRACING_TARGET: &str = "oif_service::order";
 
+use crate::circuit_breaker::CircuitBreakerTrait;
 use crate::integrity::IntegrityTrait;
 use crate::jobs::scheduler::JobScheduler;
 use crate::jobs::types::BackgroundJob;
@@ -55,6 +56,8 @@ pub enum OrderServiceError {
 	IntegrityVerificationFailed,
 	#[error("order not found: {0}")]
 	OrderNotFound(String),
+	#[error("circuit breaker blocked solver '{0}' - high failure rate detected")]
+	CircuitBreakerBlocked(String),
 }
 
 #[derive(Clone)]
@@ -63,6 +66,7 @@ pub struct OrderService {
 	adapter_registry: Arc<AdapterRegistry>,
 	integrity_service: Arc<dyn IntegrityTrait>,
 	job_scheduler: Arc<dyn JobScheduler>,
+	circuit_breaker: Arc<dyn CircuitBreakerTrait>,
 }
 
 impl OrderService {
@@ -71,12 +75,14 @@ impl OrderService {
 		adapter_registry: Arc<AdapterRegistry>,
 		integrity_service: Arc<dyn IntegrityTrait>,
 		job_scheduler: Arc<dyn JobScheduler>,
+		circuit_breaker: Arc<dyn CircuitBreakerTrait>,
 	) -> Self {
 		Self {
 			storage,
 			adapter_registry,
 			integrity_service,
 			job_scheduler,
+			circuit_breaker,
 		}
 	}
 }
@@ -118,7 +124,32 @@ impl OrderServiceTrait for OrderService {
 			))
 		})?;
 
-		// 4. Create solver adapter service and submit the order
+		// 4. Check circuit breaker before submitting order
+		// Get solver info for circuit breaker check
+		let solver = self
+			.storage
+			.get_solver(&request.quote_response.solver_id)
+			.await
+			.map_err(|e| OrderServiceError::Storage(e.to_string()))?
+			.ok_or_else(|| {
+				OrderServiceError::Validation(format!(
+					"Solver '{}' not found",
+					request.quote_response.solver_id
+				))
+			})?;
+
+		if !self.circuit_breaker.should_allow_request(&solver).await {
+			tracing::warn!(
+				target: TRACING_TARGET,
+				solver_id = %request.quote_response.solver_id,
+				"Circuit breaker blocked order submission - solver has high failure rate"
+			);
+			return Err(OrderServiceError::CircuitBreakerBlocked(
+				request.quote_response.solver_id.clone(),
+			));
+		}
+
+		// 5. Create solver adapter service and submit the order
 		let solver_adapter = SolverAdapterService::new(
 			&request.quote_response.solver_id,
 			self.adapter_registry.clone(),
@@ -161,13 +192,13 @@ impl OrderServiceTrait for OrderService {
 			quote_details: Some(quote_domain),
 		};
 
-		// 5. Save the order to storage
+		// 6. Save the order to storage
 		self.storage
 			.create_order(order.clone())
 			.await
 			.map_err(|e| OrderServiceError::Storage(e.to_string()))?;
 
-		// 6. Start order status monitoring
+		// 7. Start order status monitoring
 		let monitoring_delay = Duration::from_secs(5); // First check in 5 seconds
 		let job_id = format!("order-monitor-{}", order_id);
 
@@ -275,8 +306,11 @@ impl OrderServiceTrait for OrderService {
 			},
 		};
 
-		// 4. Get updated order details from the solver
-		let updated_order_response = match solver_adapter.get_order_details(order_id).await {
+		// 4. Get updated order details from the solver with circuit breaker protection
+		let updated_order_response = match self
+			.get_order_details_with_protection(&solver_adapter, order_id, &current_order)
+			.await
+		{
 			Ok(response) => {
 				tracing::debug!(
 					target: TRACING_TARGET,
@@ -466,11 +500,51 @@ impl OrderService {
 			oif_types::OrderStatus::Finalized | oif_types::OrderStatus::Failed
 		)
 	}
+
+	/// Get order details with circuit breaker protection and emergency override
+	async fn get_order_details_with_protection(
+		&self,
+		solver_adapter: &SolverAdapterService,
+		order_id: &str,
+		current_order: &Order,
+	) -> Result<oif_types::adapters::GetOrderResponse, SolverAdapterError> {
+		// Get solver info for circuit breaker check
+		let solver_result = self
+			.storage
+			.get_solver(&current_order.solver_id)
+			.await
+			.map_err(|e| SolverAdapterError::Storage(e.to_string()));
+
+		if let Ok(Some(solver)) = solver_result {
+			// Check if circuit breaker allows this request
+			if !self.circuit_breaker.should_allow_request(&solver).await {
+				tracing::warn!(
+					target: TRACING_TARGET,
+					order_id = %order_id,
+					solver_id = %current_order.solver_id,
+					"Circuit breaker would block order status check - attempting emergency override for user visibility"
+				);
+
+				// Emergency override: Allow status check with warning
+				// Users need to see their order status even if solver is having issues
+				tracing::info!(
+					target: TRACING_TARGET,
+					order_id = %order_id,
+					solver_id = %current_order.solver_id,
+					"Proceeding with order status check despite circuit breaker (emergency override)"
+				);
+			}
+		}
+
+		// Proceed with the order details call (either allowed by circuit breaker or emergency override)
+		solver_adapter.get_order_details(order_id).await
+	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::sync::Arc;
 
 	#[tokio::test]
 	async fn test_mock_order_service_trait() {
@@ -492,5 +566,47 @@ mod tests {
 
 		let cleanup_result = mock.cleanup_old_orders(10).await.unwrap();
 		assert_eq!(cleanup_result, 0);
+	}
+
+	#[tokio::test]
+	async fn test_order_service_with_circuit_breaker() {
+		// Test that OrderService can be configured with circuit breaker
+		use crate::integrity::MockIntegrityTrait;
+		use crate::jobs::scheduler::{JobScheduler, MockJobScheduler};
+		use oif_adapters::AdapterRegistry;
+		use oif_storage::MemoryStore;
+
+		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
+		let adapter_registry = Arc::new(AdapterRegistry::new());
+		let integrity_service: Arc<dyn IntegrityTrait> = Arc::new(MockIntegrityTrait::new());
+		let job_scheduler: Arc<dyn JobScheduler> = Arc::new(MockJobScheduler::new());
+		let circuit_breaker: Arc<dyn CircuitBreakerTrait> =
+			Arc::new(crate::MockCircuitBreakerTrait::new());
+
+		// Test that we can create OrderService with circuit breaker (now required)
+		let _order_service = OrderService::new(
+			storage,
+			adapter_registry,
+			integrity_service,
+			job_scheduler,
+			circuit_breaker,
+		);
+
+		// If we get here without compiler errors, the integration works
+		assert!(
+			true,
+			"OrderService with circuit breaker created successfully"
+		);
+	}
+
+	#[tokio::test]
+	async fn test_circuit_breaker_error_type() {
+		// Test that our new error type works correctly
+		let error = OrderServiceError::CircuitBreakerBlocked("test-solver".to_string());
+
+		assert!(error
+			.to_string()
+			.contains("circuit breaker blocked solver 'test-solver'"));
+		assert!(error.to_string().contains("high failure rate detected"));
 	}
 }

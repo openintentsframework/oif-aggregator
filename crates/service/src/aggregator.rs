@@ -568,7 +568,7 @@ pub struct AggregatorService {
 	config: AggregationConfig,
 	solver_filter_service: Arc<dyn SolverFilterTrait>,
 	task_executor: Arc<dyn TaskExecutorTrait>,
-	circuit_breaker: Option<Arc<dyn CircuitBreakerTrait>>,
+	circuit_breaker: Arc<dyn CircuitBreakerTrait>,
 }
 
 impl AggregatorService {
@@ -578,6 +578,7 @@ impl AggregatorService {
 		adapter_registry: Arc<AdapterRegistry>,
 		integrity_service: Arc<dyn IntegrityTrait>,
 		solver_filter_service: Arc<dyn SolverFilterTrait>,
+		circuit_breaker: Arc<dyn CircuitBreakerTrait>,
 	) -> Self {
 		Self::with_config(
 			storage,
@@ -586,6 +587,7 @@ impl AggregatorService {
 			solver_filter_service,
 			AggregationConfig::default(),
 			None,
+			circuit_breaker,
 			oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS, // Default timeout threshold
 		)
 	}
@@ -598,6 +600,7 @@ impl AggregatorService {
 		solver_filter_service: Arc<dyn SolverFilterTrait>,
 		config: AggregationConfig,
 		job_scheduler: Option<Arc<dyn JobScheduler>>,
+		circuit_breaker: Arc<dyn CircuitBreakerTrait>,
 		min_timeout_for_metrics_ms: u64,
 	) -> Self {
 		// Create TaskExecutor with the configuration
@@ -616,14 +619,8 @@ impl AggregatorService {
 			config,
 			solver_filter_service,
 			task_executor,
-			circuit_breaker: None,
+			circuit_breaker,
 		}
-	}
-
-	/// Configure circuit breaker for automatic failure protection
-	pub fn with_circuit_breaker(mut self, circuit_breaker: Arc<dyn CircuitBreakerTrait>) -> Self {
-		self.circuit_breaker = Some(circuit_breaker);
-		self
 	}
 
 	/// Apply circuit breaker filtering to solvers in parallel
@@ -827,12 +824,9 @@ impl AggregatorService {
 		debug!("Found {} active solvers", available_solvers.len());
 
 		// Step 2: Apply circuit breaker filtering (if configured and enabled)
-		let circuit_filtered_solvers = if let Some(circuit_breaker) = &self.circuit_breaker {
-			self.apply_circuit_breaker_filter(available_solvers, circuit_breaker)
-				.await
-		} else {
-			available_solvers
-		};
+		let circuit_filtered_solvers = self
+			.apply_circuit_breaker_filter(available_solvers, &self.circuit_breaker)
+			.await;
 
 		debug!(
 			"After circuit breaker filtering: {} solvers",
@@ -1166,10 +1160,11 @@ impl AggregatorTrait for AggregatorService {
 mod tests {
 	//! Tests for AggregatorService focusing on core aggregation behavior.
 
-	use crate::{IntegrityService, SolverFilterService};
+	use crate::{CircuitBreakerService, IntegrityService, SolverFilterService};
 
 	use super::*;
 	use oif_adapters::AdapterRegistry;
+	use oif_config::CircuitBreakerSettings;
 	use oif_types::{
 		constants::DEFAULT_GLOBAL_TIMEOUT_MS, AssetRoute, AvailableInput, InteropAddress,
 		QuoteDetails, QuoteRequest, RequestedOutput, SecretString, SolverAdapter, U256,
@@ -1592,11 +1587,12 @@ mod tests {
 
 		let storage = create_test_storage_with_solvers(solvers).await;
 		AggregatorService::new(
-			storage,
+			storage.clone(),
 			Arc::new(create_test_adapter_registry()),
 			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
 				as Arc<dyn IntegrityTrait>,
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
+			create_test_circuit_breaker(storage.clone()),
 		)
 	}
 
@@ -1612,21 +1608,19 @@ mod tests {
 		storage
 	}
 
-	// Helper function to create test aggregator with no solvers
-	async fn create_test_aggregator() -> AggregatorService {
-		let storage = create_test_storage_with_solvers(vec![]).await;
-		AggregatorService::new(
-			storage,
-			Arc::new(create_test_adapter_registry()),
-			Arc::new(crate::integrity::IntegrityService::new(SecretString::from(
-				"test-secret",
-			))) as Arc<dyn IntegrityTrait>,
-			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
-		)
+	// Helper function to create a disabled circuit breaker for tests
+	fn create_test_circuit_breaker(storage: Arc<dyn Storage>) -> Arc<dyn CircuitBreakerTrait> {
+		Arc::new(CircuitBreakerService::new(
+			storage.clone(),
+			CircuitBreakerSettings::default(),
+		))
 	}
 
-	// Helper function to create test aggregator with mock demo solvers that will succeed
-	async fn create_test_aggregator_with_demo_solvers(solver_count: usize) -> AggregatorService {
+	// Helper function to create test aggregator with custom circuit breaker and specified solvers
+	async fn create_test_aggregator_with_circuit_breaker(
+		solver_count: usize,
+		circuit_breaker: Arc<dyn CircuitBreakerTrait>,
+	) -> AggregatorService {
 		let mut solvers = Vec::new();
 		for i in 1..=solver_count {
 			// Create solver with proper network and asset support for filtering
@@ -1661,11 +1655,14 @@ mod tests {
 			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
 				as Arc<dyn IntegrityTrait>,
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
+			circuit_breaker,
 		)
 	}
 
-	// Helper function to create test aggregator with mixed success/failure solvers
-	async fn create_test_aggregator_with_mixed_solvers() -> AggregatorService {
+	// Helper function for mixed solvers with custom circuit breaker
+	async fn create_test_aggregator_with_mixed_solvers_and_circuit_breaker(
+		circuit_breaker: Arc<dyn CircuitBreakerTrait>,
+	) -> AggregatorService {
 		let solvers = vec![
 			Solver::new(
 				"success-solver1".to_string(),
@@ -1698,6 +1695,116 @@ mod tests {
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
 			test_config,
 			None,
+			circuit_breaker,
+			oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS, // Default timeout threshold
+		)
+	}
+
+	// Helper function for empty aggregator with custom circuit breaker
+	async fn create_test_aggregator_with_circuit_breaker_no_solvers(
+		circuit_breaker: Arc<dyn CircuitBreakerTrait>,
+	) -> AggregatorService {
+		let storage = create_test_storage_with_solvers(vec![]).await;
+		AggregatorService::new(
+			storage,
+			Arc::new(create_test_adapter_registry()),
+			Arc::new(crate::integrity::IntegrityService::new(SecretString::from(
+				"test-secret",
+			))) as Arc<dyn IntegrityTrait>,
+			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
+			circuit_breaker,
+		)
+	}
+
+	// Helper function to create test aggregator with no solvers
+	async fn create_test_aggregator() -> AggregatorService {
+		let storage = create_test_storage_with_solvers(vec![]).await;
+		AggregatorService::new(
+			storage.clone(),
+			Arc::new(create_test_adapter_registry()),
+			Arc::new(crate::integrity::IntegrityService::new(SecretString::from(
+				"test-secret",
+			))) as Arc<dyn IntegrityTrait>,
+			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
+			create_test_circuit_breaker(storage.clone()),
+		)
+	}
+
+	// Helper function to create test aggregator with mock demo solvers that will succeed
+	async fn create_test_aggregator_with_demo_solvers(solver_count: usize) -> AggregatorService {
+		let mut solvers = Vec::new();
+		for i in 1..=solver_count {
+			// Create solver with proper network and asset support for filtering
+			let solver = Solver::new(
+				format!("demo-solver{}", i),
+				"mock-demo-v1".to_string(), // Use actual mock adapter ID
+				format!("http://localhost:800{}", i),
+			)
+			// Add cross-chain routes support
+			.with_routes(vec![
+				AssetRoute::with_symbols(
+					InteropAddress::from_text("eip155:1:0x0000000000000000000000000000000000000000").unwrap(), // ETH on Ethereum
+					"ETH".to_string(),
+					InteropAddress::from_text("eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607").unwrap(), // USDC on Optimism
+					"USDC".to_string(),
+				),
+				AssetRoute::with_symbols(
+					InteropAddress::from_text("eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607").unwrap(), // USDC on Optimism
+					"USDC".to_string(),
+					InteropAddress::from_text("eip155:1:0x0000000000000000000000000000000000000000").unwrap(), // ETH on Ethereum
+					"ETH".to_string(),
+				),
+			]);
+
+			solvers.push(solver);
+		}
+
+		let storage = create_test_storage_with_solvers(solvers).await;
+		AggregatorService::new(
+			storage.clone(),
+			Arc::new(create_test_adapter_registry()),
+			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
+				as Arc<dyn IntegrityTrait>,
+			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
+			create_test_circuit_breaker(storage.clone()),
+		)
+	}
+
+	// Helper function to create test aggregator with mixed success/failure solvers
+	async fn create_test_aggregator_with_mixed_solvers() -> AggregatorService {
+		let solvers = vec![
+			Solver::new(
+				"success-solver1".to_string(),
+				"mock-demo-v1".to_string(), // Will succeed with quotes
+				"http://localhost:8001".to_string(),
+			),
+			Solver::new(
+				"success-solver2".to_string(),
+				"mock-test-success".to_string(), // Will succeed with empty quotes
+				"http://localhost:8002".to_string(),
+			),
+			Solver::new(
+				"fail-solver1".to_string(),
+				"mock-test-fail".to_string(), // Will fail
+				"http://localhost:8003".to_string(),
+			),
+		];
+
+		let storage = create_test_storage_with_solvers(solvers).await;
+		// Use config that includes unknown solvers for testing mixed success/failure scenarios
+		let test_config = AggregationConfig {
+			include_unknown_compatibility: true,
+			..AggregationConfig::default()
+		};
+		AggregatorService::with_config(
+			storage.clone(),
+			Arc::new(create_test_adapter_registry()),
+			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
+				as Arc<dyn IntegrityTrait>,
+			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
+			test_config,
+			None,
+			create_test_circuit_breaker(storage.clone()),
 			oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS, // Default timeout threshold
 		)
 	}
@@ -1722,13 +1829,14 @@ mod tests {
 			..AggregationConfig::default()
 		};
 		AggregatorService::with_config(
-			storage,
+			storage.clone(),
 			Arc::new(create_test_adapter_registry()),
 			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
 				as Arc<dyn IntegrityTrait>,
 			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
 			test_config,
 			None,
+			create_test_circuit_breaker(storage.clone()),
 			oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS, // Default timeout threshold
 		)
 	}
@@ -2961,7 +3069,10 @@ mod tests {
 		let (quotes, metadata) = result.unwrap();
 
 		// Should get quotes from all solvers (no circuit breaker filtering)
-		assert!(quotes.len() >= 1, "Should receive quotes without circuit breaker");
+		assert!(
+			quotes.len() >= 1,
+			"Should receive quotes without circuit breaker"
+		);
 		assert_eq!(metadata.solvers_queried, 3, "Should query all 3 solvers");
 		assert!(metadata.solvers_responded_success >= 1);
 	}
@@ -2970,17 +3081,14 @@ mod tests {
 	#[tokio::test]
 	async fn test_aggregator_with_circuit_breaker_disabled() {
 		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
-		
+
 		// Circuit breaker is disabled - should not call should_allow_request or record_request_result
-		mock_circuit_breaker
-			.expect_is_enabled()
-			.returning(|| false);
+		mock_circuit_breaker.expect_is_enabled().returning(|| false);
 
 		// No other expectations - disabled circuit breaker shouldn't be called
 
-		let aggregator = create_test_aggregator_with_demo_solvers(2)
-			.await
-			.with_circuit_breaker(Arc::new(mock_circuit_breaker));
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(2, Arc::new(mock_circuit_breaker)).await;
 
 		let request = create_valid_quote_request();
 		let result = aggregator.fetch_quotes(request).await;
@@ -2989,7 +3097,10 @@ mod tests {
 		let (quotes, metadata) = result.unwrap();
 
 		// Should get quotes from all solvers (circuit breaker disabled)
-		assert!(quotes.len() >= 1, "Should receive quotes with disabled circuit breaker");
+		assert!(
+			quotes.len() >= 1,
+			"Should receive quotes with disabled circuit breaker"
+		);
 		assert_eq!(metadata.solvers_queried, 2, "Should query all 2 solvers");
 	}
 
@@ -2997,12 +3108,10 @@ mod tests {
 	#[tokio::test]
 	async fn test_aggregator_with_circuit_breaker_all_allowed() {
 		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
-		
+
 		// Circuit breaker is enabled and allows all requests
-		mock_circuit_breaker
-			.expect_is_enabled()
-			.returning(|| true);
-		
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
 		mock_circuit_breaker
 			.expect_should_allow_request()
 			.returning(|_| true)
@@ -3010,9 +3119,8 @@ mod tests {
 
 		// Expect result recording for successful solvers
 
-		let aggregator = create_test_aggregator_with_demo_solvers(2)
-			.await
-			.with_circuit_breaker(Arc::new(mock_circuit_breaker));
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(2, Arc::new(mock_circuit_breaker)).await;
 
 		let request = create_valid_quote_request();
 		let result = aggregator.fetch_quotes(request).await;
@@ -3021,20 +3129,24 @@ mod tests {
 		let (quotes, metadata) = result.unwrap();
 
 		// Should get quotes from all allowed solvers
-		assert!(quotes.len() >= 1, "Should receive quotes from allowed solvers");
-		assert_eq!(metadata.solvers_queried, 2, "Should query all allowed solvers");
+		assert!(
+			quotes.len() >= 1,
+			"Should receive quotes from allowed solvers"
+		);
+		assert_eq!(
+			metadata.solvers_queried, 2,
+			"Should query all allowed solvers"
+		);
 	}
 
 	/// Test aggregator with circuit breaker enabled and some solvers blocked
 	#[tokio::test]
 	async fn test_aggregator_with_circuit_breaker_partial_blocking() {
 		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
-		
+
 		// Circuit breaker is enabled
-		mock_circuit_breaker
-			.expect_is_enabled()
-			.returning(|| true);
-		
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
 		// Allow first solver, block second solver
 		mock_circuit_breaker
 			.expect_should_allow_request()
@@ -3043,9 +3155,8 @@ mod tests {
 
 		// Only expect result recording for the allowed solver
 
-		let aggregator = create_test_aggregator_with_demo_solvers(2)
-			.await
-			.with_circuit_breaker(Arc::new(mock_circuit_breaker));
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(2, Arc::new(mock_circuit_breaker)).await;
 
 		let request = create_valid_quote_request();
 		let result = aggregator.fetch_quotes(request).await;
@@ -3054,8 +3165,14 @@ mod tests {
 		let (quotes, metadata) = result.unwrap();
 
 		// Should get quotes from allowed solver only
-		assert!(quotes.len() >= 1, "Should receive quotes from allowed solvers");
-		assert_eq!(metadata.solvers_queried, 1, "Should only query 1 allowed solver");
+		assert!(
+			quotes.len() >= 1,
+			"Should receive quotes from allowed solvers"
+		);
+		assert_eq!(
+			metadata.solvers_queried, 1,
+			"Should only query 1 allowed solver"
+		);
 		assert!(metadata.solvers_responded_success >= 1);
 	}
 
@@ -3063,12 +3180,10 @@ mod tests {
 	#[tokio::test]
 	async fn test_aggregator_with_circuit_breaker_all_blocked() {
 		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
-		
+
 		// Circuit breaker is enabled and blocks all requests
-		mock_circuit_breaker
-			.expect_is_enabled()
-			.returning(|| true);
-		
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
 		mock_circuit_breaker
 			.expect_should_allow_request()
 			.returning(|_| false)
@@ -3076,9 +3191,8 @@ mod tests {
 
 		// No result recording expected since no solvers are allowed
 
-		let aggregator = create_test_aggregator_with_demo_solvers(3)
-			.await
-			.with_circuit_breaker(Arc::new(mock_circuit_breaker));
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(3, Arc::new(mock_circuit_breaker)).await;
 
 		let request = create_valid_quote_request();
 		let result = aggregator.fetch_quotes(request).await;
@@ -3095,12 +3209,10 @@ mod tests {
 	#[tokio::test]
 	async fn test_circuit_breaker_result_recording() {
 		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
-		
+
 		// Circuit breaker is enabled and allows all requests
-		mock_circuit_breaker
-			.expect_is_enabled()
-			.returning(|| true);
-		
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
 		mock_circuit_breaker
 			.expect_should_allow_request()
 			.returning(|_| true)
@@ -3108,9 +3220,8 @@ mod tests {
 
 		// Verify that results are recorded with correct success status
 
-		let aggregator = create_test_aggregator_with_demo_solvers(2)
-			.await
-			.with_circuit_breaker(Arc::new(mock_circuit_breaker));
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(2, Arc::new(mock_circuit_breaker)).await;
 
 		let request = create_valid_quote_request();
 		let result = aggregator.fetch_quotes(request).await;
@@ -3124,12 +3235,10 @@ mod tests {
 	#[tokio::test]
 	async fn test_circuit_breaker_mixed_result_recording() {
 		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
-		
+
 		// Circuit breaker is enabled and allows all requests
-		mock_circuit_breaker
-			.expect_is_enabled()
-			.returning(|| true);
-		
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
 		mock_circuit_breaker
 			.expect_should_allow_request()
 			.returning(|_| true)
@@ -3137,9 +3246,10 @@ mod tests {
 
 		// Record results for mixed success/failure - some solvers will succeed, some will fail
 
-		let aggregator = create_test_aggregator_with_mixed_solvers()
-			.await
-			.with_circuit_breaker(Arc::new(mock_circuit_breaker));
+		let aggregator = create_test_aggregator_with_mixed_solvers_and_circuit_breaker(Arc::new(
+			mock_circuit_breaker,
+		))
+		.await;
 
 		let request = create_valid_quote_request();
 		let result = aggregator.fetch_quotes(request).await;
@@ -3158,12 +3268,10 @@ mod tests {
 	#[tokio::test]
 	async fn test_circuit_breaker_task_error_handling() {
 		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
-		
+
 		// Circuit breaker is enabled
-		mock_circuit_breaker
-			.expect_is_enabled()
-			.returning(|| true);
-		
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
 		// Allow first solver, return error for second (instead of panic for better test behavior)
 		mock_circuit_breaker
 			.expect_should_allow_request()
@@ -3176,9 +3284,8 @@ mod tests {
 		// Only expect recording for the successful solver (the one that was allowed and succeeded)
 		// Note: Recording is now handled by metrics handler, no longer by aggregator
 
-		let aggregator = create_test_aggregator_with_demo_solvers(2)
-			.await
-			.with_circuit_breaker(Arc::new(mock_circuit_breaker));
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(2, Arc::new(mock_circuit_breaker)).await;
 
 		let request = create_valid_quote_request();
 		let result = aggregator.fetch_quotes(request).await;
@@ -3189,24 +3296,25 @@ mod tests {
 
 		// Should get quotes from the one allowed solver
 		assert!(quotes.len() >= 1);
-		assert_eq!(metadata.solvers_queried, 1, "Only one solver should pass circuit breaker filtering");
+		assert_eq!(
+			metadata.solvers_queried, 1,
+			"Only one solver should pass circuit breaker filtering"
+		);
 	}
 
 	/// Test circuit breaker with empty solver list (edge case)
 	#[tokio::test]
 	async fn test_circuit_breaker_with_empty_solvers() {
 		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
-		
+
 		// Circuit breaker should not be called with empty solver list
-		mock_circuit_breaker
-			.expect_is_enabled()
-			.returning(|| true);
-		
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
 		// No expectations for should_allow_request since there are no solvers
 
-		let aggregator = create_test_aggregator() // No solvers
-			.await
-			.with_circuit_breaker(Arc::new(mock_circuit_breaker));
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker_no_solvers(Arc::new(mock_circuit_breaker))
+				.await;
 
 		let request = create_valid_quote_request();
 		let result = aggregator.fetch_quotes(request).await;
@@ -3223,12 +3331,10 @@ mod tests {
 	#[tokio::test]
 	async fn test_circuit_breaker_with_early_termination() {
 		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
-		
+
 		// Circuit breaker is enabled and allows all requests
-		mock_circuit_breaker
-			.expect_is_enabled()
-			.returning(|| true);
-		
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
 		mock_circuit_breaker
 			.expect_should_allow_request()
 			.returning(|_| true)
@@ -3237,9 +3343,8 @@ mod tests {
 		// Expect result recording, but early termination might cancel some requests
 		// Note: Recording is now handled by metrics handler, no longer by aggregator
 
-		let aggregator = create_test_aggregator_with_demo_solvers(3)
-			.await
-			.with_circuit_breaker(Arc::new(mock_circuit_breaker));
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(3, Arc::new(mock_circuit_breaker)).await;
 
 		let options = SolverOptions {
 			include_solvers: None,
@@ -3262,7 +3367,7 @@ mod tests {
 
 		// Should get at least 1 quote and terminate early
 		assert!(quotes.len() >= 1);
-		
+
 		// Should terminate quickly due to early termination
 		assert!(
 			elapsed.as_millis() < 3000,
@@ -3279,12 +3384,10 @@ mod tests {
 	#[tokio::test]
 	async fn test_circuit_breaker_with_solver_selection_strategies() {
 		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
-		
+
 		// Circuit breaker is enabled
-		mock_circuit_breaker
-			.expect_is_enabled()
-			.returning(|| true);
-		
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
 		// Allow all requests (circuit breaker filtering happens before solver selection)
 		mock_circuit_breaker
 			.expect_should_allow_request()
@@ -3294,9 +3397,8 @@ mod tests {
 		// Expect result recording for the sampled solvers (may be less due to sampling randomness)
 		// Note: Recording is now handled by metrics handler, no longer by aggregator
 
-		let aggregator = create_test_aggregator_with_demo_solvers(5)
-			.await
-			.with_circuit_breaker(Arc::new(mock_circuit_breaker));
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(5, Arc::new(mock_circuit_breaker)).await;
 
 		let options = SolverOptions {
 			include_solvers: None,
@@ -3317,7 +3419,10 @@ mod tests {
 
 		// Should get quotes from sampled solvers
 		assert!(quotes.len() >= 1);
-		assert_eq!(metadata.solvers_queried, 2, "Should query 2 sampled solvers");
+		assert_eq!(
+			metadata.solvers_queried, 2,
+			"Should query 2 sampled solvers"
+		);
 		assert_eq!(metadata.solver_selection_mode, SolverSelection::Sampled);
 	}
 
@@ -3325,12 +3430,10 @@ mod tests {
 	#[tokio::test]
 	async fn test_circuit_breaker_concurrent_performance() {
 		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
-		
+
 		// Circuit breaker is enabled
-		mock_circuit_breaker
-			.expect_is_enabled()
-			.returning(|| true);
-		
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
 		// Add small delays to simulate circuit breaker decision time
 		mock_circuit_breaker
 			.expect_should_allow_request()
@@ -3343,9 +3446,8 @@ mod tests {
 
 		// Note: Recording is now handled by metrics handler, no longer by aggregator
 
-		let aggregator = create_test_aggregator_with_demo_solvers(5)
-			.await
-			.with_circuit_breaker(Arc::new(mock_circuit_breaker));
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(5, Arc::new(mock_circuit_breaker)).await;
 
 		let request = create_valid_quote_request();
 		let start_time = std::time::Instant::now();
@@ -3373,12 +3475,10 @@ mod tests {
 	#[tokio::test]
 	async fn test_circuit_breaker_solver_filtering_chain() {
 		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
-		
+
 		// Circuit breaker is enabled
-		mock_circuit_breaker
-			.expect_is_enabled()
-			.returning(|| true);
-		
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
 		// Block one solver, allow others
 		mock_circuit_breaker
 			.expect_should_allow_request()
@@ -3388,9 +3488,8 @@ mod tests {
 		// Expect recording for allowed solvers that also pass inclusion filter
 		// Note: Recording is now handled by metrics handler, no longer by aggregator
 
-		let aggregator = create_test_aggregator_with_demo_solvers(3)
-			.await
-			.with_circuit_breaker(Arc::new(mock_circuit_breaker));
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(3, Arc::new(mock_circuit_breaker)).await;
 
 		// Apply additional solver filtering after circuit breaker
 		let options = SolverOptions {
@@ -3414,6 +3513,9 @@ mod tests {
 		// demo-solver3 is blocked by circuit breaker
 		// demo-solver2 is excluded by inclusion filter
 		assert!(quotes.len() >= 1);
-		assert_eq!(metadata.solvers_queried, 1, "Only demo-solver1 should pass all filters");
+		assert_eq!(
+			metadata.solvers_queried, 1,
+			"Only demo-solver1 should pass all filters"
+		);
 	}
 }

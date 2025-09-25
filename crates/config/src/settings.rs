@@ -1616,6 +1616,6 @@ mod tests {
 		// Verify that resolved config has our override and defaults
 		let circuit_config = settings.get_circuit_breaker();
 		assert_eq!(circuit_config.failure_threshold, 3); // Our override
-		assert_eq!(circuit_config.success_rate_threshold, 0.3); // Default
+		assert_eq!(circuit_config.success_rate_threshold, 0.2); // Default
 	}
 }

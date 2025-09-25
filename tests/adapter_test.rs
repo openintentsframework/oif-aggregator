@@ -4,7 +4,8 @@ use std::sync::Arc;
 
 use oif_adapters::AdapterRegistry;
 use oif_aggregator::{service::IntegrityService, AggregatorBuilder};
-use oif_service::aggregator::AggregatorService;
+use oif_config::CircuitBreakerSettings;
+use oif_service::{aggregator::AggregatorService, CircuitBreakerService};
 use oif_types::orders::OrderStatus;
 
 mod mocks;
@@ -91,11 +92,15 @@ async fn test_aggregation_service_creation() {
 	}
 
 	let service = AggregatorService::new(
-		storage,
+		storage.clone(),
 		adapter_registry,
 		integrity_service,
 		Arc::new(oif_service::SolverFilterService::new())
 			as Arc<dyn oif_service::SolverFilterTrait>,
+		Arc::new(CircuitBreakerService::new(
+			storage.clone(),
+			CircuitBreakerSettings::default(),
+		)),
 	);
 
 	// Just verify service was created successfully

@@ -36,6 +36,10 @@ pub struct CircuitBreakerState {
 	pub reason: Option<String>,
 	/// Number of test requests made in half-open state
 	pub test_request_count: u32,
+	/// Number of successful test requests in half-open state
+	pub successful_test_requests: u32,
+	/// Number of failed test requests in half-open state
+	pub failed_test_requests: u32,
 	/// Number of times recovery has been attempted and failed
 	pub recovery_attempt_count: u32,
 	/// When this circuit breaker state was created
@@ -57,6 +61,8 @@ impl CircuitBreakerState {
 			next_test_at: None,
 			reason: None,
 			test_request_count: 0,
+			successful_test_requests: 0,
+			failed_test_requests: 0,
 			recovery_attempt_count: 0,
 			created_at: now,
 			last_updated: now,
@@ -80,6 +86,8 @@ impl CircuitBreakerState {
 			next_test_at: Some(now + timeout_duration),
 			reason: Some(reason),
 			test_request_count: 0,
+			successful_test_requests: 0,
+			failed_test_requests: 0,
 			recovery_attempt_count: 0,
 			created_at: now,
 			last_updated: now,
@@ -98,6 +106,8 @@ impl CircuitBreakerState {
 			next_test_at: None,
 			reason: None,
 			test_request_count: 0,
+			successful_test_requests: 0,
+			failed_test_requests: 0,
 			recovery_attempt_count: 0,
 			created_at: now,
 			last_updated: now,
@@ -180,15 +190,23 @@ mod tests {
 		assert!(state.reason.is_none());
 		assert_eq!(state.test_request_count, 0);
 		assert_eq!(state.recovery_attempt_count, 0);
-		
+
 		// Timestamps should be recent (within 1 second)
 		let now = Utc::now();
 		let time_diff = (now - state.created_at).num_milliseconds().abs();
-		assert!(time_diff < 1000, "created_at should be recent, diff: {}ms", time_diff);
-		
+		assert!(
+			time_diff < 1000,
+			"created_at should be recent, diff: {}ms",
+			time_diff
+		);
+
 		let time_diff = (now - state.last_updated).num_milliseconds().abs();
-		assert!(time_diff < 1000, "last_updated should be recent, diff: {}ms", time_diff);
-		
+		assert!(
+			time_diff < 1000,
+			"last_updated should be recent, diff: {}ms",
+			time_diff
+		);
+
 		assert_eq!(state.created_at, state.last_updated);
 	}
 
@@ -225,7 +243,7 @@ mod tests {
 		let now = Utc::now();
 		let time_diff = (now - state.created_at).num_milliseconds().abs();
 		assert!(time_diff < 1000, "created_at should be recent");
-		
+
 		assert_eq!(state.created_at, state.last_updated);
 	}
 
@@ -248,20 +266,26 @@ mod tests {
 		let now = Utc::now();
 		let time_diff = (now - state.created_at).num_milliseconds().abs();
 		assert!(time_diff < 1000, "created_at should be recent");
-		
+
 		assert_eq!(state.created_at, state.last_updated);
 	}
 
 	#[test]
 	fn test_should_attempt_reset_closed_state() {
 		let state = CircuitBreakerState::new_closed("test-solver".to_string());
-		assert!(!state.should_attempt_reset(), "Closed circuit should not attempt reset");
+		assert!(
+			!state.should_attempt_reset(),
+			"Closed circuit should not attempt reset"
+		);
 	}
 
 	#[test]
 	fn test_should_attempt_reset_half_open_state() {
 		let state = CircuitBreakerState::new_half_open("test-solver".to_string());
-		assert!(!state.should_attempt_reset(), "Half-open circuit should not attempt reset");
+		assert!(
+			!state.should_attempt_reset(),
+			"Half-open circuit should not attempt reset"
+		);
 	}
 
 	#[test]
@@ -272,7 +296,10 @@ mod tests {
 		let state = CircuitBreakerState::new_open(solver_id, reason, timeout_duration, 3);
 
 		// Should not be ready immediately after creation
-		assert!(!state.should_attempt_reset(), "Should not be ready for reset immediately");
+		assert!(
+			!state.should_attempt_reset(),
+			"Should not be ready for reset immediately"
+		);
 	}
 
 	#[test]
@@ -284,8 +311,11 @@ mod tests {
 
 		// Wait a bit to ensure timeout has passed
 		std::thread::sleep(std::time::Duration::from_millis(5));
-		
-		assert!(state.should_attempt_reset(), "Should be ready for reset after timeout");
+
+		assert!(
+			state.should_attempt_reset(),
+			"Should be ready for reset after timeout"
+		);
 	}
 
 	#[test]
@@ -296,11 +326,14 @@ mod tests {
 			Duration::seconds(30),
 			3,
 		);
-		
+
 		// Manually clear next_test_at to test edge case
 		state.next_test_at = None;
-		
-		assert!(!state.should_attempt_reset(), "Should not attempt reset without next_test_at");
+
+		assert!(
+			!state.should_attempt_reset(),
+			"Should not attempt reset without next_test_at"
+		);
 	}
 
 	#[test]
@@ -311,57 +344,91 @@ mod tests {
 
 		// Wait a small amount to ensure timestamp difference
 		std::thread::sleep(std::time::Duration::from_millis(10));
-		
+
 		state.touch();
 
-		assert_eq!(state.created_at, original_created, "created_at should not change");
-		assert!(state.last_updated > original_updated, "last_updated should be newer");
-		
+		assert_eq!(
+			state.created_at, original_created,
+			"created_at should not change"
+		);
+		assert!(
+			state.last_updated > original_updated,
+			"last_updated should be newer"
+		);
+
 		// Verify last_updated is recent
 		let now = Utc::now();
 		let time_diff = (now - state.last_updated).num_milliseconds().abs();
-		assert!(time_diff < 1000, "last_updated should be very recent after touch()");
+		assert!(
+			time_diff < 1000,
+			"last_updated should be very recent after touch()"
+		);
 	}
 
 	#[test]
 	fn test_circuit_decision_closed_allows_request() {
 		let decision = CircuitDecision::Closed;
-		assert!(decision.allows_request(), "Closed decision should allow requests");
-		assert!(decision.reason().is_none(), "Closed decision should have no reason");
+		assert!(
+			decision.allows_request(),
+			"Closed decision should allow requests"
+		);
+		assert!(
+			decision.reason().is_none(),
+			"Closed decision should have no reason"
+		);
 	}
 
 	#[test]
 	fn test_circuit_decision_open_blocks_request() {
 		let reason = "High failure rate".to_string();
-		let decision = CircuitDecision::Open { reason: reason.clone() };
-		
-		assert!(!decision.allows_request(), "Open decision should block requests");
-		assert_eq!(decision.reason(), Some(reason.as_str()), "Open decision should return reason");
+		let decision = CircuitDecision::Open {
+			reason: reason.clone(),
+		};
+
+		assert!(
+			!decision.allows_request(),
+			"Open decision should block requests"
+		);
+		assert_eq!(
+			decision.reason(),
+			Some(reason.as_str()),
+			"Open decision should return reason"
+		);
 	}
 
 	#[test]
 	fn test_circuit_decision_inconclusive_blocks_request() {
 		let decision = CircuitDecision::Inconclusive;
-		assert!(!decision.allows_request(), "Inconclusive decision should block requests (fail-safe)");
-		assert!(decision.reason().is_none(), "Inconclusive decision should have no reason");
+		assert!(
+			!decision.allows_request(),
+			"Inconclusive decision should block requests (fail-safe)"
+		);
+		assert!(
+			decision.reason().is_none(),
+			"Inconclusive decision should have no reason"
+		);
 	}
 
 	#[test]
 	fn test_circuit_decision_equality() {
 		assert_eq!(CircuitDecision::Closed, CircuitDecision::Closed);
 		assert_eq!(CircuitDecision::Inconclusive, CircuitDecision::Inconclusive);
-		
+
 		let reason1 = "Same reason".to_string();
 		let reason2 = "Same reason".to_string();
 		assert_eq!(
 			CircuitDecision::Open { reason: reason1 },
 			CircuitDecision::Open { reason: reason2 }
 		);
-		
+
 		let different_reason = "Different reason".to_string();
 		assert_ne!(
-			CircuitDecision::Open { reason: "Same reason".to_string() },
-			CircuitDecision::Open { reason: different_reason }
+			CircuitDecision::Open {
+				reason: "Same reason".to_string()
+			},
+			CircuitDecision::Open {
+				reason: different_reason
+			}
 		);
 	}
 
@@ -370,7 +437,7 @@ mod tests {
 		assert_eq!(CircuitState::Closed, CircuitState::Closed);
 		assert_eq!(CircuitState::Open, CircuitState::Open);
 		assert_eq!(CircuitState::HalfOpen, CircuitState::HalfOpen);
-		
+
 		assert_ne!(CircuitState::Closed, CircuitState::Open);
 		assert_ne!(CircuitState::Open, CircuitState::HalfOpen);
 		assert_ne!(CircuitState::HalfOpen, CircuitState::Closed);
@@ -378,13 +445,31 @@ mod tests {
 
 	#[test]
 	fn test_persistent_failure_action_equality() {
-		assert_eq!(PersistentFailureAction::KeepTrying, PersistentFailureAction::KeepTrying);
-		assert_eq!(PersistentFailureAction::DisableSolver, PersistentFailureAction::DisableSolver);
-		assert_eq!(PersistentFailureAction::ExtendTimeout, PersistentFailureAction::ExtendTimeout);
-		
-		assert_ne!(PersistentFailureAction::KeepTrying, PersistentFailureAction::DisableSolver);
-		assert_ne!(PersistentFailureAction::DisableSolver, PersistentFailureAction::ExtendTimeout);
-		assert_ne!(PersistentFailureAction::ExtendTimeout, PersistentFailureAction::KeepTrying);
+		assert_eq!(
+			PersistentFailureAction::KeepTrying,
+			PersistentFailureAction::KeepTrying
+		);
+		assert_eq!(
+			PersistentFailureAction::DisableSolver,
+			PersistentFailureAction::DisableSolver
+		);
+		assert_eq!(
+			PersistentFailureAction::ExtendTimeout,
+			PersistentFailureAction::ExtendTimeout
+		);
+
+		assert_ne!(
+			PersistentFailureAction::KeepTrying,
+			PersistentFailureAction::DisableSolver
+		);
+		assert_ne!(
+			PersistentFailureAction::DisableSolver,
+			PersistentFailureAction::ExtendTimeout
+		);
+		assert_ne!(
+			PersistentFailureAction::ExtendTimeout,
+			PersistentFailureAction::KeepTrying
+		);
 	}
 
 	#[test]
@@ -398,17 +483,23 @@ mod tests {
 
 		// Test serialization to JSON
 		let json = serde_json::to_string(&state).expect("Should serialize to JSON");
-		assert!(json.contains("test-solver"), "JSON should contain solver_id");
+		assert!(
+			json.contains("test-solver"),
+			"JSON should contain solver_id"
+		);
 		assert!(json.contains("Test reason"), "JSON should contain reason");
 
 		// Test deserialization from JSON
-		let deserialized: CircuitBreakerState = serde_json::from_str(&json)
-			.expect("Should deserialize from JSON");
-		
+		let deserialized: CircuitBreakerState =
+			serde_json::from_str(&json).expect("Should deserialize from JSON");
+
 		assert_eq!(deserialized.solver_id, state.solver_id);
 		assert_eq!(deserialized.state, state.state);
 		assert_eq!(deserialized.reason, state.reason);
-		assert_eq!(deserialized.failure_count_when_opened, state.failure_count_when_opened);
+		assert_eq!(
+			deserialized.failure_count_when_opened,
+			state.failure_count_when_opened
+		);
 	}
 
 	#[test]
@@ -423,9 +514,18 @@ mod tests {
 		assert_eq!(serde_json::to_string(&half_open).unwrap(), "\"HalfOpen\"");
 
 		// Test deserialization
-		assert_eq!(serde_json::from_str::<CircuitState>("\"Closed\"").unwrap(), CircuitState::Closed);
-		assert_eq!(serde_json::from_str::<CircuitState>("\"Open\"").unwrap(), CircuitState::Open);
-		assert_eq!(serde_json::from_str::<CircuitState>("\"HalfOpen\"").unwrap(), CircuitState::HalfOpen);
+		assert_eq!(
+			serde_json::from_str::<CircuitState>("\"Closed\"").unwrap(),
+			CircuitState::Closed
+		);
+		assert_eq!(
+			serde_json::from_str::<CircuitState>("\"Open\"").unwrap(),
+			CircuitState::Open
+		);
+		assert_eq!(
+			serde_json::from_str::<CircuitState>("\"HalfOpen\"").unwrap(),
+			CircuitState::HalfOpen
+		);
 	}
 
 	#[test]
@@ -435,9 +535,18 @@ mod tests {
 		let extend_timeout = PersistentFailureAction::ExtendTimeout;
 
 		// Test serialization
-		assert_eq!(serde_json::to_string(&keep_trying).unwrap(), "\"KeepTrying\"");
-		assert_eq!(serde_json::to_string(&disable_solver).unwrap(), "\"DisableSolver\"");
-		assert_eq!(serde_json::to_string(&extend_timeout).unwrap(), "\"ExtendTimeout\"");
+		assert_eq!(
+			serde_json::to_string(&keep_trying).unwrap(),
+			"\"KeepTrying\""
+		);
+		assert_eq!(
+			serde_json::to_string(&disable_solver).unwrap(),
+			"\"DisableSolver\""
+		);
+		assert_eq!(
+			serde_json::to_string(&extend_timeout).unwrap(),
+			"\"ExtendTimeout\""
+		);
 
 		// Test deserialization
 		assert_eq!(

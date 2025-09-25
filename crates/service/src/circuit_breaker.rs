@@ -11,6 +11,18 @@ use oif_types::{CircuitBreakerState, CircuitDecision, CircuitState, Solver};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
+/// Threshold for consecutive failures that triggers rate-based checks
+/// Only when a solver has this many consecutive failures do we examine historical rates
+const RATE_CHECK_FAILURE_THRESHOLD: u32 = 5;
+
+/// Result of rate calculation with context
+#[derive(Debug)]
+struct RateCheckResult {
+	rate: f64,
+	total_requests: u64,
+	data_source: &'static str,
+}
+
 /// Trait for circuit breaker operations (enables easy testing and mocking)
 #[cfg_attr(test, mockall::automock)]
 #[async_trait]
@@ -37,6 +49,172 @@ impl CircuitBreakerService {
 		Self { storage, config }
 	}
 
+	/// Check if metrics are fresh enough for decision making
+	fn are_metrics_fresh(
+		&self,
+		metrics: &oif_types::solvers::SolverMetrics,
+	) -> Option<chrono::Duration> {
+		let metrics_age = Utc::now().signed_duration_since(metrics.last_updated);
+		let max_age = chrono::Duration::minutes(self.config.metrics_max_age_minutes as i64);
+
+		if metrics_age >= max_age {
+			None // Stale
+		} else {
+			Some(metrics_age) // Fresh, return age
+		}
+	}
+
+	/// Check if we should examine rate-based metrics (only when there are consecutive failures)
+	fn should_check_rates(&self, consecutive_failures: u32) -> bool {
+		consecutive_failures >= RATE_CHECK_FAILURE_THRESHOLD
+	}
+
+	/// Calculate rate from metrics with intelligent fallback logic
+	/// Returns (rate, requests_used, data_source_name)
+	fn calculate_rate(
+		&self,
+		metrics: &oif_types::solvers::SolverMetrics,
+		get_recent: impl Fn(&oif_types::solvers::SolverMetrics) -> (u64, u64), // (total, specific_count)
+		get_lifetime: impl Fn(&oif_types::solvers::SolverMetrics) -> (u64, u64), // (total, specific_count)
+		default_rate: f64,
+	) -> RateCheckResult {
+		let (recent_total, recent_specific) = get_recent(metrics);
+
+		if recent_total >= self.config.min_requests_for_rate_check {
+			// Sufficient windowed data - use recent metrics
+			let rate = if recent_total > 0 {
+				recent_specific as f64 / recent_total as f64
+			} else {
+				default_rate
+			};
+			RateCheckResult {
+				rate,
+				total_requests: recent_total,
+				data_source: "recent",
+			}
+		} else {
+			let (lifetime_total, lifetime_specific) = get_lifetime(metrics);
+			if lifetime_total >= self.config.min_requests_for_rate_check {
+				// Insufficient windowed data but sufficient lifetime data
+				let rate = if lifetime_total > 0 {
+					lifetime_specific as f64 / lifetime_total as f64
+				} else {
+					default_rate
+				};
+				RateCheckResult {
+					rate,
+					total_requests: lifetime_total,
+					data_source: "lifetime_fallback",
+				}
+			} else {
+				// Insufficient data overall - skip rate check
+				RateCheckResult {
+					rate: default_rate,
+					total_requests: 0,
+					data_source: "",
+				}
+			}
+		}
+	}
+
+	/// Calculate success rate using intelligent fallback
+	fn calculate_success_rate(
+		&self,
+		metrics: &oif_types::solvers::SolverMetrics,
+	) -> RateCheckResult {
+		self.calculate_rate(
+			metrics,
+			|m| (m.recent_total_requests, m.recent_successful_requests),
+			|m| (m.total_requests, m.successful_requests),
+			1.0, // Default to good success rate when no data
+		)
+	}
+
+	/// Calculate service error rate using intelligent fallback  
+	fn calculate_service_error_rate(
+		&self,
+		metrics: &oif_types::solvers::SolverMetrics,
+	) -> RateCheckResult {
+		self.calculate_rate(
+			metrics,
+			|m| (m.recent_total_requests, m.recent_service_errors),
+			|m| (m.total_requests, m.service_errors),
+			0.0, // Default to no service errors when no data
+		)
+	}
+
+	/// Shared hybrid decision logic for half-open state transitions
+	fn evaluate_half_open_decision(&self, circuit_state: &CircuitBreakerState) -> Option<bool> {
+		let total_results =
+			circuit_state.successful_test_requests + circuit_state.failed_test_requests;
+
+		if total_results == 0 {
+			return None; // No results yet
+		}
+
+		let success_rate = circuit_state.successful_test_requests as f64 / total_results as f64;
+
+		// Smart hybrid decision logic
+		if total_results >= 2 {
+			// Early decision with multiple samples
+			if circuit_state.successful_test_requests >= 2 && success_rate >= 0.6 {
+				// Multiple successes with good rate → close
+				Some(true)
+			} else if circuit_state.failed_test_requests >= 2 && success_rate <= 0.4 {
+				// Multiple failures with bad rate → keep open
+				Some(false)
+			} else if total_results >= self.config.half_open_max_calls {
+				// Reached max calls → decide based on success rate threshold
+				Some(success_rate >= self.config.success_rate_threshold)
+			} else {
+				// Need more samples
+				None
+			}
+		} else if total_results >= self.config.half_open_max_calls {
+			// Single result but reached max calls → decide based on success rate threshold
+			Some(success_rate >= self.config.success_rate_threshold)
+		} else {
+			// Need more samples
+			None
+		}
+	}
+
+	/// Evaluate if we can make an immediate decision to avoid async race conditions
+	fn evaluate_immediate_half_open_decision(
+		&self,
+		circuit_state: &CircuitBreakerState,
+	) -> Option<bool> {
+		self.evaluate_half_open_decision(circuit_state)
+	}
+
+	/// Update the half-open test results and save to storage  
+	async fn update_half_open_test_results(
+		&self,
+		solver_id: &str,
+		mut circuit_state: CircuitBreakerState,
+	) {
+		circuit_state.touch(); // Update timestamp
+
+		if let Err(e) = self
+			.storage
+			.update_solver_circuit_state(circuit_state.clone())
+			.await
+		{
+			warn!(
+				"Failed to update half-open test results for solver '{}': {}",
+				solver_id, e
+			);
+		} else {
+			debug!(
+				"Updated half-open test results for solver '{}': {} successes, {} failures, need {} more results",
+				solver_id,
+				circuit_state.successful_test_requests,
+				circuit_state.failed_test_requests,
+				self.config.half_open_max_calls.saturating_sub(circuit_state.successful_test_requests + circuit_state.failed_test_requests)
+			);
+		}
+	}
+
 	/// PRIMARY DECISION LOGIC: Fast evaluation using existing SolverMetrics
 	///
 	/// This method implements the core circuit breaker logic without async operations
@@ -44,21 +222,21 @@ impl CircuitBreakerService {
 	pub fn should_open_primary(&self, solver: &Solver) -> CircuitDecision {
 		let metrics = &solver.metrics;
 
-		// Early return for stale metrics - avoid all metrics-based checks if data is too old
-		let metrics_age = Utc::now().signed_duration_since(metrics.last_updated);
-		let max_age = chrono::Duration::minutes(self.config.metrics_max_age_minutes as i64);
+		// Check if metrics are fresh enough for decision making
+		let metrics_age = match self.are_metrics_fresh(metrics) {
+			Some(age) => age,
+			None => {
+				debug!(
+					"Skipping metrics-based checks for solver '{}' - metrics are {} minutes old (max: {})",
+                solver.solver_id,
+					Utc::now().signed_duration_since(metrics.last_updated).num_minutes(),
+                self.config.metrics_max_age_minutes
+            );
+				return CircuitDecision::Inconclusive; // Can't decide with stale data
+			},
+		};
 
-		if metrics_age >= max_age {
-			debug!(
-				"Skipping metrics-based checks for solver '{}' - metrics are {} minutes old (max: {})",
-				solver.solver_id,
-				metrics_age.num_minutes(),
-				self.config.metrics_max_age_minutes
-			);
-			return CircuitDecision::Inconclusive; // Can't decide with stale data
-		}
-
-		// 1. Consecutive failures threshold
+		// 1. Consecutive failures threshold (immediate danger check)
 		if metrics.consecutive_failures >= self.config.failure_threshold {
 			return CircuitDecision::Open {
 				reason: format!(
@@ -69,75 +247,46 @@ impl CircuitBreakerService {
 			};
 		}
 
-		// 2. Success rate check with intelligent fallback
-		let (success_rate, total_requests, data_source) =
-			if metrics.recent_total_requests >= self.config.min_requests_for_rate_check {
-				// Sufficient windowed data - use recent metrics
-				let rate = if metrics.recent_total_requests > 0 {
-					metrics.recent_successful_requests as f64 / metrics.recent_total_requests as f64
-				} else {
-					1.0
-				};
-				(rate, metrics.recent_total_requests, "recent")
-			} else if metrics.total_requests >= self.config.min_requests_for_rate_check {
-				// Insufficient windowed data but sufficient lifetime data - fallback to lifetime
-				let rate = if metrics.total_requests > 0 {
-					metrics.successful_requests as f64 / metrics.total_requests as f64
-				} else {
-					1.0
-				};
-				(rate, metrics.total_requests, "lifetime_fallback")
-			} else {
-				// Insufficient data overall - skip rate check
-				(1.0, 0, "")
-			};
+		// Only examine historical rates when there are signs of trouble (consecutive failures)
+		if !self.should_check_rates(metrics.consecutive_failures) {
+			debug!(
+				"Skipping rate checks for solver '{}' - no consecutive failures ({})",
+				solver.solver_id, metrics.consecutive_failures
+			);
+			return CircuitDecision::Closed;
+		}
 
-		if total_requests > 0 && success_rate < self.config.success_rate_threshold {
+		// 2. Success rate check (when consecutive failures indicate potential issues)
+		let success_result = self.calculate_success_rate(metrics);
+		if success_result.total_requests > 0
+			&& success_result.rate < self.config.success_rate_threshold
+		{
 			return CircuitDecision::Open {
 				reason: format!(
 					"success_rate_{}: {:.2} (over {} requests, window: {}min, metrics age: {}min)",
-					data_source,
-					success_rate,
-					total_requests,
+					success_result.data_source,
+					success_result.rate,
+					success_result.total_requests,
 					self.config.metrics_window_duration_minutes,
 					metrics_age.num_minutes()
 				),
 			};
 		}
 
-		// 3. Service error rate check with intelligent fallback
-		let (service_error_rate, total_requests, data_source) =
-			if metrics.recent_total_requests >= self.config.min_requests_for_rate_check {
-				// Sufficient windowed data - use recent metrics
-				let rate = if metrics.recent_total_requests > 0 {
-					metrics.recent_service_errors as f64 / metrics.recent_total_requests as f64
-				} else {
-					0.0
-				};
-				(rate, metrics.recent_total_requests, "recent")
-			} else if metrics.total_requests >= self.config.min_requests_for_rate_check {
-				// Insufficient windowed data but sufficient lifetime data - fallback to lifetime
-				let rate = if metrics.total_requests > 0 {
-					metrics.service_errors as f64 / metrics.total_requests as f64
-				} else {
-					0.0
-				};
-				(rate, metrics.total_requests, "lifetime_fallback")
-			} else {
-				// Insufficient data overall - skip error rate check
-				(0.0, 0, "")
-			};
-
-		if total_requests > 0 && service_error_rate > self.config.service_error_threshold {
+		// 3. Service error rate check (when consecutive failures indicate potential issues)
+		let error_result = self.calculate_service_error_rate(metrics);
+		if error_result.total_requests > 0
+			&& error_result.rate > self.config.service_error_threshold
+		{
 			return CircuitDecision::Open {
 				reason: format!(
 					"service_error_rate_{}: {:.2} (over {} requests, window: {}min, metrics age: {}min)",
-					data_source,
-					service_error_rate,
-					total_requests,
+					error_result.data_source,
+					error_result.rate,
+					error_result.total_requests,
 					self.config.metrics_window_duration_minutes,
-					metrics_age.num_minutes()
-				),
+						metrics_age.num_minutes()
+					),
 			};
 		}
 
@@ -145,14 +294,14 @@ impl CircuitBreakerService {
 		CircuitDecision::Closed
 	}
 
-	/// Calculate exponential backoff timeout duration
-	fn calculate_timeout_duration(&self, failure_count: u32) -> Duration {
+	/// Calculate exponential backoff timeout duration based on recovery attempts
+	fn calculate_timeout_duration(&self, recovery_attempts: u32) -> Duration {
 		let base = self.config.base_timeout_seconds;
 		let max_timeout = self.config.max_timeout_seconds;
 
-		// Exponential backoff: base * 2^failure_count, capped at max
+		// Exponential backoff: base * 2^recovery_attempts, capped at max
 		let timeout_seconds = std::cmp::min(
-			base * 2_u64.pow(failure_count.min(10)), // Cap exponent to prevent overflow
+			base * 2_u64.pow(recovery_attempts.min(10)), // Cap exponent to prevent overflow
 			max_timeout,
 		);
 
@@ -161,7 +310,7 @@ impl CircuitBreakerService {
 
 	/// Transition circuit to open state
 	async fn transition_to_open(&self, solver_id: String, reason: String, failure_count: u32) {
-		let timeout_duration = self.calculate_timeout_duration(failure_count);
+		let timeout_duration = self.calculate_timeout_duration(0); // First recovery attempt
 		let state =
 			CircuitBreakerState::new_open(solver_id, reason, timeout_duration, failure_count);
 
@@ -225,7 +374,7 @@ impl CircuitBreakerService {
 		failure_count: u32,
 		recovery_attempts: u32,
 	) {
-		let timeout_duration = self.calculate_timeout_duration(failure_count);
+		let timeout_duration = self.calculate_timeout_duration(recovery_attempts);
 		let mut state = CircuitBreakerState::new_open(
 			solver_id.clone(),
 			reason.clone(),
@@ -322,6 +471,10 @@ impl CircuitBreakerTrait for CircuitBreakerService {
 
 	/// Main request filtering logic - determines if requests should be allowed
 	async fn should_allow_request(&self, solver: &Solver) -> bool {
+		if !self.is_enabled() {
+			return true;
+		}
+
 		// Fast path: check primary decision logic first
 		let primary_decision = self.should_open_primary(solver);
 
@@ -364,6 +517,8 @@ impl CircuitBreakerTrait for CircuitBreakerService {
 			},
 		};
 
+		// Debug: println!("circuit_state: {:?}", circuit_state);
+
 		// Handle existing circuit state
 		match circuit_state.state {
 			CircuitState::Closed => {
@@ -397,8 +552,44 @@ impl CircuitBreakerTrait for CircuitBreakerService {
 			},
 
 			CircuitState::HalfOpen => {
-				// Half-open state - allow limited test requests
-				if circuit_state.test_request_count < self.config.half_open_max_calls {
+				// Check if we can make an immediate decision to avoid race conditions
+				if let Some(should_close) =
+					self.evaluate_immediate_half_open_decision(&circuit_state)
+				{
+					if should_close {
+						// Circuit should close - allow request and transition immediately
+						self.transition_to_closed(solver.solver_id.clone()).await;
+						return true;
+					} else {
+						// Circuit should reopen - block request and transition with recovery attempts
+						let new_recovery_attempts = circuit_state.recovery_attempt_count + 1;
+						let failure_count = circuit_state.failure_count_when_opened
+							+ circuit_state.failed_test_requests;
+
+						if new_recovery_attempts >= self.config.max_recovery_attempts {
+							// Handle persistent failure
+							self.handle_persistent_failure(
+								solver.solver_id.clone(),
+								new_recovery_attempts,
+							)
+							.await;
+						} else {
+							// Reopen with incremented recovery attempts
+							self.transition_to_open_with_attempts(
+								solver.solver_id.clone(),
+								"immediate_failure_decision".to_string(),
+								failure_count,
+								new_recovery_attempts,
+							)
+							.await;
+						}
+						return false;
+					}
+				}
+
+				// Half-open state - allow limited test requests with buffer for async processing
+				let effective_max_calls = self.config.half_open_max_calls + 1; // Built-in buffer of 1
+				if circuit_state.test_request_count < effective_max_calls {
 					// Increment test request count and save updated state
 					let mut updated_state = circuit_state.clone();
 					updated_state.test_request_count += 1;
@@ -437,7 +628,7 @@ impl CircuitBreakerTrait for CircuitBreakerService {
 
 	/// Record the result of a request to update circuit breaker state
 	async fn record_request_result(&self, solver_id: &str, success: bool) {
-		let circuit_state = match self.storage.get_solver_circuit_state(solver_id).await {
+		let mut circuit_state = match self.storage.get_solver_circuit_state(solver_id).await {
 			Ok(Some(state)) => state,
 			Ok(None) => return, // No circuit state - nothing to update
 			Err(e) => {
@@ -446,32 +637,84 @@ impl CircuitBreakerTrait for CircuitBreakerService {
 			},
 		};
 
+		debug!("record_request_result circuit_state: {:?}", circuit_state);
+
 		match circuit_state.state {
 			CircuitState::HalfOpen => {
-				// Half-open state - test request result determines next state
+				// Half-open state - collect test results for smart decision making
 				if success {
-					// Test succeeded - close the circuit
-					self.transition_to_closed(solver_id.to_string()).await;
+					circuit_state.successful_test_requests += 1;
 				} else {
-					// Test failed - increment recovery attempts and handle accordingly
-					let new_recovery_attempts = circuit_state.recovery_attempt_count + 1;
-					let new_failure_count = circuit_state.failure_count_when_opened + 1;
+					circuit_state.failed_test_requests += 1;
+				}
 
-					if new_recovery_attempts >= self.config.max_recovery_attempts {
-						self.handle_persistent_failure(
-							solver_id.to_string(),
-							new_recovery_attempts,
-						)
-						.await;
-					} else {
-						self.transition_to_open_with_attempts(
-							solver_id.to_string(),
-							"failed_during_half_open".to_string(),
-							new_failure_count,
-							new_recovery_attempts,
-						)
-						.await;
-					}
+				let total_results =
+					circuit_state.successful_test_requests + circuit_state.failed_test_requests;
+				let success_rate = if total_results > 0 {
+					circuit_state.successful_test_requests as f64 / total_results as f64
+				} else {
+					0.0
+				};
+
+				debug!(
+					"Half-open test result for solver '{}': {} successes / {} total ({}% success rate)",
+					solver_id,
+					circuit_state.successful_test_requests,
+					total_results,
+					(success_rate * 100.0).round()
+				);
+
+				// Use shared hybrid decision logic
+				let decision = self.evaluate_half_open_decision(&circuit_state);
+
+				match decision {
+					Some(should_close) => {
+						if should_close {
+							debug!(
+								"Half-open circuit closing for solver '{}' - {} successes / {} total ({}% success rate)",
+								solver_id,
+								circuit_state.successful_test_requests,
+								total_results,
+								(success_rate * 100.0).round()
+							);
+							self.transition_to_closed(solver_id.to_string()).await;
+						} else {
+							debug!(
+								"Half-open circuit reopening for solver '{}' - {} successes / {} total ({}% success rate)",
+								solver_id,
+								circuit_state.successful_test_requests,
+								total_results,
+								(success_rate * 100.0).round()
+							);
+							// Test failed - increment recovery attempts and handle accordingly
+							let new_recovery_attempts = circuit_state.recovery_attempt_count + 1;
+							let new_failure_count = circuit_state.failure_count_when_opened + 1;
+
+							if new_recovery_attempts >= self.config.max_recovery_attempts {
+								self.handle_persistent_failure(
+									solver_id.to_string(),
+									new_recovery_attempts,
+								)
+								.await;
+							} else {
+								self.transition_to_open_with_attempts(
+									solver_id.to_string(),
+									format!(
+										"failed_during_half_open_{}%_success",
+										(success_rate * 100.0).round() as u32
+									),
+									new_failure_count,
+									new_recovery_attempts,
+								)
+								.await;
+							}
+						}
+					},
+					None => {
+						// Keep collecting more test results - update state and continue
+						self.update_half_open_test_results(solver_id, circuit_state)
+							.await;
+					},
 				}
 			},
 
@@ -508,7 +751,7 @@ mod tests {
 			min_requests_for_rate_check: 5,
 			base_timeout_seconds: 10,
 			max_timeout_seconds: 300,
-			half_open_max_calls: 2,
+			half_open_max_calls: 3,
 			max_recovery_attempts: 10,
 			persistent_failure_action: oif_types::PersistentFailureAction::ExtendTimeout,
 			metrics_max_age_minutes: 30,
@@ -563,23 +806,333 @@ mod tests {
 			"Test request count should be 2"
 		);
 
-		// Third request should be blocked since half_open_max_calls is 2
+		// Third request should be blocked since half_open_max_calls is 3 (but we hit the limit)
 		let allowed3 = circuit_breaker.should_allow_request(&solver).await;
 		assert!(
-			!allowed3,
-			"Third request should be blocked - max calls reached"
+			allowed3,
+			"Third request should be allowed (config has half_open_max_calls=3)"
 		);
 
-		// Verify count stayed at 2 (not incremented for blocked request)
+		// Verify count was incremented once more
 		let state = storage
 			.get_solver_circuit_state("test-solver")
 			.await
 			.unwrap()
 			.unwrap();
 		assert_eq!(
-			state.test_request_count, 2,
-			"Test request count should still be 2"
+			state.test_request_count, 3,
+			"Test request count should be 3"
 		);
+
+		// Fourth request should be allowed due to buffer (3 < 3+1)
+		let allowed4 = circuit_breaker.should_allow_request(&solver).await;
+		assert!(allowed4, "Fourth request should be allowed due to buffer");
+
+		// Fifth request should be blocked since it exceeds buffer (4 >= 3+1)
+		let allowed5 = circuit_breaker.should_allow_request(&solver).await;
+		assert!(
+			!allowed5,
+			"Fifth request should be blocked - buffer limit reached"
+		);
+	}
+
+	#[tokio::test]
+	async fn test_half_open_hybrid_early_success() {
+		// Test early closing on multiple successful requests (2 successes with 100% rate)
+		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
+		let config = create_test_config();
+		let circuit_breaker = CircuitBreakerService::new(Arc::clone(&storage), config.clone());
+
+		// Create a half-open circuit state
+		let half_open_state = CircuitBreakerState::new_half_open("test-solver".to_string());
+		storage
+			.update_solver_circuit_state(half_open_state)
+			.await
+			.unwrap();
+
+		// Record 2 successful requests
+		circuit_breaker
+			.record_request_result("test-solver", true)
+			.await;
+		circuit_breaker
+			.record_request_result("test-solver", true)
+			.await;
+
+		// Circuit should now be closed (early success decision)
+		let state = storage
+			.get_solver_circuit_state("test-solver")
+			.await
+			.unwrap();
+		assert!(state.is_some());
+		assert!(matches!(state.unwrap().state, CircuitState::Closed));
+	}
+
+	#[tokio::test]
+	async fn test_half_open_hybrid_early_failure() {
+		// Test early reopening on multiple failed requests (2 failures with 0% rate)
+		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
+		let config = create_test_config();
+		let circuit_breaker = CircuitBreakerService::new(Arc::clone(&storage), config.clone());
+
+		// Create a half-open circuit state
+		let half_open_state = CircuitBreakerState::new_half_open("test-solver".to_string());
+		storage
+			.update_solver_circuit_state(half_open_state)
+			.await
+			.unwrap();
+
+		// Record 2 failed requests
+		circuit_breaker
+			.record_request_result("test-solver", false)
+			.await;
+		circuit_breaker
+			.record_request_result("test-solver", false)
+			.await;
+
+		// Circuit should now be open again (early failure decision)
+		let state = storage
+			.get_solver_circuit_state("test-solver")
+			.await
+			.unwrap();
+		assert!(state.is_some());
+		assert!(matches!(state.unwrap().state, CircuitState::Open));
+	}
+
+	#[tokio::test]
+	async fn test_half_open_hybrid_mixed_results() {
+		// Test waiting for more results when mixed success/failure (50% rate with 2 results)
+		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
+		let config = create_test_config();
+		let circuit_breaker = CircuitBreakerService::new(Arc::clone(&storage), config.clone());
+
+		// Create a half-open circuit state
+		let half_open_state = CircuitBreakerState::new_half_open("test-solver".to_string());
+		storage
+			.update_solver_circuit_state(half_open_state)
+			.await
+			.unwrap();
+
+		// Record 1 success, 1 failure (50% rate - not decisive)
+		circuit_breaker
+			.record_request_result("test-solver", true)
+			.await;
+		circuit_breaker
+			.record_request_result("test-solver", false)
+			.await;
+
+		// Circuit should still be half-open (waiting for more results)
+		let state = storage
+			.get_solver_circuit_state("test-solver")
+			.await
+			.unwrap();
+		assert!(state.is_some());
+		let circuit_state = state.unwrap();
+		assert!(matches!(circuit_state.state, CircuitState::HalfOpen));
+		assert_eq!(circuit_state.successful_test_requests, 1);
+		assert_eq!(circuit_state.failed_test_requests, 1);
+
+		// Add one more success to get above threshold (67% > 50%)
+		circuit_breaker
+			.record_request_result("test-solver", true)
+			.await;
+
+		// Circuit should now be closed (reached max_calls with good success rate)
+		let state = storage
+			.get_solver_circuit_state("test-solver")
+			.await
+			.unwrap();
+		assert!(state.is_some());
+		assert!(matches!(state.unwrap().state, CircuitState::Closed));
+	}
+
+	#[tokio::test]
+	async fn test_half_open_hybrid_wait_for_max_calls() {
+		// Test decision based on success rate threshold when reaching max calls
+		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
+		let mut config = create_test_config();
+		config.half_open_max_calls = 4; // Set higher limit for this test
+		config.success_rate_threshold = 0.75; // 75% threshold
+		let circuit_breaker = CircuitBreakerService::new(Arc::clone(&storage), config.clone());
+
+		// Create a half-open circuit state
+		let half_open_state = CircuitBreakerState::new_half_open("test-solver".to_string());
+		storage
+			.update_solver_circuit_state(half_open_state)
+			.await
+			.unwrap();
+
+		// Record mixed results that don't trigger early decisions (3 success, 1 failure = 75%)
+		circuit_breaker
+			.record_request_result("test-solver", true)
+			.await; // 1/1 = 100%
+		circuit_breaker
+			.record_request_result("test-solver", false)
+			.await; // 1/2 = 50%
+		circuit_breaker
+			.record_request_result("test-solver", true)
+			.await; // 2/3 = 67%
+		circuit_breaker
+			.record_request_result("test-solver", true)
+			.await; // 3/4 = 75%
+
+		// Circuit should now be closed (reached max_calls with 75% success rate = threshold)
+		let state = storage
+			.get_solver_circuit_state("test-solver")
+			.await
+			.unwrap();
+		assert!(state.is_some());
+		assert!(matches!(state.unwrap().state, CircuitState::Closed));
+	}
+
+	#[tokio::test]
+	async fn test_half_open_hybrid_insufficient_results() {
+		// Test keeping circuit open when not enough successful results at max calls
+		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
+		let mut config = create_test_config();
+		config.half_open_max_calls = 4; // Set higher limit for this test
+		config.success_rate_threshold = 0.75; // 75% threshold
+		let circuit_breaker = CircuitBreakerService::new(Arc::clone(&storage), config.clone());
+
+		// Create a half-open circuit state
+		let half_open_state = CircuitBreakerState::new_half_open("test-solver".to_string());
+		storage
+			.update_solver_circuit_state(half_open_state)
+			.await
+			.unwrap();
+
+		// Record results that avoid early decisions but fail at max_calls
+		// (1 success, 3 failures = 25% < 75% threshold)
+		circuit_breaker
+			.record_request_result("test-solver", true)
+			.await; // 1/1 = 100% (but only 1 success, no early decision)
+		circuit_breaker
+			.record_request_result("test-solver", false)
+			.await; // 1/2 = 50% (mixed, no early decision)
+		circuit_breaker
+			.record_request_result("test-solver", false)
+			.await; // 1/3 = 33% (only 1 failure, no early decision)
+		circuit_breaker
+			.record_request_result("test-solver", false)
+			.await; // 1/4 = 25% < 75% (reached max_calls, reopen)
+
+		// Circuit should now be open again (reached max_calls with 25% < 75% threshold)
+		let state = storage
+			.get_solver_circuit_state("test-solver")
+			.await
+			.unwrap();
+		assert!(state.is_some());
+		assert!(matches!(state.unwrap().state, CircuitState::Open));
+	}
+
+	#[tokio::test]
+	async fn test_immediate_decision_prevents_race_condition() {
+		// Test that immediate decisions prevent unnecessary request drops
+		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
+		let config = create_test_config();
+		let circuit_breaker = CircuitBreakerService::new(Arc::clone(&storage), config.clone());
+		let solver = create_test_solver("test-solver");
+
+		// Create a half-open state with 2 successful results (should trigger immediate close)
+		let mut half_open_state = CircuitBreakerState::new_half_open("test-solver".to_string());
+		half_open_state.successful_test_requests = 2;
+		half_open_state.failed_test_requests = 0;
+		half_open_state.test_request_count = 2;
+		storage
+			.update_solver_circuit_state(half_open_state)
+			.await
+			.unwrap();
+
+		// This request should be allowed AND immediately close the circuit
+		let allowed = circuit_breaker.should_allow_request(&solver).await;
+		assert!(
+			allowed,
+			"Request should be allowed due to immediate decision"
+		);
+
+		// Circuit should now be closed
+		let state = storage
+			.get_solver_circuit_state("test-solver")
+			.await
+			.unwrap();
+		assert!(state.is_some());
+		assert!(matches!(state.unwrap().state, CircuitState::Closed));
+	}
+
+	#[tokio::test]
+	async fn test_buffer_prevents_unnecessary_blocks() {
+		// Test that buffer allows extra requests during async processing
+		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
+		let config = create_test_config();
+		let circuit_breaker = CircuitBreakerService::new(Arc::clone(&storage), config.clone());
+		let solver = create_test_solver("test-solver");
+
+		// Create a half-open state at the limit (3 requests made)
+		let mut half_open_state = CircuitBreakerState::new_half_open("test-solver".to_string());
+		half_open_state.test_request_count = 3; // At the limit
+		half_open_state.successful_test_requests = 1;
+		half_open_state.failed_test_requests = 1; // Mixed results, no immediate decision
+		storage
+			.update_solver_circuit_state(half_open_state)
+			.await
+			.unwrap();
+
+		// This request should be allowed due to the buffer (3 < 3+1)
+		let allowed = circuit_breaker.should_allow_request(&solver).await;
+		assert!(allowed, "Request should be allowed due to buffer");
+
+		// Verify count was incremented to 4
+		let state = storage
+			.get_solver_circuit_state("test-solver")
+			.await
+			.unwrap();
+		assert!(state.is_some());
+		let circuit_state = state.unwrap();
+		assert_eq!(circuit_state.test_request_count, 4);
+		assert!(matches!(circuit_state.state, CircuitState::HalfOpen));
+
+		// Next request (5th) should be blocked as it exceeds buffer
+		let blocked = circuit_breaker.should_allow_request(&solver).await;
+		assert!(!blocked, "5th request should be blocked even with buffer");
+	}
+
+	#[tokio::test]
+	async fn test_shared_decision_logic_consistency() {
+		// Test that immediate and async decision paths use the same logic
+		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
+		let config = create_test_config();
+		let circuit_breaker = CircuitBreakerService::new(Arc::clone(&storage), config.clone());
+
+		// Create test states with different success patterns
+		let test_cases = vec![
+			// (successful_requests, failed_requests, expected_decision)
+			(2, 0, Some(true)),  // 100% success rate, early close
+			(0, 2, Some(false)), // 0% success rate, early reopen
+			(1, 1, None),        // 50% mixed, need more samples
+			(3, 1, Some(true)),  // 75% at max calls, should close (assuming 50% threshold)
+			(1, 2, Some(false)), // 33% at max calls, should reopen
+		];
+
+		for (successful, failed, expected) in test_cases {
+			let mut circuit_state = CircuitBreakerState::new_half_open("test-solver".to_string());
+			circuit_state.successful_test_requests = successful;
+			circuit_state.failed_test_requests = failed;
+
+			// Both methods should return the same result
+			let immediate_decision =
+				circuit_breaker.evaluate_immediate_half_open_decision(&circuit_state);
+			let shared_decision = circuit_breaker.evaluate_half_open_decision(&circuit_state);
+
+			assert_eq!(
+				immediate_decision, shared_decision,
+				"Immediate and shared decision logic must be consistent for {} successes, {} failures",
+				successful, failed
+			);
+			assert_eq!(
+				immediate_decision, expected,
+				"Decision should match expected result for {} successes, {} failures",
+				successful, failed
+			);
+		}
 	}
 
 	#[tokio::test]
@@ -638,12 +1191,15 @@ mod tests {
 	#[tokio::test]
 	async fn test_should_open_on_low_success_rate() {
 		let storage = Arc::new(MemoryStore::new());
-		let config = create_test_config();
+		let mut config = create_test_config();
+		// Set failure threshold higher than RATE_CHECK_FAILURE_THRESHOLD to avoid consecutive failure interference
+		config.failure_threshold = 10;
 		let service = CircuitBreakerService::new(storage, config);
 
 		let mut solver = create_test_solver("test-solver");
 		solver.metrics.total_requests = 10; // Above min threshold
 		solver.metrics.successful_requests = 2; // 20% success rate (below 50% threshold)
+		solver.metrics.consecutive_failures = RATE_CHECK_FAILURE_THRESHOLD; // Enable rate checks (5 < 10, so won't trigger consecutive failure check)
 
 		let decision = service.should_open_primary(&solver);
 		assert!(matches!(decision, CircuitDecision::Open { .. }));
@@ -730,14 +1286,16 @@ mod tests {
 	#[tokio::test]
 	async fn test_service_error_rate_threshold() {
 		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
-		let config = create_test_config();
+		let mut config = create_test_config();
+		// Set failure threshold higher than RATE_CHECK_FAILURE_THRESHOLD to avoid consecutive failure interference
+		config.failure_threshold = 10;
 		let service = CircuitBreakerService::new(storage, config);
 
 		let mut solver = create_test_solver("test-solver");
 		solver.metrics.total_requests = 10; // Above min threshold
 		solver.metrics.service_errors = 8; // 80% service error rate (above 50% threshold)
 		solver.metrics.successful_requests = 8; // 80% success rate (good) - the rest are service errors, not failed requests
-		solver.metrics.consecutive_failures = 0; // Keep below failure threshold (3) to isolate service error test
+		solver.metrics.consecutive_failures = RATE_CHECK_FAILURE_THRESHOLD; // Enable rate checks (5 < 10, so won't trigger consecutive failure check)
 
 		let decision = service.should_open_primary(&solver);
 		assert!(matches!(decision, CircuitDecision::Open { .. }));
@@ -753,11 +1311,11 @@ mod tests {
 		let service = CircuitBreakerService::new(storage, config);
 
 		let mut solver = create_test_solver("test-solver");
-		
+
 		// Set up lifetime metrics that would normally trigger circuit breaker
 		solver.metrics.total_requests = 100;
 		solver.metrics.successful_requests = 10; // 10% success rate (bad)
-		
+
 		// Set up recent windowed metrics that are good
 		solver.metrics.recent_total_requests = 10; // Above min threshold (5)
 		solver.metrics.recent_successful_requests = 9; // 90% success rate (good)
@@ -770,21 +1328,75 @@ mod tests {
 	#[tokio::test]
 	async fn test_fallback_to_lifetime_when_insufficient_windowed_data() {
 		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
+		let mut config = create_test_config();
+		// Set failure threshold higher than RATE_CHECK_FAILURE_THRESHOLD to avoid consecutive failure interference
+		config.failure_threshold = 10;
+		let service = CircuitBreakerService::new(storage, config);
+
+		let mut solver = create_test_solver("test-solver");
+
+		// Set up insufficient windowed data
+		solver.metrics.recent_total_requests = 2; // Below min threshold (5)
+		solver.metrics.recent_successful_requests = 2; // 100% success rate but insufficient data
+
+		// Set up lifetime data with bad success rate
+		solver.metrics.total_requests = 10; // Above min threshold
+		solver.metrics.successful_requests = 2; // 20% success rate (bad)
+		solver.metrics.consecutive_failures = RATE_CHECK_FAILURE_THRESHOLD; // Enable rate checks (5 < 10, so won't trigger consecutive failure check)
+
+		let decision = service.should_open_primary(&solver);
+		// Should open circuit because it falls back to lifetime metrics (20% success rate)
+		assert!(matches!(decision, CircuitDecision::Open { .. }));
+		if let CircuitDecision::Open { reason } = decision {
+			assert!(reason.contains("success_rate_lifetime_fallback"));
+		}
+	}
+
+	#[tokio::test]
+	async fn test_rate_checks_skipped_when_no_consecutive_failures() {
+		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
 		let config = create_test_config();
 		let service = CircuitBreakerService::new(storage, config);
 
 		let mut solver = create_test_solver("test-solver");
-		
-		// Set up insufficient windowed data
-		solver.metrics.recent_total_requests = 2; // Below min threshold (5)
-		solver.metrics.recent_successful_requests = 2; // 100% success rate but insufficient data
-		
-		// Set up lifetime data with bad success rate
-		solver.metrics.total_requests = 10; // Above min threshold
-		solver.metrics.successful_requests = 2; // 20% success rate (bad)
+
+		// Set up bad metrics that would normally trigger circuit breaker
+		solver.metrics.recent_total_requests = 10; // Above min threshold
+		solver.metrics.recent_successful_requests = 1; // 10% success rate (bad)
+		solver.metrics.recent_service_errors = 8; // 80% service error rate (bad)
+
+		solver.metrics.total_requests = 100; // Above min threshold
+		solver.metrics.successful_requests = 10; // 10% success rate (bad)
+		solver.metrics.service_errors = 80; // 80% service error rate (bad)
+
+		// But consecutive_failures is low (no current problems)
+		solver.metrics.consecutive_failures = 1; // No consecutive failures, so skip rate checks
 
 		let decision = service.should_open_primary(&solver);
-		// Should open circuit because it falls back to lifetime metrics (20% success rate)
+		// Should stay CLOSED - rate checks are skipped when no consecutive failures
+		assert!(matches!(decision, CircuitDecision::Closed));
+	}
+
+	#[tokio::test]
+	async fn test_rate_checks_enabled_with_consecutive_failures() {
+		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
+		let mut config = create_test_config();
+		// Set failure threshold higher than RATE_CHECK_FAILURE_THRESHOLD to avoid consecutive failure interference
+		config.failure_threshold = 10;
+		let service = CircuitBreakerService::new(storage, config);
+
+		let mut solver = create_test_solver("test-solver");
+
+		// Same bad lifetime data
+		solver.metrics.recent_total_requests = 2; // Below min threshold (5)
+		solver.metrics.total_requests = 100; // Above min threshold
+		solver.metrics.successful_requests = 10; // 10% success rate (bad)
+
+		// Now consecutive_failures is high (rate checks enabled)
+		solver.metrics.consecutive_failures = RATE_CHECK_FAILURE_THRESHOLD; // Rate checks enabled (5 < 10, so won't trigger consecutive failure check)
+
+		let decision = service.should_open_primary(&solver);
+		// Should open circuit because rate checks are now enabled, lifetime fallback applies
 		assert!(matches!(decision, CircuitDecision::Open { .. }));
 		if let CircuitDecision::Open { reason } = decision {
 			assert!(reason.contains("success_rate_lifetime_fallback"));
@@ -798,7 +1410,7 @@ mod tests {
 		let service = CircuitBreakerService::new(storage, config);
 
 		let mut solver = create_test_solver("test-solver");
-		
+
 		// Set up insufficient data for both windowed and lifetime
 		solver.metrics.recent_total_requests = 2; // Below min threshold (5)
 		solver.metrics.total_requests = 3; // Also below min threshold
@@ -817,13 +1429,20 @@ mod tests {
 
 		// Create a half-open circuit state
 		let half_open_state = CircuitBreakerState::new_half_open("test-solver".to_string());
-		storage.update_solver_circuit_state(half_open_state).await.unwrap();
+		storage
+			.update_solver_circuit_state(half_open_state)
+			.await
+			.unwrap();
 
-		// Record a successful request
+		// Record 2 successful requests (triggers early success decision with 100% rate >= 60%)
+		service.record_request_result("test-solver", true).await;
 		service.record_request_result("test-solver", true).await;
 
 		// Circuit should now be closed
-		let state = storage.get_solver_circuit_state("test-solver").await.unwrap();
+		let state = storage
+			.get_solver_circuit_state("test-solver")
+			.await
+			.unwrap();
 		assert!(state.is_some());
 		assert!(matches!(state.unwrap().state, CircuitState::Closed));
 	}
@@ -836,13 +1455,20 @@ mod tests {
 
 		// Create a half-open circuit state
 		let half_open_state = CircuitBreakerState::new_half_open("test-solver".to_string());
-		storage.update_solver_circuit_state(half_open_state).await.unwrap();
+		storage
+			.update_solver_circuit_state(half_open_state)
+			.await
+			.unwrap();
 
-		// Record a failed request
+		// Record 2 failed requests (triggers early failure decision with 0% rate <= 40%)
+		service.record_request_result("test-solver", false).await;
 		service.record_request_result("test-solver", false).await;
 
 		// Circuit should now be open again
-		let state = storage.get_solver_circuit_state("test-solver").await.unwrap();
+		let state = storage
+			.get_solver_circuit_state("test-solver")
+			.await
+			.unwrap();
 		assert!(state.is_some());
 		assert!(matches!(state.unwrap().state, CircuitState::Open));
 	}
@@ -858,13 +1484,20 @@ mod tests {
 		// Create a half-open state with high recovery attempt count
 		let mut half_open_state = CircuitBreakerState::new_half_open("test-solver".to_string());
 		half_open_state.recovery_attempt_count = 1; // One less than max
-		storage.update_solver_circuit_state(half_open_state).await.unwrap();
+		storage
+			.update_solver_circuit_state(half_open_state)
+			.await
+			.unwrap();
 
-		// Record a failed request (should trigger persistent failure handling)
+		// Record 2 failed requests (triggers early failure decision and persistent failure handling)
+		service.record_request_result("test-solver", false).await;
 		service.record_request_result("test-solver", false).await;
 
 		// Circuit should still be open (KeepTrying action)
-		let state = storage.get_solver_circuit_state("test-solver").await.unwrap();
+		let state = storage
+			.get_solver_circuit_state("test-solver")
+			.await
+			.unwrap();
 		assert!(state.is_some());
 		let state = state.unwrap();
 		assert!(matches!(state.state, CircuitState::Open));
@@ -885,18 +1518,28 @@ mod tests {
 
 		// Create a half-open state
 		let half_open_state = CircuitBreakerState::new_half_open("test-solver".to_string());
-		storage.update_solver_circuit_state(half_open_state).await.unwrap();
+		storage
+			.update_solver_circuit_state(half_open_state)
+			.await
+			.unwrap();
 
-		// Record a failed request (should trigger persistent failure handling)
+		// Record 2 failed requests (triggers early failure decision and persistent failure handling)
+		service.record_request_result("test-solver", false).await;
 		service.record_request_result("test-solver", false).await;
 
 		// Solver should be disabled
 		let solver = storage.get_solver("test-solver").await.unwrap();
 		assert!(solver.is_some());
-		assert!(matches!(solver.unwrap().status, oif_types::SolverStatus::Disabled));
+		assert!(matches!(
+			solver.unwrap().status,
+			oif_types::SolverStatus::Disabled
+		));
 
 		// Circuit state should be removed
-		let state = storage.get_solver_circuit_state("test-solver").await.unwrap();
+		let state = storage
+			.get_solver_circuit_state("test-solver")
+			.await
+			.unwrap();
 		assert!(state.is_none());
 	}
 
@@ -910,17 +1553,24 @@ mod tests {
 
 		// Create a half-open state
 		let half_open_state = CircuitBreakerState::new_half_open("test-solver".to_string());
-		storage.update_solver_circuit_state(half_open_state).await.unwrap();
+		storage
+			.update_solver_circuit_state(half_open_state)
+			.await
+			.unwrap();
 
-		// Record a failed request (should trigger persistent failure handling)
+		// Record 2 failed requests (triggers early failure decision and persistent failure handling)
+		service.record_request_result("test-solver", false).await;
 		service.record_request_result("test-solver", false).await;
 
 		// Circuit should be open with extended timeout
-		let state = storage.get_solver_circuit_state("test-solver").await.unwrap();
+		let state = storage
+			.get_solver_circuit_state("test-solver")
+			.await
+			.unwrap();
 		assert!(state.is_some());
 		let state = state.unwrap();
 		assert!(matches!(state.state, CircuitState::Open));
-		
+
 		// Should have extended timeout (24 hours)
 		let expected_timeout_hours = 24;
 		let actual_timeout_hours = state.timeout_duration.num_hours();
@@ -942,22 +1592,38 @@ mod tests {
 			"test-solver".to_string(),
 			"test reason".to_string(),
 			timeout_duration,
-			1
+			1,
 		);
 		open_state.opened_at = Some(past_time); // Set to 30 minutes ago
 		open_state.next_test_at = Some(past_time + timeout_duration); // Should be 29 minutes 50 seconds ago (expired)
-		storage.update_solver_circuit_state(open_state).await.unwrap();
+		storage
+			.update_solver_circuit_state(open_state)
+			.await
+			.unwrap();
 
 		// Verify the circuit thinks it should attempt reset
-		let saved_state = storage.get_solver_circuit_state("test-solver").await.unwrap().unwrap();
-		assert!(saved_state.should_attempt_reset(), "Circuit should be ready for reset attempt");
+		let saved_state = storage
+			.get_solver_circuit_state("test-solver")
+			.await
+			.unwrap()
+			.unwrap();
+		assert!(
+			saved_state.should_attempt_reset(),
+			"Circuit should be ready for reset attempt"
+		);
 
 		// Request should be allowed (triggers transition to half-open)
 		let allowed = service.should_allow_request(&solver).await;
-		assert!(allowed, "Request should be allowed when circuit timeout has expired");
+		assert!(
+			allowed,
+			"Request should be allowed when circuit timeout has expired"
+		);
 
 		// Circuit should now be half-open
-		let state = storage.get_solver_circuit_state("test-solver").await.unwrap();
+		let state = storage
+			.get_solver_circuit_state("test-solver")
+			.await
+			.unwrap();
 		assert!(state.is_some());
 		assert!(matches!(state.unwrap().state, CircuitState::HalfOpen));
 	}
@@ -965,7 +1631,7 @@ mod tests {
 	#[tokio::test]
 	async fn test_is_enabled_functionality() {
 		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
-		
+
 		// Test enabled circuit breaker
 		let enabled_config = create_test_config(); // enabled: true by default
 		let enabled_service = CircuitBreakerService::new(Arc::clone(&storage), enabled_config);
@@ -992,8 +1658,12 @@ mod tests {
 		assert!(allowed, "Should fail open when no circuit state exists");
 
 		// Recording result for non-existent circuit should not crash
-		service.record_request_result("nonexistent-solver", true).await;
-		service.record_request_result("nonexistent-solver", false).await;
+		service
+			.record_request_result("nonexistent-solver", true)
+			.await;
+		service
+			.record_request_result("nonexistent-solver", false)
+			.await;
 	}
 
 	#[tokio::test]
@@ -1004,14 +1674,20 @@ mod tests {
 
 		// Create a closed circuit state
 		let closed_state = CircuitBreakerState::new_closed("test-solver".to_string());
-		storage.update_solver_circuit_state(closed_state).await.unwrap();
+		storage
+			.update_solver_circuit_state(closed_state)
+			.await
+			.unwrap();
 
 		// Record both success and failure
 		service.record_request_result("test-solver", true).await;
 		service.record_request_result("test-solver", false).await;
 
 		// Circuit should still be closed (no action taken)
-		let state = storage.get_solver_circuit_state("test-solver").await.unwrap();
+		let state = storage
+			.get_solver_circuit_state("test-solver")
+			.await
+			.unwrap();
 		assert!(state.is_some());
 		assert!(matches!(state.unwrap().state, CircuitState::Closed));
 	}
@@ -1027,16 +1703,22 @@ mod tests {
 			"test-solver".to_string(),
 			"test".to_string(),
 			chrono::Duration::minutes(10),
-			1
+			1,
 		);
-		storage.update_solver_circuit_state(open_state).await.unwrap();
+		storage
+			.update_solver_circuit_state(open_state)
+			.await
+			.unwrap();
 
 		// Record both success and failure
 		service.record_request_result("test-solver", true).await;
 		service.record_request_result("test-solver", false).await;
 
 		// Circuit should still be open (no action taken)
-		let state = storage.get_solver_circuit_state("test-solver").await.unwrap();
+		let state = storage
+			.get_solver_circuit_state("test-solver")
+			.await
+			.unwrap();
 		assert!(state.is_some());
 		assert!(matches!(state.unwrap().state, CircuitState::Open));
 	}
@@ -1060,23 +1742,64 @@ mod tests {
 	}
 
 	#[tokio::test]
+	async fn test_solver_recovery_ux_scenario() {
+		// This test demonstrates the UX improvement: a solver that failed historically
+		// but is currently working should NOT be penalized by historical bad data
+		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
+		let mut config = create_test_config();
+		// Set failure threshold higher than RATE_CHECK_FAILURE_THRESHOLD to avoid consecutive failure interference
+		config.failure_threshold = 10;
+		let service = CircuitBreakerService::new(storage, config);
+
+		let mut solver = create_test_solver("recovering-solver");
+
+		// Historical bad data (what would cause the original UX issue)
+		solver.metrics.total_requests = 100;
+		solver.metrics.successful_requests = 20; // 20% success rate (bad historically)
+		solver.metrics.service_errors = 50; // 50% service error rate (bad historically)
+
+		// Recent window shows it's working well now
+		solver.metrics.recent_total_requests = 5; // Recent activity
+		solver.metrics.recent_successful_requests = 5; // 100% recent success rate
+		solver.metrics.recent_service_errors = 0; // 0% recent service error rate
+
+		// Key: solver is currently working (no consecutive failures)
+		solver.metrics.consecutive_failures = 1; // Below threshold for rate checks
+
+		let decision = service.should_open_primary(&solver);
+		// Should stay CLOSED - even though historical data is bad,
+		// current performance (no consecutive failures) means we skip rate checks
+		assert!(matches!(decision, CircuitDecision::Closed));
+
+		// Now simulate the solver having issues again
+		solver.metrics.consecutive_failures = RATE_CHECK_FAILURE_THRESHOLD; // Now rate checks are enabled (5 < 10, so won't trigger consecutive failure check)
+
+		let decision_with_rate_checks = service.should_open_primary(&solver);
+		// NOW the circuit breaker will look at rates and decide based on recent data
+		// Since recent data is good (100% success, 0% service errors), it should stay closed
+		assert!(matches!(decision_with_rate_checks, CircuitDecision::Closed));
+	}
+
+	#[tokio::test]
 	async fn test_windowed_service_error_rate() {
 		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
-		let config = create_test_config();
+		let mut config = create_test_config();
+		// Set failure threshold higher than RATE_CHECK_FAILURE_THRESHOLD to avoid consecutive failure interference
+		config.failure_threshold = 10;
 		let service = CircuitBreakerService::new(storage, config);
 
 		let mut solver = create_test_solver("test-solver");
-		
+
 		// Set up good lifetime service error rate
 		solver.metrics.total_requests = 100;
 		solver.metrics.service_errors = 10; // 10% service error rate (good)
 		solver.metrics.successful_requests = 90; // Keep success rate good to isolate service error test
-		
+
 		// Set up bad recent windowed service error rate
 		solver.metrics.recent_total_requests = 10; // Above min threshold (5)
 		solver.metrics.recent_service_errors = 8; // 80% service error rate (bad)
 		solver.metrics.recent_successful_requests = 8; // 80% success rate (good) - the rest are service errors
-		solver.metrics.consecutive_failures = 0; // Keep below failure threshold (3) to isolate service error test
+		solver.metrics.consecutive_failures = RATE_CHECK_FAILURE_THRESHOLD; // Enable rate checks (5 < 10, so won't trigger consecutive failure check)
 
 		let decision = service.should_open_primary(&solver);
 		// Should open circuit because windowed metrics (80% service error rate) are used
