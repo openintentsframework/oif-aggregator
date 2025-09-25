@@ -280,7 +280,7 @@ async fn test_circuit_breaker_mixed_solver_states() {
 			.json(&quote_request)
 			.send()
 			.await
-			.expect(&format!("Failed to make request {}", i + 1));
+			.unwrap_or_else(|_| panic!("Failed to make request {}", i + 1));
 
 		assert!(response.status().is_success());
 		sleep(Duration::from_millis(50)).await;

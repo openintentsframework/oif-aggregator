@@ -593,6 +593,7 @@ impl AggregatorService {
 	}
 
 	/// Create a new aggregator service with custom configuration
+	#[allow(clippy::too_many_arguments)]
 	pub fn with_config(
 		storage: Arc<dyn Storage>,
 		adapter_registry: Arc<AdapterRegistry>,
