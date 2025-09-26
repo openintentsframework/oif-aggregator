@@ -396,23 +396,17 @@ impl SolverFilterTrait for SolverFilterService {
 		);
 
 		// Step 4: Apply circuit breaker filtering (before selection to ensure correct counts)
-		let circuit_filtered_solvers = if self.circuit_breaker.is_enabled() {
-			let mut filtered_solvers = Vec::new();
-			for (solver, compatibility) in solver_compatibility {
-				if self.circuit_breaker.should_allow_request(&solver).await {
-					filtered_solvers.push((solver, compatibility));
-				} else {
-					debug!(
-						"Circuit breaker blocked solver: {} (compatibility: {:?})",
-						solver.solver_id, compatibility
-					);
-				}
+		let mut circuit_filtered_solvers = Vec::new();
+		for (solver, compatibility) in solver_compatibility {
+			if self.circuit_breaker.should_allow_request(&solver).await {
+				circuit_filtered_solvers.push((solver, compatibility));
+			} else {
+				debug!(
+					"Circuit breaker blocked solver: {} (compatibility: {:?})",
+					solver.solver_id, compatibility
+				);
 			}
-			filtered_solvers
-		} else {
-			// Circuit breaker disabled - pass through all solvers
-			solver_compatibility
-		};
+		}
 
 		debug!(
 			"After circuit breaker filtering: {} solvers",

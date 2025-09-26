@@ -11,10 +11,6 @@ use oif_types::{CircuitBreakerState, CircuitDecision, CircuitState, Solver};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
-/// Threshold for consecutive failures that triggers rate-based checks
-/// Only when a solver has this many consecutive failures do we examine historical rates
-const RATE_CHECK_FAILURE_THRESHOLD: u32 = 5;
-
 /// Result of rate calculation with context
 #[derive(Debug)]
 struct RateCheckResult {
@@ -65,8 +61,11 @@ impl CircuitBreakerService {
 	}
 
 	/// Check if we should examine rate-based metrics (only when there are consecutive failures)
+	/// Rate checks are enabled when consecutive failures reach half the failure threshold (rounded up)
+	/// This ensures rate-based logic has a chance to work before consecutive failure circuit opening
 	fn should_check_rates(&self, consecutive_failures: u32) -> bool {
-		consecutive_failures >= RATE_CHECK_FAILURE_THRESHOLD
+		let rate_check_threshold = (self.config.failure_threshold + 1) / 2; // Equivalent to ceiling division
+		consecutive_failures >= rate_check_threshold
 	}
 
 	/// Calculate rate from metrics with intelligent fallback logic
@@ -517,8 +516,6 @@ impl CircuitBreakerTrait for CircuitBreakerService {
 			},
 		};
 
-		// Debug: println!("circuit_state: {:?}", circuit_state);
-
 		// Handle existing circuit state
 		match circuit_state.state {
 			CircuitState::Closed => {
@@ -628,6 +625,10 @@ impl CircuitBreakerTrait for CircuitBreakerService {
 
 	/// Record the result of a request to update circuit breaker state
 	async fn record_request_result(&self, solver_id: &str, success: bool) {
+		if !self.is_enabled() {
+			return; // No-op when disabled
+		}
+
 		let mut circuit_state = match self.storage.get_solver_circuit_state(solver_id).await {
 			Ok(Some(state)) => state,
 			Ok(None) => return, // No circuit state - nothing to update
@@ -1192,14 +1193,14 @@ mod tests {
 	async fn test_should_open_on_low_success_rate() {
 		let storage = Arc::new(MemoryStore::new());
 		let mut config = create_test_config();
-		// Set failure threshold higher than RATE_CHECK_FAILURE_THRESHOLD to avoid consecutive failure interference
+		// Set failure threshold to 10, so rate checks start at 6 (ceil(10/2))
 		config.failure_threshold = 10;
-		let service = CircuitBreakerService::new(storage, config);
+		let service = CircuitBreakerService::new(storage, config.clone());
 
 		let mut solver = create_test_solver("test-solver");
 		solver.metrics.total_requests = 10; // Above min threshold
 		solver.metrics.successful_requests = 2; // 20% success rate (below 50% threshold)
-		solver.metrics.consecutive_failures = RATE_CHECK_FAILURE_THRESHOLD; // Enable rate checks (5 < 10, so won't trigger consecutive failure check)
+		solver.metrics.consecutive_failures = (config.failure_threshold + 1) / 2; // Enable rate checks (6 < 10, so won't trigger consecutive failure check)
 
 		let decision = service.should_open_primary(&solver);
 		assert!(matches!(decision, CircuitDecision::Open { .. }));
@@ -1287,15 +1288,15 @@ mod tests {
 	async fn test_service_error_rate_threshold() {
 		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
 		let mut config = create_test_config();
-		// Set failure threshold higher than RATE_CHECK_FAILURE_THRESHOLD to avoid consecutive failure interference
+		// Set failure threshold to 10, so rate checks start at 6 (ceil(10/2))
 		config.failure_threshold = 10;
-		let service = CircuitBreakerService::new(storage, config);
+		let service = CircuitBreakerService::new(storage, config.clone());
 
 		let mut solver = create_test_solver("test-solver");
 		solver.metrics.total_requests = 10; // Above min threshold
 		solver.metrics.service_errors = 8; // 80% service error rate (above 50% threshold)
 		solver.metrics.successful_requests = 8; // 80% success rate (good) - the rest are service errors, not failed requests
-		solver.metrics.consecutive_failures = RATE_CHECK_FAILURE_THRESHOLD; // Enable rate checks (5 < 10, so won't trigger consecutive failure check)
+		solver.metrics.consecutive_failures = (config.failure_threshold + 1) / 2; // Enable rate checks (6 < 10, so won't trigger consecutive failure check)
 
 		let decision = service.should_open_primary(&solver);
 		assert!(matches!(decision, CircuitDecision::Open { .. }));
@@ -1329,9 +1330,9 @@ mod tests {
 	async fn test_fallback_to_lifetime_when_insufficient_windowed_data() {
 		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
 		let mut config = create_test_config();
-		// Set failure threshold higher than RATE_CHECK_FAILURE_THRESHOLD to avoid consecutive failure interference
+		// Set failure threshold to 10, so rate checks start at 6 (ceil(10/2))
 		config.failure_threshold = 10;
-		let service = CircuitBreakerService::new(storage, config);
+		let service = CircuitBreakerService::new(storage, config.clone());
 
 		let mut solver = create_test_solver("test-solver");
 
@@ -1342,7 +1343,7 @@ mod tests {
 		// Set up lifetime data with bad success rate
 		solver.metrics.total_requests = 10; // Above min threshold
 		solver.metrics.successful_requests = 2; // 20% success rate (bad)
-		solver.metrics.consecutive_failures = RATE_CHECK_FAILURE_THRESHOLD; // Enable rate checks (5 < 10, so won't trigger consecutive failure check)
+		solver.metrics.consecutive_failures = (config.failure_threshold + 1) / 2; // Enable rate checks (6 < 10, so won't trigger consecutive failure check)
 
 		let decision = service.should_open_primary(&solver);
 		// Should open circuit because it falls back to lifetime metrics (20% success rate)
@@ -1355,8 +1356,10 @@ mod tests {
 	#[tokio::test]
 	async fn test_rate_checks_skipped_when_no_consecutive_failures() {
 		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
-		let config = create_test_config();
-		let service = CircuitBreakerService::new(storage, config);
+		let mut config = create_test_config();
+		// Set failure threshold to 10, so rate checks start at 6 (ceil(10/2))
+		config.failure_threshold = 10;
+		let service = CircuitBreakerService::new(storage, config.clone());
 
 		let mut solver = create_test_solver("test-solver");
 
@@ -1370,7 +1373,7 @@ mod tests {
 		solver.metrics.service_errors = 80; // 80% service error rate (bad)
 
 		// But consecutive_failures is low (no current problems)
-		solver.metrics.consecutive_failures = 1; // No consecutive failures, so skip rate checks
+		solver.metrics.consecutive_failures = 3; // Below rate check threshold (6), so skip rate checks
 
 		let decision = service.should_open_primary(&solver);
 		// Should stay CLOSED - rate checks are skipped when no consecutive failures
@@ -1381,9 +1384,9 @@ mod tests {
 	async fn test_rate_checks_enabled_with_consecutive_failures() {
 		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
 		let mut config = create_test_config();
-		// Set failure threshold higher than RATE_CHECK_FAILURE_THRESHOLD to avoid consecutive failure interference
+		// Set failure threshold to 10, so rate checks start at 6 (ceil(10/2))
 		config.failure_threshold = 10;
-		let service = CircuitBreakerService::new(storage, config);
+		let service = CircuitBreakerService::new(storage, config.clone());
 
 		let mut solver = create_test_solver("test-solver");
 
@@ -1393,7 +1396,7 @@ mod tests {
 		solver.metrics.successful_requests = 10; // 10% success rate (bad)
 
 		// Now consecutive_failures is high (rate checks enabled)
-		solver.metrics.consecutive_failures = RATE_CHECK_FAILURE_THRESHOLD; // Rate checks enabled (5 < 10, so won't trigger consecutive failure check)
+		solver.metrics.consecutive_failures = (config.failure_threshold + 1) / 2; // Rate checks enabled (6 < 10, so won't trigger consecutive failure check)
 
 		let decision = service.should_open_primary(&solver);
 		// Should open circuit because rate checks are now enabled, lifetime fallback applies
@@ -1747,9 +1750,9 @@ mod tests {
 		// but is currently working should NOT be penalized by historical bad data
 		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
 		let mut config = create_test_config();
-		// Set failure threshold higher than RATE_CHECK_FAILURE_THRESHOLD to avoid consecutive failure interference
+		// Set failure threshold to 10, so rate checks start at 6 (ceil(10/2))
 		config.failure_threshold = 10;
-		let service = CircuitBreakerService::new(storage, config);
+		let service = CircuitBreakerService::new(storage, config.clone());
 
 		let mut solver = create_test_solver("recovering-solver");
 
@@ -1772,7 +1775,7 @@ mod tests {
 		assert!(matches!(decision, CircuitDecision::Closed));
 
 		// Now simulate the solver having issues again
-		solver.metrics.consecutive_failures = RATE_CHECK_FAILURE_THRESHOLD; // Now rate checks are enabled (5 < 10, so won't trigger consecutive failure check)
+		solver.metrics.consecutive_failures = (config.failure_threshold + 1) / 2; // Now rate checks are enabled (6 < 10, so won't trigger consecutive failure check)
 
 		let decision_with_rate_checks = service.should_open_primary(&solver);
 		// NOW the circuit breaker will look at rates and decide based on recent data
@@ -1781,12 +1784,69 @@ mod tests {
 	}
 
 	#[tokio::test]
+	async fn test_dynamic_rate_check_threshold() {
+		// Test that rate check threshold scales with failure_threshold configuration using ceiling division
+		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
+
+		// Test with failure_threshold = 6, rate checks should start at 3 (ceil(6/2))
+		let mut config = create_test_config();
+		config.failure_threshold = 6;
+		let service = CircuitBreakerService::new(storage.clone(), config.clone());
+
+		let mut solver = create_test_solver("test-solver");
+		solver.metrics.total_requests = 100;
+		solver.metrics.successful_requests = 10; // 10% success rate (bad)
+		solver.metrics.consecutive_failures = 2; // Below rate check threshold (3), rate checks should be skipped
+
+		let decision = service.should_open_primary(&solver);
+		assert!(
+			matches!(decision, CircuitDecision::Closed),
+			"Should stay closed when consecutive_failures (2) < ceil(failure_threshold/2) (3)"
+		);
+
+		// Now test with consecutive_failures = 3 (exactly at threshold)
+		solver.metrics.consecutive_failures = 3; // At rate check threshold (3), rate checks should be enabled
+		let decision = service.should_open_primary(&solver);
+		assert!(matches!(decision, CircuitDecision::Open { .. }), "Should open when consecutive_failures (3) >= ceil(failure_threshold/2) (3) and metrics are bad");
+
+		// Test with different failure_threshold = 9, rate checks should start at 5 (ceil(9/2))
+		config.failure_threshold = 9;
+		let service = CircuitBreakerService::new(storage.clone(), config.clone());
+
+		solver.metrics.consecutive_failures = 4; // Below rate check threshold (5), rate checks should be skipped
+		let decision = service.should_open_primary(&solver);
+		assert!(
+			matches!(decision, CircuitDecision::Closed),
+			"Should stay closed when consecutive_failures (4) < ceil(failure_threshold/2) (5)"
+		);
+
+		solver.metrics.consecutive_failures = 5; // At rate check threshold (5), rate checks should be enabled
+		let decision = service.should_open_primary(&solver);
+		assert!(matches!(decision, CircuitDecision::Open { .. }), "Should open when consecutive_failures (5) >= ceil(failure_threshold/2) (5) and metrics are bad");
+
+		// Test edge case: failure_threshold = 1, rate checks should start at 1 (ceil(1/2))
+		config.failure_threshold = 1;
+		let service = CircuitBreakerService::new(storage.clone(), config.clone());
+
+		solver.metrics.consecutive_failures = 0; // Below rate check threshold (1), rate checks should be skipped
+		let decision = service.should_open_primary(&solver);
+		assert!(
+			matches!(decision, CircuitDecision::Closed),
+			"Should stay closed when consecutive_failures (0) < ceil(failure_threshold/2) (1)"
+		);
+
+		solver.metrics.consecutive_failures = 1; // At rate check threshold (1), rate checks should be enabled
+		let decision = service.should_open_primary(&solver);
+		assert!(matches!(decision, CircuitDecision::Open { .. }), "Should open when consecutive_failures (1) >= ceil(failure_threshold/2) (1) and metrics are bad");
+	}
+
+	#[tokio::test]
 	async fn test_windowed_service_error_rate() {
 		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
 		let mut config = create_test_config();
-		// Set failure threshold higher than RATE_CHECK_FAILURE_THRESHOLD to avoid consecutive failure interference
+		// Set failure threshold to 10, so rate checks start at 6 (ceil(10/2))
 		config.failure_threshold = 10;
-		let service = CircuitBreakerService::new(storage, config);
+		let service = CircuitBreakerService::new(storage, config.clone());
 
 		let mut solver = create_test_solver("test-solver");
 
@@ -1799,7 +1859,7 @@ mod tests {
 		solver.metrics.recent_total_requests = 10; // Above min threshold (5)
 		solver.metrics.recent_service_errors = 8; // 80% service error rate (bad)
 		solver.metrics.recent_successful_requests = 8; // 80% success rate (good) - the rest are service errors
-		solver.metrics.consecutive_failures = RATE_CHECK_FAILURE_THRESHOLD; // Enable rate checks (5 < 10, so won't trigger consecutive failure check)
+		solver.metrics.consecutive_failures = (config.failure_threshold + 1) / 2; // Enable rate checks (6 < 10, so won't trigger consecutive failure check)
 
 		let decision = service.should_open_primary(&solver);
 		// Should open circuit because windowed metrics (80% service error rate) are used

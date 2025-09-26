@@ -37,19 +37,6 @@ impl MetricsUpdateHandler {
 		}
 	}
 
-	/// Create a new metrics update handler with circuit breaker
-	pub fn with_circuit_breaker(
-		storage: Arc<dyn Storage>,
-		settings: Settings,
-		circuit_breaker: Arc<dyn CircuitBreakerTrait>,
-	) -> Self {
-		Self {
-			storage,
-			settings,
-			circuit_breaker,
-		}
-	}
-
 	/// Handle aggregation metrics update job with multiple solvers
 	pub async fn handle_aggregation_metrics_update(
 		&self,
@@ -160,15 +147,10 @@ impl MetricsUpdateHandler {
 		solver_id: &str,
 		metrics_data: &SolverMetricsUpdate,
 	) -> JobResult<()> {
-		// Only call circuit breaker if enabled and available
-		if self.circuit_breaker.is_enabled() {
-			let circuit_breaker_settings = self.settings.get_circuit_breaker();
-			if circuit_breaker_settings.enabled {
-				self.circuit_breaker
-					.record_request_result(solver_id, metrics_data.was_successful)
-					.await;
-			}
-		}
+		// Circuit breaker handles its own enabled/disabled state internally
+		self.circuit_breaker
+			.record_request_result(solver_id, metrics_data.was_successful)
+			.await;
 		Ok(())
 	}
 

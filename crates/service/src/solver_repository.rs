@@ -21,7 +21,7 @@ use std::time::Duration;
 use oif_types::SolverRuntimeConfig;
 
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 /// Trait for solver service operations
 #[cfg_attr(test, mockall::automock)]
@@ -286,7 +286,7 @@ impl SolverServiceTrait for SolverService {
 		};
 
 		if is_config_source {
-			info!(
+			debug!(
 				"Solver '{}' has {} manually configured items, skipping auto-discovery",
 				solver_id, item_count
 			);
@@ -294,7 +294,7 @@ impl SolverServiceTrait for SolverService {
 		}
 
 		// Assets/routes should be auto-discovered, proceed with fetching
-		info!(
+		debug!(
 			"Solver '{}' is configured for auto-discovery, fetching from API",
 			solver_id
 		);
@@ -334,7 +334,7 @@ impl SolverServiceTrait for SolverService {
 					SupportedAssets::Assets { assets, .. } => assets.len(),
 					SupportedAssets::Routes { routes, .. } => routes.len(),
 				};
-				info!(
+				debug!(
 					"Auto-discovered {} items for solver: {}",
 					item_count, solver_id
 				);
@@ -357,7 +357,7 @@ impl SolverServiceTrait for SolverService {
 				.await
 				.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
-			info!("Updated solver metadata for: {}", solver_id);
+			debug!("Updated solver metadata for: {}", solver_id);
 		}
 
 		Ok(())
@@ -392,7 +392,7 @@ impl SolverServiceTrait for SolverService {
 
 		// Log the result
 		if is_healthy {
-			info!("Health check passed for solver: {}", solver_id);
+			debug!("Health check passed for solver: {}", solver_id);
 		} else {
 			warn!("Health check failed for solver: {}", solver_id);
 		}
@@ -406,7 +406,7 @@ impl SolverServiceTrait for SolverService {
 	}
 
 	async fn health_check_all_solvers(&self) -> Result<(), SolverServiceError> {
-		info!("Starting health checks for all solvers");
+		debug!("Starting health checks for all solvers");
 
 		// Get all solvers from storage
 		let solvers = self
@@ -415,10 +415,10 @@ impl SolverServiceTrait for SolverService {
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
-		info!("Found {} solvers eligible for health checks", solvers.len());
+		debug!("Found {} solvers eligible for health checks", solvers.len());
 
 		if solvers.is_empty() {
-			info!("No solvers found for health checks - all done");
+			debug!("No solvers found for health checks - all done");
 			return Ok(());
 		}
 
@@ -496,8 +496,8 @@ impl SolverServiceTrait for SolverService {
 		let final_success_count = success_count.load(Ordering::Relaxed);
 		let final_error_count = error_count.load(Ordering::Relaxed);
 
-		info!(
-			"Parallel health checks completed - {} successful, {} failed",
+		debug!(
+			"Health checks completed - {} successful, {} failed",
 			final_success_count, final_error_count
 		);
 
@@ -505,7 +505,7 @@ impl SolverServiceTrait for SolverService {
 	}
 
 	async fn fetch_assets_all_solvers(&self) -> Result<(), SolverServiceError> {
-		info!("Starting parallel asset auto-discovery for all solvers");
+		debug!("Starting parallel asset auto-discovery for all solvers");
 
 		// Get all solvers from storage
 		let solvers = self
@@ -527,13 +527,13 @@ impl SolverServiceTrait for SolverService {
 			})
 			.collect();
 
-		info!(
+		debug!(
 			"Found {} solvers requiring asset auto-discovery",
 			auto_discovery_solvers.len()
 		);
 
 		if auto_discovery_solvers.is_empty() {
-			info!("No solvers found requiring asset auto-discovery - all done");
+			debug!("No solvers found requiring asset auto-discovery - all done");
 			return Ok(());
 		}
 
@@ -570,7 +570,7 @@ impl SolverServiceTrait for SolverService {
 		let final_success_count = success_count.load(Ordering::Relaxed);
 		let final_error_count = error_count.load(Ordering::Relaxed);
 
-		info!(
+		debug!(
 			"Asset auto-discovery completed - {} successful, {} failed",
 			final_success_count, final_error_count
 		);

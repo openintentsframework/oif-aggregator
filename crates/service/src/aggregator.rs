@@ -3038,10 +3038,11 @@ mod tests {
 	async fn test_aggregator_with_circuit_breaker_disabled() {
 		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
 
-		// Circuit breaker is disabled - should not call should_allow_request or record_request_result
+		// Circuit breaker is disabled - should always return true for should_allow_request
 		mock_circuit_breaker.expect_is_enabled().returning(|| false);
-
-		// No other expectations - disabled circuit breaker shouldn't be called
+		mock_circuit_breaker
+			.expect_should_allow_request()
+			.returning(|_| true); // Always allow when disabled
 
 		let aggregator =
 			create_test_aggregator_with_circuit_breaker(2, Arc::new(mock_circuit_breaker)).await;
