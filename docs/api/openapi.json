@@ -367,36 +367,6 @@
         },
         "additionalProperties": false
       },
-      "Asset": {
-        "type": "object",
-        "description": "Supported blockchain asset/token (internal model with InteropAddress)",
-        "required": [
-          "address",
-          "symbol",
-          "name",
-          "decimals"
-        ],
-        "properties": {
-          "address": {
-            "$ref": "#/components/schemas/InteropAddress",
-            "description": "Asset address in ERC-7930 interoperable format"
-          },
-          "decimals": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Number of decimal places",
-            "minimum": 0
-          },
-          "name": {
-            "type": "string",
-            "description": "Human-readable name (e.g., \"Ethereum\", \"USD Coin\")"
-          },
-          "symbol": {
-            "type": "string",
-            "description": "Token symbol (e.g., \"ETH\", \"USDC\", \"WBTC\")"
-          }
-        }
-      },
       "AssetAmount": {
         "type": "object",
         "description": "Asset amount representation using ERC-7930 interoperable address format.",
@@ -415,6 +385,51 @@
           }
         },
         "additionalProperties": false
+      },
+      "AssetResponse": {
+        "type": "object",
+        "description": "Asset response format for API with separate address and chain ID fields",
+        "required": [
+          "address",
+          "chainId",
+          "symbol",
+          "name",
+          "decimals"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Token contract address"
+          },
+          "chainId": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Chain ID where the token exists",
+            "minimum": 0
+          },
+          "decimals": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of decimal places",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable token name (e.g., \"USD Coin\", \"Ethereum\")"
+          },
+          "symbol": {
+            "type": "string",
+            "description": "Token symbol (e.g., \"USDC\", \"ETH\", \"WBTC\")"
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "address": "0xA0b86a33E6441E7C81F7C93451777f5F4dE78e86",
+          "chainId": 1,
+          "decimals": 6,
+          "name": "USD Coin",
+          "symbol": "USDC"
+        }
       },
       "AssetRouteResponse": {
         "type": "object",
@@ -844,6 +859,9 @@
             },
             "description": "Available inputs (order significant if preference is 'input-priority')"
           },
+          "metadata": {
+            "description": "Optional metadata for custom adapter use\nThis allows clients to include adapter-specific information in quote requests"
+          },
           "minValidUntil": {
             "type": [
               "integer",
@@ -1254,8 +1272,7 @@
             "type": "string"
           },
           "createdAt": {
-            "type": "integer",
-            "format": "int64"
+            "type": "string"
           },
           "description": {
             "type": [
@@ -1268,10 +1285,9 @@
           },
           "lastSeen": {
             "type": [
-              "integer",
+              "string",
               "null"
-            ],
-            "format": "int64"
+            ]
           },
           "name": {
             "type": [
@@ -1292,26 +1308,25 @@
         "additionalProperties": false,
         "example": {
           "adapterId": "oif-adapter-v1",
-          "createdAt": 1756400000,
+          "createdAt": "2025-08-28T00:00:00Z",
           "description": "An example solver for cross-chain swaps",
           "endpoint": "https://api.example-solver.com",
-          "lastSeen": 1756457492,
+          "lastSeen": "2025-08-28T16:04:52Z",
           "name": "Example DeFi Solver",
           "solverId": "example-solver",
           "status": "active",
           "supportedAssets": {
-            "routes": [
+            "assets": [
               {
-                "destinationChainId": 10,
-                "destinationTokenAddress": "0x4200000000000000000000000000000000000006",
-                "destinationTokenSymbol": "WETH",
-                "originChainId": 1,
-                "originTokenAddress": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-                "originTokenSymbol": "WETH"
+                "address": "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+                "chainId": 1,
+                "decimals": 18,
+                "name": "Wrapped Ether",
+                "symbol": "WETH"
               }
             ],
             "source": "autoDiscovered",
-            "type": "routes"
+            "type": "assets"
           }
         }
       },
@@ -1383,10 +1398,7 @@
         "description": "Solver operational status",
         "enum": [
           "active",
-          "inactive",
-          "error",
-          "maintenance",
-          "initializing"
+          "disabled"
         ]
       },
       "SolversResponse": {
@@ -1413,17 +1425,17 @@
           "solvers": [
             {
               "adapterId": "oif-adapter-v1",
-              "createdAt": 1756400000,
+              "createdAt": "2025-08-28T00:00:00Z",
               "description": "An example solver for cross-chain swaps",
               "endpoint": "https://api.example-solver.com",
-              "lastSeen": 1756457492,
+              "lastSeen": "2025-08-28T16:04:52Z",
               "name": "Example DeFi Solver",
               "solverId": "example-solver",
               "status": "active",
               "supportedAssets": {
                 "assets": [
                   {
-                    "address": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                    "address": "0xA0b86a33E6441E7C81F7C93451777f5F4dE78e86",
                     "chainId": 1,
                     "decimals": 6,
                     "name": "USD Coin",
@@ -1436,10 +1448,10 @@
             },
             {
               "adapterId": "uniswap-adapter-v1",
-              "createdAt": 1756400000,
+              "createdAt": "2025-08-28T00:00:00Z",
               "description": "Uniswap V3 liquidity pools solver",
               "endpoint": "https://api.uniswap.solver.com",
-              "lastSeen": 1756457490,
+              "lastSeen": "2025-08-28T16:04:50Z",
               "name": "Uniswap V3 Solver",
               "solverId": "uniswap-solver",
               "status": "active",
@@ -1496,7 +1508,7 @@
               "assets": {
                 "type": "array",
                 "items": {
-                  "$ref": "#/components/schemas/Asset"
+                  "$ref": "#/components/schemas/AssetResponse"
                 }
               },
               "source": {
