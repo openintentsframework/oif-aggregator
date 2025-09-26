@@ -11,6 +11,9 @@ use oif_types::{CircuitBreakerState, CircuitDecision, CircuitState, Solver};
 use std::sync::Arc;
 use tracing::{debug, info, warn};
 
+/// Built-in buffer for half-open state to account for async processing delays
+const HALF_OPEN_BUFFER: u32 = 1;
+
 /// Result of rate calculation with context
 #[derive(Debug)]
 struct RateCheckResult {
@@ -585,7 +588,7 @@ impl CircuitBreakerTrait for CircuitBreakerService {
 				}
 
 				// Half-open state - allow limited test requests with buffer for async processing
-				let effective_max_calls = self.config.half_open_max_calls + 1; // Built-in buffer of 1
+				let effective_max_calls = self.config.half_open_max_calls + HALF_OPEN_BUFFER;
 				if circuit_state.test_request_count < effective_max_calls {
 					// Increment test request count and save updated state
 					let mut updated_state = circuit_state.clone();

@@ -336,7 +336,7 @@ The circuit breaker provides automatic failure protection by temporarily blockin
     "persistent_failure_action": "ExtendTimeout"
   }
 }
-`
+```
 
 ### Security Configuration
 
