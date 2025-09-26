@@ -37,7 +37,9 @@ fn create_test_services(
 		"test_secret_key_1234567890123456".to_string().into(),
 	)) as Arc<dyn IntegrityTrait>;
 
-	let solver_filter_service = Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>;
+	let solver_filter_service = Arc::new(SolverFilterService::new(Arc::new(
+		crate::circuit_breaker::MockCircuitBreakerTrait::new(),
+	))) as Arc<dyn SolverFilterTrait>;
 
 	let storage = Arc::new(MemoryStore::new()) as Arc<dyn Storage>;
 	let aggregator_service = Arc::new(AggregatorService::with_config(
@@ -47,8 +49,6 @@ fn create_test_services(
 		solver_filter_service,
 		Default::default(),
 		None,
-		Arc::new(crate::MockCircuitBreakerTrait::new()), // Disabled circuit breaker for tests
-		oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS, // Default timeout threshold
 	)) as Arc<dyn AggregatorTrait>;
 
 	(solver_service, aggregator_service, integrity_service)

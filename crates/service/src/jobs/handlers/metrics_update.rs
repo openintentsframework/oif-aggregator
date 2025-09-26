@@ -219,6 +219,11 @@ impl MetricsUpdateHandler {
 		// Update last seen timestamp
 		solver.mark_seen();
 
+		debug!(
+			"Updated current metrics for solver '{}': {:?}",
+			solver_id, solver.metrics
+		);
+
 		// Save updated solver back to storage
 		storage
 			.update_solver(solver)

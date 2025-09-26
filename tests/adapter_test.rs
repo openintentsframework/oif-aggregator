@@ -91,16 +91,17 @@ async fn test_aggregation_service_creation() {
 			.expect("Failed to create test solver");
 	}
 
+	let circuit_breaker = Arc::new(CircuitBreakerService::new(
+		storage.clone(),
+		CircuitBreakerSettings::default(),
+	)) as Arc<dyn oif_service::CircuitBreakerTrait>;
+
 	let service = AggregatorService::new(
 		storage.clone(),
 		adapter_registry,
 		integrity_service,
-		Arc::new(oif_service::SolverFilterService::new())
+		Arc::new(oif_service::SolverFilterService::new(circuit_breaker))
 			as Arc<dyn oif_service::SolverFilterTrait>,
-		Arc::new(CircuitBreakerService::new(
-			storage.clone(),
-			CircuitBreakerSettings::default(),
-		)),
 	);
 
 	// Just verify service was created successfully

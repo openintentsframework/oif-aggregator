@@ -453,20 +453,21 @@ where
 		let storage_arc: Arc<dyn Storage> = Arc::new(self.storage.clone());
 		let integrity_service =
 			Arc::new(IntegrityService::new(integrity_secret)) as Arc<dyn IntegrityTrait>;
-		let solver_filter_service =
-			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>;
 
-		// Create an upgradable job scheduler (works immediately, gets upgraded later)
-		let job_scheduler = Arc::new(UpgradableJobScheduler::new())
-			as Arc<dyn oif_service::jobs::scheduler::JobScheduler>;
-
-		// Create circuit breaker if enabled
+		// Create circuit breaker
 		let circuit_breaker = Arc::new(CircuitBreakerService::new(
 			Arc::clone(&storage_arc),
 			settings.get_circuit_breaker(),
 		)) as Arc<dyn CircuitBreakerTrait>;
 
-		// Create aggregator service and wire in circuit breaker if configured
+		let solver_filter_service = Arc::new(SolverFilterService::new(Arc::clone(&circuit_breaker)))
+			as Arc<dyn SolverFilterTrait>;
+
+		// Create an upgradable job scheduler (works immediately, gets upgraded later)
+		let job_scheduler = Arc::new(UpgradableJobScheduler::new())
+			as Arc<dyn oif_service::jobs::scheduler::JobScheduler>;
+
+		// Create aggregator service
 		let aggregator_service = AggregatorService::with_config(
 			Arc::clone(&storage_arc),
 			Arc::clone(&adapter_registry),
@@ -474,8 +475,6 @@ where
 			Arc::clone(&solver_filter_service),
 			settings.get_aggregation().into(),
 			Some(Arc::clone(&job_scheduler)),
-			Arc::clone(&circuit_breaker),
-			settings.get_metrics().min_timeout_for_metrics_ms, // Get from metrics settings
 		);
 
 		let aggregator_service =
