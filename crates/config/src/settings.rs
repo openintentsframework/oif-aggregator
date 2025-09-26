@@ -902,9 +902,7 @@ impl Settings {
 
 	/// Get metrics configuration with defaults
 	pub fn get_metrics(&self) -> MetricsSettings {
-		self.metrics
-			.clone()
-			.unwrap_or_else(|| MetricsSettings::default())
+		self.metrics.clone().unwrap_or_default()
 	}
 
 	/// Get metrics retention period in hours
@@ -924,9 +922,7 @@ impl Settings {
 
 	/// Get circuit breaker configuration with defaults applied
 	pub fn get_circuit_breaker(&self) -> CircuitBreakerSettings {
-		self.circuit_breaker
-			.clone()
-			.unwrap_or(CircuitBreakerSettings::default())
+		self.circuit_breaker.clone().unwrap_or_default()
 	}
 
 	/// Get raw circuit breaker configuration (for validation)
