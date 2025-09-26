@@ -64,7 +64,7 @@ impl CircuitBreakerService {
 	/// Rate checks are enabled when consecutive failures reach half the failure threshold (rounded up)
 	/// This ensures rate-based logic has a chance to work before consecutive failure circuit opening
 	fn should_check_rates(&self, consecutive_failures: u32) -> bool {
-		let rate_check_threshold = (self.config.failure_threshold + 1) / 2; // Equivalent to ceiling division
+		let rate_check_threshold = self.config.failure_threshold.div_ceil(2);
 		consecutive_failures >= rate_check_threshold
 	}
 
@@ -1788,7 +1788,7 @@ mod tests {
 		// Test that rate check threshold scales with failure_threshold configuration using ceiling division
 		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
 
-		// Test with failure_threshold = 6, rate checks should start at 3 (ceil(6/2))
+		// Test with failure_threshold = 6, rate checks should start at 3 (6.div_ceil(2))
 		let mut config = create_test_config();
 		config.failure_threshold = 6;
 		let service = CircuitBreakerService::new(storage.clone(), config.clone());
@@ -1801,15 +1801,15 @@ mod tests {
 		let decision = service.should_open_primary(&solver);
 		assert!(
 			matches!(decision, CircuitDecision::Closed),
-			"Should stay closed when consecutive_failures (2) < ceil(failure_threshold/2) (3)"
+			"Should stay closed when consecutive_failures (2) < failure_threshold.div_ceil(2) (3)"
 		);
 
 		// Now test with consecutive_failures = 3 (exactly at threshold)
 		solver.metrics.consecutive_failures = 3; // At rate check threshold (3), rate checks should be enabled
 		let decision = service.should_open_primary(&solver);
-		assert!(matches!(decision, CircuitDecision::Open { .. }), "Should open when consecutive_failures (3) >= ceil(failure_threshold/2) (3) and metrics are bad");
+		assert!(matches!(decision, CircuitDecision::Open { .. }), "Should open when consecutive_failures (3) >= failure_threshold.div_ceil(2) (3) and metrics are bad");
 
-		// Test with different failure_threshold = 9, rate checks should start at 5 (ceil(9/2))
+		// Test with different failure_threshold = 9, rate checks should start at 5 (9.div_ceil(2))
 		config.failure_threshold = 9;
 		let service = CircuitBreakerService::new(storage.clone(), config.clone());
 
@@ -1817,14 +1817,14 @@ mod tests {
 		let decision = service.should_open_primary(&solver);
 		assert!(
 			matches!(decision, CircuitDecision::Closed),
-			"Should stay closed when consecutive_failures (4) < ceil(failure_threshold/2) (5)"
+			"Should stay closed when consecutive_failures (4) < failure_threshold.div_ceil(2) (5)"
 		);
 
 		solver.metrics.consecutive_failures = 5; // At rate check threshold (5), rate checks should be enabled
 		let decision = service.should_open_primary(&solver);
-		assert!(matches!(decision, CircuitDecision::Open { .. }), "Should open when consecutive_failures (5) >= ceil(failure_threshold/2) (5) and metrics are bad");
+		assert!(matches!(decision, CircuitDecision::Open { .. }), "Should open when consecutive_failures (5) >= failure_threshold.div_ceil(2) (5) and metrics are bad");
 
-		// Test edge case: failure_threshold = 1, rate checks should start at 1 (ceil(1/2))
+		// Test edge case: failure_threshold = 1, rate checks should start at 1 (1.div_ceil(2))
 		config.failure_threshold = 1;
 		let service = CircuitBreakerService::new(storage.clone(), config.clone());
 
@@ -1832,12 +1832,12 @@ mod tests {
 		let decision = service.should_open_primary(&solver);
 		assert!(
 			matches!(decision, CircuitDecision::Closed),
-			"Should stay closed when consecutive_failures (0) < ceil(failure_threshold/2) (1)"
+			"Should stay closed when consecutive_failures (0) < failure_threshold.div_ceil(2) (1)"
 		);
 
 		solver.metrics.consecutive_failures = 1; // At rate check threshold (1), rate checks should be enabled
 		let decision = service.should_open_primary(&solver);
-		assert!(matches!(decision, CircuitDecision::Open { .. }), "Should open when consecutive_failures (1) >= ceil(failure_threshold/2) (1) and metrics are bad");
+		assert!(matches!(decision, CircuitDecision::Open { .. }), "Should open when consecutive_failures (1) >= failure_threshold.div_ceil(2) (1) and metrics are bad");
 	}
 
 	#[tokio::test]

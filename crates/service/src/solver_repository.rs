@@ -15,6 +15,7 @@ use oif_storage::Storage;
 use oif_types::models::health::SolverStats;
 use oif_types::solvers::Solver;
 use oif_types::solvers::{AssetSource, SupportedAssets};
+use oif_types::{CircuitState, SolverStatus};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
@@ -224,16 +225,14 @@ impl SolverServiceTrait for SolverService {
 	}
 
 	async fn get_stats(&self) -> Result<SolverStats, SolverServiceError> {
-		// Get all solvers
-		let solvers = self
+		use std::collections::HashMap;
+
+		let total = self
 			.storage
-			.list_all_solvers()
+			.count_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
-		let total = solvers.len();
-
-		// Get active solvers
 		let active_solvers = self
 			.storage
 			.get_active_solvers()
@@ -243,12 +242,78 @@ impl SolverServiceTrait for SolverService {
 		let active = active_solvers.len();
 		let inactive = total.saturating_sub(active);
 
-		// Perform health checks
-		let health_details = self.health_check_all().await?;
-		let healthy = health_details
-			.values()
-			.filter(|&&is_healthy| is_healthy)
-			.count();
+		// Check if circuit breaker states exist (optimization for disabled circuit breaker)
+		let circuit_states = self
+			.storage
+			.list_circuit_states()
+			.await
+			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
+
+		// Determine health status efficiently
+		let mut health_details = HashMap::new();
+		let mut healthy = 0;
+
+		if circuit_states.is_empty() {
+			// No circuit breaker states exist - circuit breaker is likely disabled
+			// Use active_solvers directly - they are all healthy by definition
+			healthy = active_solvers.len();
+
+			// Mark all active solvers as healthy
+			for solver in &active_solvers {
+				health_details.insert(solver.solver_id.clone(), true);
+			}
+
+			// Load all solvers only to get IDs of inactive ones and mark them as unhealthy
+			let solvers = self
+				.storage
+				.list_all_solvers()
+				.await
+				.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
+
+			for solver in &solvers {
+				// Skip if already marked as healthy (active)
+				if !health_details.contains_key(&solver.solver_id) {
+					health_details.insert(solver.solver_id.clone(), false);
+				}
+			}
+		} else {
+			// Circuit breaker states exist - use them for more accurate health determination
+			// Load all solvers for health status evaluation
+			let solvers = self
+				.storage
+				.list_all_solvers()
+				.await
+				.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
+
+			let circuit_state_map: HashMap<String, &oif_types::CircuitBreakerState> =
+				circuit_states
+					.iter()
+					.map(|state| (state.solver_id.clone(), state))
+					.collect();
+
+			for solver in &solvers {
+				let is_healthy = match circuit_state_map.get(&solver.solver_id) {
+					Some(circuit_state) => match circuit_state.state {
+						CircuitState::Closed => true,   // Circuit closed = healthy
+						CircuitState::HalfOpen => true, // Half-open = recovering (consider healthy)
+						CircuitState::Open => false,    // Circuit open = unhealthy (blocked)
+					},
+					None => {
+						// No circuit state exists - use solver status
+						match solver.status {
+							SolverStatus::Active => true, // Active solver without circuit issues = healthy
+							_ => false,                   // Disabled/Inactive = unhealthy
+						}
+					},
+				};
+
+				health_details.insert(solver.solver_id.clone(), is_healthy);
+				if is_healthy {
+					healthy += 1;
+				}
+			}
+		}
+
 		let unhealthy = total.saturating_sub(healthy);
 
 		Ok(SolverStats {
@@ -612,5 +677,127 @@ mod tests {
 
 		let stats = mock.get_stats().await.unwrap();
 		assert_eq!(stats.total, 0);
+	}
+
+	#[tokio::test]
+	async fn test_get_stats_with_circuit_breaker() {
+		use chrono::Duration;
+		use oif_adapters::AdapterRegistry;
+		use oif_storage::MemoryStore;
+		use oif_types::{CircuitBreakerState, Solver, SolverStatus};
+
+		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
+		let adapter_registry = Arc::new(AdapterRegistry::new());
+		let service = SolverService::new(storage.clone(), adapter_registry, None);
+
+		// Create test solvers
+		let mut solver1 = Solver::new(
+			"solver-1".to_string(),
+			"test-adapter".to_string(),
+			"http://test1".to_string(),
+		);
+		solver1.status = SolverStatus::Active;
+		let mut solver2 = Solver::new(
+			"solver-2".to_string(),
+			"test-adapter".to_string(),
+			"http://test2".to_string(),
+		);
+		solver2.status = SolverStatus::Disabled;
+		let mut solver3 = Solver::new(
+			"solver-3".to_string(),
+			"test-adapter".to_string(),
+			"http://test3".to_string(),
+		);
+		solver3.status = SolverStatus::Active;
+
+		// Store solvers
+		storage.create_solver(solver1).await.unwrap();
+		storage.create_solver(solver2).await.unwrap();
+		storage.create_solver(solver3).await.unwrap();
+
+		// Create circuit breaker states
+		let cb_state1 = CircuitBreakerState::new_closed("solver-1".to_string());
+		let cb_state3 = CircuitBreakerState::new_open(
+			"solver-3".to_string(),
+			"Test failure".to_string(),
+			Duration::seconds(30),
+			5,
+		);
+
+		storage
+			.update_solver_circuit_state(cb_state1)
+			.await
+			.unwrap();
+		storage
+			.update_solver_circuit_state(cb_state3)
+			.await
+			.unwrap();
+		// solver-2 has no circuit state
+
+		// Test efficient stats with circuit breaker enabled (has circuit states)
+		let stats = service.get_stats().await.unwrap();
+
+		assert_eq!(stats.total, 3);
+		assert_eq!(stats.active, 2); // solver1 and solver3 are active
+		assert_eq!(stats.inactive, 1); // solver2 is disabled
+		assert_eq!(stats.healthy, 1); // only solver1 (closed circuit + active)
+		assert_eq!(stats.unhealthy, 2); // solver2 (disabled) + solver3 (open circuit)
+
+		// Check health details
+		assert_eq!(stats.health_details.get("solver-1"), Some(&true)); // Closed circuit = healthy
+		assert_eq!(stats.health_details.get("solver-2"), Some(&false)); // Disabled status = unhealthy
+		assert_eq!(stats.health_details.get("solver-3"), Some(&false)); // Open circuit = unhealthy
+	}
+
+	#[tokio::test]
+	async fn test_get_stats_without_circuit_breaker() {
+		use oif_adapters::AdapterRegistry;
+		use oif_storage::MemoryStore;
+		use oif_types::{Solver, SolverStatus};
+
+		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
+		let adapter_registry = Arc::new(AdapterRegistry::new());
+		let service = SolverService::new(storage.clone(), adapter_registry, None);
+
+		// Create test solvers
+		let mut solver1 = Solver::new(
+			"solver-1".to_string(),
+			"test-adapter".to_string(),
+			"http://test1".to_string(),
+		);
+		solver1.status = SolverStatus::Active;
+		let mut solver2 = Solver::new(
+			"solver-2".to_string(),
+			"test-adapter".to_string(),
+			"http://test2".to_string(),
+		);
+		solver2.status = SolverStatus::Disabled;
+		let mut solver3 = Solver::new(
+			"solver-3".to_string(),
+			"test-adapter".to_string(),
+			"http://test3".to_string(),
+		);
+		solver3.status = SolverStatus::Active;
+
+		// Store solvers
+		storage.create_solver(solver1).await.unwrap();
+		storage.create_solver(solver2).await.unwrap();
+		storage.create_solver(solver3).await.unwrap();
+
+		// NO circuit breaker states - circuit breaker disabled optimization should kick in
+
+		// Test efficient stats without circuit breaker (no circuit states)
+		let stats = service.get_stats().await.unwrap();
+
+		assert_eq!(stats.total, 3);
+		assert_eq!(stats.active, 2); // solver1 and solver3 are active
+		assert_eq!(stats.inactive, 1); // solver2 is disabled
+		assert_eq!(stats.healthy, 2); // solver1 and solver3 (both active, no circuit blocking)
+		assert_eq!(stats.unhealthy, 1); // only solver2 (disabled)
+
+		// Check health details - should only use solver status
+		assert_eq!(stats.health_details.get("solver-1"), Some(&true)); // Active = healthy
+		assert_eq!(stats.health_details.get("solver-2"), Some(&false)); // Disabled = unhealthy
+		assert_eq!(stats.health_details.get("solver-3"), Some(&true)); // Active = healthy (no circuit blocking)
 	}
 }
