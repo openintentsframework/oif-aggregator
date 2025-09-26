@@ -902,10 +902,9 @@ impl Settings {
 
 	/// Get metrics configuration with defaults
 	pub fn get_metrics(&self) -> MetricsSettings {
-		self.metrics.clone().unwrap_or_else(|| {
-			// Create a default configuration with all defaults applied by serde
-			serde_json::from_str("{}").unwrap_or_else(|_| MetricsSettings::default())
-		})
+		self.metrics
+			.clone()
+			.unwrap_or_else(|| MetricsSettings::default())
 	}
 
 	/// Get metrics retention period in hours
@@ -925,24 +924,9 @@ impl Settings {
 
 	/// Get circuit breaker configuration with defaults applied
 	pub fn get_circuit_breaker(&self) -> CircuitBreakerSettings {
-		self.circuit_breaker.clone().unwrap_or_else(|| {
-			// Create a default configuration with all defaults applied by serde
-			serde_json::from_str("{}").unwrap_or_else(|_| CircuitBreakerSettings {
-				enabled: default_circuit_breaker_enabled(),
-				failure_threshold: default_circuit_breaker_failure_threshold(),
-				success_rate_threshold: default_circuit_breaker_success_rate_threshold(),
-				min_requests_for_rate_check: default_circuit_breaker_min_requests(),
-				base_timeout_seconds: default_circuit_breaker_base_timeout(),
-				max_timeout_seconds: default_circuit_breaker_max_timeout(),
-				half_open_max_calls: default_circuit_breaker_half_open_calls(),
-				max_recovery_attempts: default_circuit_breaker_max_recovery_attempts(),
-				persistent_failure_action: default_circuit_breaker_persistent_failure_action(),
-				metrics_max_age_minutes: default_circuit_breaker_metrics_max_age(),
-				service_error_threshold: default_circuit_breaker_service_error_threshold(),
-				metrics_window_duration_minutes: default_metrics_window_duration(),
-				metrics_max_window_age_minutes: default_metrics_max_window_age(),
-			})
-		})
+		self.circuit_breaker
+			.clone()
+			.unwrap_or(CircuitBreakerSettings::default())
 	}
 
 	/// Get raw circuit breaker configuration (for validation)
