@@ -10,15 +10,31 @@ The circuit breaker pattern prevents cascading failures by monitoring service he
 
 The circuit breaker follows a standard 3-state pattern:
 
-```
-CLOSED ──[failures exceed threshold]──> OPEN ──[timeout expires]──> HALF_OPEN
-   ↑                                                                    │
-   └─────────────────[test success]────────────────────────────────────┘
-                                                                        │
-                                                  [test failure]────────┘
-                                                        │
-                                                        ↓
-                                                     OPEN (longer timeout)
+```mermaid
+stateDiagram-v2
+    [*] --> Closed
+    Closed --> Open : failures exceed threshold
+    Open --> HalfOpen : timeout expires
+    HalfOpen --> Closed : test success
+    HalfOpen --> Open : test failure<br/>(longer timeout)
+    
+    state Closed {
+        [*] --> AllowRequests
+        AllowRequests : ✅ Allow all requests
+        AllowRequests : 📊 Monitor performance
+    }
+    
+    state Open {
+        [*] --> BlockRequests
+        BlockRequests : ❌ Block all requests
+        BlockRequests : ⏱️ Wait for timeout
+    }
+    
+    state HalfOpen {
+        [*] --> TestRequests
+        TestRequests : 🧪 Allow limited test requests
+        TestRequests : 📈 Evaluate results
+    }
 ```
 
 **States:**
@@ -26,20 +42,19 @@ CLOSED ──[failures exceed threshold]──> OPEN ──[timeout expires]─�
 - **OPEN** - Blocking requests due to failures, waiting for timeout
 - **HALF_OPEN** - Testing recovery with limited requests
 
-### Request Processing Pipeline
+### Request Processing Pipeline (GetQuotes)
 
-```
-Quote Request
-     │
-     ├─[1. Status Filter]────→ Only SolverStatus::Active (1000 → ~800)
-     │
-     ├─[2. Compatibility]────→ Asset/route compatibility (~800 → ~20) 
-     │
-     ├─[3. Include/Exclude]──→ User preferences (~20 → ~15)
-     │
-     ├─[4. Circuit Breaker]──→ Only CLOSED/HALF-OPEN circuits (~15 → ~12) ⚡ Optimized
-     │
-     └─[5. Selection Strategy]→ Final solver list (~12 → ~10)
+```mermaid
+flowchart TD
+    A[Quote Request] --> B[1. Status Filter<br/>Only SolverStatus::Active<br/>1000 → ~800]
+    B --> C[2. Compatibility Filter<br/>Asset/route compatibility<br/>~800 → ~20]
+    C --> D[3. Include/Exclude Filter<br/>User preferences<br/>~20 → ~15]
+    D --> E[4. Circuit Breaker Filter ⚡<br/>Only CLOSED/HALF-OPEN circuits<br/>~15 → ~12]
+    E --> F[5. Selection Strategy<br/>Final solver list<br/>~12 → ~10]
+    
+    style E fill:#ffeb3b,stroke:#f57f17,stroke-width:2px
+    style A fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    style F fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
 ```
 
 **Performance Optimization**: Circuit breaker filtering now happens AFTER compatibility filtering, reducing expensive circuit breaker checks from potentially 1000 solvers to only the ~20 compatible ones.
@@ -108,5 +123,3 @@ Minimal development settings:
 - **[Security Guide](security.md)** - Security considerations
 
 ---
-
-**The circuit breaker system provides automatic protection against cascading failures while maintaining operational flexibility and self-healing capabilities.**

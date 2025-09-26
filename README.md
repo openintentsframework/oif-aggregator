@@ -45,6 +45,8 @@ Once running, the following endpoints are available:
 - **ERC-7930 Compliance** - Full support for the Open Intent Framework standard
 - **Intent-Based Architecture** - Submit intents and track execution through to settlement
 - **Integrity Verification** - HMAC-SHA256 checksums prevent quote tampering
+- **Circuit Breaker Protection** - Automatic failure detection and recovery for failing solvers
+- **Performance Metrics** - Real-time solver performance monitoring and analytics
 - **Flexible Storage** - In-memory storage backend
 - **Rate Limiting** - Built-in IP-based rate limiting
 
@@ -56,6 +58,9 @@ Once running, the following endpoints are available:
 
 ### ⚡ Performance & Reliability  
 - **Async/Await** - Built on Tokio for high concurrency
+- **Circuit Breaker Pattern** - Prevents cascading failures with exponential backoff
+- **Solver Health Monitoring** - Real-time success rates and error tracking
+- **Smart Filtering** - Intelligent solver selection based on performance metrics
 - **Error Handling** - Comprehensive error types and recovery
 - **Structured Logging** - JSON and pretty-print log formats
 
@@ -71,6 +76,7 @@ export INTEGRITY_SECRET="your-secure-random-string-minimum-32-chars"
 ## 🔌 Integration & Extension
 
 - **[Custom Adapter Guide](docs/custom-adapters.md)** - Integrate new solver protocols
+- **[Circuit Breaker Guide](docs/circuit-breaker.md)** - Automatic failure protection and recovery
 - **[API Documentation](https://openintentsframework.github.io/oif-aggregator/)** - Complete HTTP API reference
 - **[Examples Directory](examples/)** - Working code examples for common use cases
 
@@ -117,9 +123,12 @@ oif-aggregator/
 - **`AggregatorService`** - Core quote aggregation logic
 - **`OrderService`** - Intent submission and tracking
 - **`SolverService`** - Solver management and discovery
+- **`CircuitBreakerService`** - Automatic failure protection and recovery
+- **`SolverFilterService`** - Smart solver selection and filtering
 - **`AdapterRegistry`** - Manages protocol adapters (OIF, custom)
 - **`Storage`** - Trait for persistence (memory, Redis)
 - **`IntegrityService`** - HMAC-SHA256 quote verification
+- **`BackgroundJobHandler`** - Async metrics processing and state management
 
 ## 🧪 Development
 
@@ -210,7 +219,7 @@ This project is licensed under the [MIT License](LICENSE).
 ## 📚 Documentation & Support
 
 - **[📖 Complete Documentation](docs/)** - All guides and references
-- **[🚀 Quick Start](docs/quick-start.md)** - Get running quickly  
+- **[🚀 Quick Start](docs/quick-start.md)** - Get running quickly
 - **[🔧 API Docs](https://openintentsframework.github.io/oif-aggregator/)** - Interactive Swagger UI
 - **[🐛 Issues](https://github.com/openintentsframework/oif-aggregator/issues)** - Bug reports and feature requests
 
