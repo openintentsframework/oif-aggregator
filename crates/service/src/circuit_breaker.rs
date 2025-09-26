@@ -329,13 +329,15 @@ impl CircuitBreakerService {
 	}
 
 	/// Transition circuit to half-open state for testing recovery
-	async fn transition_to_half_open(&self, solver_id: String) {
+	/// Preserves recovery_attempt_count from the current open state
+	async fn transition_to_half_open(&self, solver_id: String, recovery_attempt_count: u32) {
 		let mut state = CircuitBreakerState::new_half_open(solver_id.clone());
+		state.recovery_attempt_count = recovery_attempt_count; // Preserve recovery attempts
 		state.touch();
 
 		debug!(
-			"Circuit breaker transitioning to half-open for solver '{}'",
-			solver_id
+			"Circuit breaker transitioning to half-open for solver '{}' (recovery attempt #{})",
+			solver_id, recovery_attempt_count
 		);
 
 		if let Err(e) = self.storage.update_solver_circuit_state(state).await {
@@ -540,7 +542,11 @@ impl CircuitBreakerTrait for CircuitBreakerService {
 			CircuitState::Open => {
 				// Circuit is open - check if we should attempt recovery
 				if circuit_state.should_attempt_reset() {
-					self.transition_to_half_open(solver.solver_id.clone()).await;
+					self.transition_to_half_open(
+						solver.solver_id.clone(),
+						circuit_state.recovery_attempt_count,
+					)
+					.await;
 					true // Allow the test request
 				} else {
 					debug!(
@@ -1841,6 +1847,50 @@ mod tests {
 		solver.metrics.consecutive_failures = 1; // At rate check threshold (1), rate checks should be enabled
 		let decision = service.should_open_primary(&solver);
 		assert!(matches!(decision, CircuitDecision::Open { .. }), "Should open when consecutive_failures (1) >= failure_threshold.div_ceil(2) (1) and metrics are bad");
+	}
+
+	#[tokio::test]
+	async fn test_recovery_attempt_count_preserved_in_transition() {
+		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
+		let config = create_test_config();
+		let service = CircuitBreakerService::new(storage.clone(), config.clone());
+
+		// Create solver and set it to open state with recovery attempts
+		let solver = create_test_solver("test-solver");
+
+		let mut open_state = CircuitBreakerState::new_open(
+			"test-solver".to_string(),
+			"Test failure".to_string(),
+			Duration::seconds(1), // Short timeout for test
+			5,
+		);
+		open_state.recovery_attempt_count = 3; // Set specific recovery attempt count
+		storage
+			.update_solver_circuit_state(open_state.clone())
+			.await
+			.unwrap();
+
+		// Wait for timeout to pass
+		tokio::time::sleep(tokio::time::Duration::from_millis(1100)).await;
+
+		// Make a request - should transition to half-open and preserve recovery_attempt_count
+		let _should_allow = service.should_allow_request(&solver).await;
+
+		// Verify the state was transitioned to half-open with preserved recovery_attempt_count
+		let states = storage.list_circuit_states().await.unwrap();
+		let state = states
+			.iter()
+			.find(|s| s.solver_id == "test-solver")
+			.unwrap();
+
+		assert_eq!(state.state, CircuitState::HalfOpen);
+		assert_eq!(
+			state.recovery_attempt_count, 3,
+			"Recovery attempt count should be preserved when transitioning to half-open"
+		);
+
+		// Verify debug log shows the recovery attempt number
+		// (This would require a log capturing mechanism in a real test environment)
 	}
 
 	#[tokio::test]
