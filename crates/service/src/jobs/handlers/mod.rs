@@ -68,6 +68,7 @@ impl BackgroundJobHandler {
 		order_service: Arc<dyn OrderServiceTrait>,
 		job_scheduler: Arc<dyn JobScheduler>,
 		settings: Settings,
+		circuit_breaker: Arc<dyn crate::circuit_breaker::CircuitBreakerTrait>,
 	) -> Self {
 		Self {
 			health_check_handler: SolverHealthCheckHandler::new(Arc::clone(&solver_service)),
@@ -85,7 +86,11 @@ impl BackgroundJobHandler {
 				Arc::clone(&job_scheduler),
 				None, // Use default monitoring configuration
 			),
-			metrics_update_handler: MetricsUpdateHandler::new(Arc::clone(&storage)),
+			metrics_update_handler: MetricsUpdateHandler::new(
+				Arc::clone(&storage),
+				settings.clone(),
+				Arc::clone(&circuit_breaker),
+			),
 			metrics_cleanup_handler: MetricsCleanupHandler::new(
 				Arc::clone(&storage),
 				settings.clone(),

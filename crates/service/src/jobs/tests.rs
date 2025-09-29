@@ -37,7 +37,9 @@ fn create_test_services(
 		"test_secret_key_1234567890123456".to_string().into(),
 	)) as Arc<dyn IntegrityTrait>;
 
-	let solver_filter_service = Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>;
+	let solver_filter_service = Arc::new(SolverFilterService::new(Arc::new(
+		crate::circuit_breaker::MockCircuitBreakerTrait::new(),
+	))) as Arc<dyn SolverFilterTrait>;
 
 	let storage = Arc::new(MemoryStore::new()) as Arc<dyn Storage>;
 	let aggregator_service = Arc::new(AggregatorService::with_config(
@@ -47,7 +49,6 @@ fn create_test_services(
 		solver_filter_service,
 		Default::default(),
 		None,
-		oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS, // Default timeout threshold
 	)) as Arc<dyn AggregatorTrait>;
 
 	(solver_service, aggregator_service, integrity_service)
@@ -84,6 +85,7 @@ async fn test_job_processor_basic_functionality() {
 		Arc::clone(&adapter_registry),
 		Arc::clone(&integrity_service),
 		Arc::clone(&job_scheduler),
+		Arc::new(crate::MockCircuitBreakerTrait::new()),
 	)) as Arc<dyn OrderServiceTrait>;
 
 	// Create job handler with all required services
@@ -101,6 +103,7 @@ async fn test_job_processor_basic_functionality() {
 		order_service,
 		job_scheduler,
 		oif_config::Settings::default(),
+		Arc::new(crate::MockCircuitBreakerTrait::new()), // Disabled circuit breaker for tests
 	));
 
 	// Create job processor with minimal config for testing
@@ -160,6 +163,7 @@ async fn test_job_processor_queue_capacity() {
 		Arc::clone(&adapter_registry),
 		Arc::clone(&integrity_service),
 		Arc::clone(&job_scheduler),
+		Arc::new(crate::MockCircuitBreakerTrait::new()),
 	)) as Arc<dyn OrderServiceTrait>;
 
 	let (solver_service, aggregator_service, _) = create_test_services(
@@ -176,6 +180,7 @@ async fn test_job_processor_queue_capacity() {
 		order_service,
 		job_scheduler,
 		oif_config::Settings::default(),
+		Arc::new(crate::MockCircuitBreakerTrait::new()), // Disabled circuit breaker for tests
 	));
 
 	// Create processor with very small queue
@@ -246,6 +251,7 @@ async fn test_solver_maintenance_handler() {
 		Arc::clone(&adapter_registry),
 		Arc::clone(&integrity_service),
 		Arc::clone(&job_scheduler),
+		Arc::new(crate::MockCircuitBreakerTrait::new()),
 	)) as Arc<dyn OrderServiceTrait>;
 	// Create a test solver
 	let solver = Solver::new(
@@ -272,6 +278,7 @@ async fn test_solver_maintenance_handler() {
 		order_service,
 		job_scheduler,
 		oif_config::Settings::default(),
+		Arc::new(crate::MockCircuitBreakerTrait::new()), // Disabled circuit breaker for tests
 	);
 
 	// Test health check job
@@ -353,6 +360,7 @@ async fn test_job_scheduling() {
 		Arc::clone(&adapter_registry),
 		Arc::clone(&integrity_service),
 		Arc::clone(&job_scheduler),
+		Arc::new(crate::MockCircuitBreakerTrait::new()),
 	)) as Arc<dyn OrderServiceTrait>;
 
 	// Create job handler with all required services
@@ -370,6 +378,7 @@ async fn test_job_scheduling() {
 		order_service,
 		job_scheduler,
 		oif_config::Settings::default(),
+		Arc::new(crate::MockCircuitBreakerTrait::new()), // Disabled circuit breaker for tests
 	));
 
 	let config = JobProcessorConfig {
@@ -560,6 +569,7 @@ async fn test_job_memory_management() {
 		Arc::clone(&adapter_registry),
 		Arc::clone(&integrity_service),
 		Arc::clone(&job_scheduler),
+		Arc::new(crate::MockCircuitBreakerTrait::new()),
 	)) as Arc<dyn OrderServiceTrait>;
 
 	let (solver_service, aggregator_service, _) = create_test_services(
@@ -577,6 +587,7 @@ async fn test_job_memory_management() {
 		order_service,
 		job_scheduler,
 		oif_config::Settings::default(),
+		Arc::new(crate::MockCircuitBreakerTrait::new()), // Disabled circuit breaker for tests
 	));
 
 	// Create processor with very small max entries to test LRU eviction
@@ -697,6 +708,7 @@ async fn test_orders_cleanup_job() {
 		Arc::clone(&adapter_registry),
 		Arc::clone(&integrity_service),
 		Arc::clone(&job_scheduler),
+		Arc::new(crate::MockCircuitBreakerTrait::new()),
 	)) as Arc<dyn OrderServiceTrait>;
 
 	// Create job handler
@@ -714,6 +726,7 @@ async fn test_orders_cleanup_job() {
 		order_service,
 		job_scheduler,
 		oif_config::Settings::default(),
+		Arc::new(crate::MockCircuitBreakerTrait::new()), // Disabled circuit breaker for tests
 	);
 
 	// Test orders cleanup job

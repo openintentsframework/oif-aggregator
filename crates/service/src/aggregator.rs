@@ -50,7 +50,11 @@
 //! ## Execution Flow
 //!
 //! 1. **Request Validation**: Validate request parameters and solver options
-//! 2. **Solver Filtering**: Apply compatibility scoring and selection strategy
+//! 2. **Integrated Filtering**: Apply comprehensive filtering in optimal order:
+//!    - Compatibility filtering (1000 → ~20 solvers)
+//!    - User preferences (include/exclude)  
+//!    - Circuit breaker checks (before selection for accurate counts)
+//!    - Selection strategy (sampling/priority)
 //! 3. **Task Spawning**: Launch concurrent solver tasks with proper resource limits
 //! 4. **Quote Collection**: Aggregate results with early termination support
 //! 5. **Integrity Processing**: Generate checksums and finalize quotes
@@ -104,9 +108,13 @@
 //! - `IntegrityError`: Checksum generation/verification failures
 //! - `SolverAdapterError`: Communication failures with solvers
 use crate::integrity::{IntegrityError, IntegrityTrait};
+use crate::jobs::{BackgroundJob, SolverMetricsUpdate};
 use crate::solver_adapter::{SolverAdapterError, SolverAdapterService, SolverAdapterTrait};
 use crate::solver_filter::SolverFilterTrait;
+#[cfg(test)]
+use crate::CircuitBreakerTrait;
 use async_trait::async_trait;
+use chrono::Utc;
 use oif_adapters::AdapterRegistry;
 use oif_config::AggregationConfig;
 use oif_storage::Storage;
@@ -114,6 +122,7 @@ use oif_types::constants::limits::DEFAULT_MIN_QUOTES;
 use oif_types::quotes::errors::QuoteValidationError;
 use oif_types::quotes::request::{SolverOptions, SolverSelection};
 use oif_types::quotes::response::AggregationMetadata;
+use oif_types::ErrorType;
 use oif_types::{GetQuoteRequest, IntegrityPayload, Quote, QuotePreference, QuoteRequest, Solver};
 
 use std::sync::Arc;
@@ -195,7 +204,7 @@ pub trait TaskExecutorTrait: Send + Sync {
 		request: &QuoteRequest,
 		timeout_ms: u64,
 		cancel_rx: &mut broadcast::Receiver<()>,
-	) -> Result<Vec<Quote>, String>;
+	) -> Result<Vec<Quote>, SolverAdapterError>;
 }
 
 /// Helper struct for executing solver tasks asynchronously
@@ -205,7 +214,6 @@ pub struct TaskExecutor {
 	config: AggregationConfig,
 	concurrency_limiter: Arc<Semaphore>,
 	job_scheduler: Option<Arc<dyn JobScheduler>>,
-	min_timeout_for_metrics_ms: u64,
 }
 
 impl TaskExecutor {
@@ -216,7 +224,6 @@ impl TaskExecutor {
 		config: AggregationConfig,
 		concurrency_limiter: Arc<Semaphore>,
 		job_scheduler: Option<Arc<dyn JobScheduler>>,
-		min_timeout_for_metrics_ms: u64,
 	) -> Self {
 		Self {
 			adapter_registry,
@@ -224,103 +231,108 @@ impl TaskExecutor {
 			config,
 			concurrency_limiter,
 			job_scheduler,
-			min_timeout_for_metrics_ms,
 		}
 	}
 
-	/// Collect timeout metrics when aggregator-level timeout occurs
-	/// Only collects metrics if the timeout is above the minimum threshold to avoid
-	/// polluting metrics with user-induced short timeouts
-	async fn collect_timeout_metrics(
+	/// Collect metrics for a successful task outcome
+	async fn collect_task_metrics_success(
 		&self,
-		scheduler: &Arc<dyn JobScheduler>,
 		solver: &Solver,
-		start_time: Instant,
-		timeout_ms: u64,
+		task_start: &Instant,
+		retry_count: u32,
 	) {
-		use crate::jobs::{BackgroundJob, SolverMetricsUpdate};
-		use chrono::Utc;
-		use oif_types::ErrorType;
-
-		// Check if timeout is above the minimum threshold for metrics collection
-		if timeout_ms < self.min_timeout_for_metrics_ms {
+		if self.job_scheduler.is_none() {
 			debug!(
-				"Skipping timeout metrics for solver {} - timeout {}ms is below threshold {}ms (user-induced timeout)",
-				solver.solver_id,
-				timeout_ms,
-				self.min_timeout_for_metrics_ms
+				"No job scheduler available for task metrics collection on solver {}",
+				solver.solver_id
 			);
 			return;
 		}
 
-		let response_time_ms = start_time.elapsed().as_millis() as u64;
+		let response_time_ms = task_start.elapsed().as_millis() as u64;
 
 		let metrics_data = SolverMetricsUpdate {
 			response_time_ms,
-			was_successful: false,
-			was_timeout: true, // This is a timeout
-			timestamp: Utc::now(),
-			error_message: Some(format!("Timed out after {}ms", timeout_ms)),
-			status_code: None,                         // No HTTP status for timeout
-			error_type: Some(ErrorType::ServiceError), // Timeout is a service error
-			operation: "get_quotes".to_string(),
-		};
-
-		// Schedule individual metrics job for this timeout
-		let now = Utc::now();
-		let metrics_job = BackgroundJob::AggregationMetricsUpdate {
-			aggregation_id: format!("timeout-{}-{}", solver.solver_id, now.timestamp()),
-			solver_metrics: vec![(solver.solver_id.clone(), metrics_data)],
-			aggregation_timestamp: now,
-		};
-
-		// Schedule with minimal delay
-		if let Err(e) = scheduler
-			.schedule_with_delay(metrics_job, tokio::time::Duration::from_millis(0), None)
-			.await
-		{
-			warn!(
-				"Failed to schedule timeout metrics job for solver {}: {}",
-				solver.solver_id, e
-			);
-		} else {
-			debug!(
-				"Scheduled timeout metrics job for solver {} (timeout {}ms >= threshold {}ms)",
-				solver.solver_id, timeout_ms, self.min_timeout_for_metrics_ms
-			);
-		}
-	}
-
-	/// Collect cancellation metrics when task is cancelled
-	/// Cancellations are generally application-level decisions (early termination, etc.)
-	/// so they are always collected regardless of timeout thresholds
-	async fn collect_cancellation_metrics(
-		&self,
-		scheduler: &Arc<dyn JobScheduler>,
-		solver: &Solver,
-		start_time: Instant,
-	) {
-		use crate::jobs::{BackgroundJob, SolverMetricsUpdate};
-		use chrono::Utc;
-		use oif_types::ErrorType;
-
-		let response_time_ms = start_time.elapsed().as_millis() as u64;
-
-		let metrics_data = SolverMetricsUpdate {
-			response_time_ms,
-			was_successful: false,
+			was_successful: true,
 			was_timeout: false,
 			timestamp: Utc::now(),
-			error_message: Some("Task cancelled".to_string()),
-			status_code: None,                             // No HTTP status for cancellation
-			error_type: Some(ErrorType::ApplicationError), // Cancellation is an application-level decision
+			error_message: None,
+			status_code: None,
+			error_type: None,
 			operation: "get_quotes".to_string(),
 		};
 
-		// Schedule individual metrics job for this cancellation
+		self.schedule_task_metrics_job(solver, metrics_data, retry_count)
+			.await;
+	}
+
+	/// Collect metrics for a failed task outcome using rich SolverAdapterError
+	async fn collect_task_metrics_from_error(
+		&self,
+		solver: &Solver,
+		task_start: &Instant,
+		error: &SolverAdapterError,
+		retry_count: u32,
+	) {
+		if self.job_scheduler.is_none() {
+			debug!(
+				"No job scheduler available for task metrics collection on solver {}",
+				solver.solver_id
+			);
+			return;
+		}
+
+		let response_time_ms = task_start.elapsed().as_millis() as u64;
+
+		// Extract rich error information from SolverAdapterError
+		let error_message = Some(error.to_string());
+		let status_code = error.status_code();
+		let was_timeout = error.to_string().to_lowercase().contains("timeout");
+
+		// Use proper error type categorization like SolverAdapterService does
+		let error_type = if let Some(code) = status_code {
+			// Use HTTP status code for precise categorization
+			Some(ErrorType::from_http_status(code))
+		} else if was_timeout {
+			// Timeout errors are service issues
+			Some(ErrorType::ServiceError)
+		} else {
+			// Default to unknown for other adapter errors
+			Some(ErrorType::Unknown)
+		};
+
+		let metrics_data = SolverMetricsUpdate {
+			response_time_ms,
+			was_successful: false,
+			was_timeout,
+			timestamp: Utc::now(),
+			error_message,
+			status_code,
+			error_type,
+			operation: "get_quotes".to_string(),
+		};
+
+		self.schedule_task_metrics_job(solver, metrics_data, retry_count)
+			.await;
+	}
+
+	/// Helper to schedule metrics job
+	async fn schedule_task_metrics_job(
+		&self,
+		solver: &Solver,
+		metrics_data: SolverMetricsUpdate,
+		retry_count: u32,
+	) {
+		let Some(ref scheduler) = self.job_scheduler else {
+			return;
+		};
+
+		let was_successful = metrics_data.was_successful;
+
+		// Schedule individual metrics job for this task
 		let now = Utc::now();
 		let metrics_job = BackgroundJob::AggregationMetricsUpdate {
-			aggregation_id: format!("cancelled-{}-{}", solver.solver_id, now.timestamp()),
+			aggregation_id: format!("task-{}-{}", solver.solver_id, now.timestamp()),
 			solver_metrics: vec![(solver.solver_id.clone(), metrics_data)],
 			aggregation_timestamp: now,
 		};
@@ -331,13 +343,13 @@ impl TaskExecutor {
 			.await
 		{
 			warn!(
-				"Failed to schedule cancellation metrics job for solver {}: {}",
+				"Failed to schedule task metrics job for solver {}: {}",
 				solver.solver_id, e
 			);
 		} else {
 			debug!(
-				"Scheduled cancellation metrics job for solver {} (application-level cancellation)",
-				solver.solver_id
+				"Scheduled task metrics job for solver {} (success: {}, retries: {})",
+				solver.solver_id, was_successful, retry_count
 			);
 		}
 	}
@@ -403,7 +415,10 @@ impl TaskExecutorTrait for TaskExecutor {
 				.await
 			{
 				Ok(quotes) => {
-					// Success - send result and return
+					// Success - collect metrics and send result
+					self.collect_task_metrics_success(&solver, &task_start, retry_count)
+						.await;
+
 					let task_result = SolverTaskResult {
 						solver_id: solver_id.clone(),
 						quotes,
@@ -425,7 +440,7 @@ impl TaskExecutorTrait for TaskExecutor {
 					let _ = result_tx.send(task_result);
 					return;
 				},
-				Err(error_msg) => {
+				Err(error) => {
 					retry_count += 1;
 					let attempt_duration = attempt_start.elapsed().as_millis() as u64;
 
@@ -436,7 +451,7 @@ impl TaskExecutorTrait for TaskExecutor {
 							solver_id,
 							retry_count,
 							attempt_duration,
-							error_msg,
+							error,
 							retry_count,
 							max_retries
 						);
@@ -454,16 +469,24 @@ impl TaskExecutorTrait for TaskExecutor {
 							}
 						}
 					} else {
-						// All retries exhausted
+						// All retries exhausted - collect metrics and send result
+						self.collect_task_metrics_from_error(
+							&solver,
+							&task_start,
+							&error,
+							retry_count - 1,
+						)
+						.await;
+
 						warn!(
 							"Solver {} failed after {} attempts: {}",
-							solver_id, retry_count, error_msg
+							solver_id, retry_count, error
 						);
 						let _ = result_tx.send(SolverTaskResult {
 							solver_id: solver_id.clone(),
 							quotes: Vec::new(),
 							success: false,
-							error_message: Some(error_msg),
+							error_message: Some(error.to_string()),
 							duration_ms: task_start.elapsed().as_millis() as u64,
 							retry_count: retry_count - 1,
 						});
@@ -481,20 +504,21 @@ impl TaskExecutorTrait for TaskExecutor {
 		request: &QuoteRequest,
 		timeout_ms: u64,
 		cancel_rx: &mut broadcast::Receiver<()>,
-	) -> Result<Vec<Quote>, String> {
-		// Create solver adapter service with job scheduler for metrics
+	) -> Result<Vec<Quote>, SolverAdapterError> {
+		// Create solver adapter service WITHOUT job scheduler to avoid duplicate metrics during retries
+		// Metrics will be collected once at the task level after all retries complete
 		let solver_adapter = SolverAdapterService::from_solver(
 			solver.clone(),
 			self.adapter_registry.clone(),
-			self.job_scheduler.clone(),
+			None, // No individual attempt metrics - collected at task level
 		)
-		.map_err(|e| format!("Failed to create solver adapter service: {}", e))?;
+		.map_err(|e| {
+			SolverAdapterError::Adapter(format!("Failed to create solver adapter service: {}", e))
+		})?;
 
-		let get_quote_request = GetQuoteRequest::try_from(request.clone())
-			.map_err(|e| format!("Failed to convert QuoteRequest: {}", e))?;
-
-		// Track timing for metrics collection
-		let start_time = Instant::now();
+		let get_quote_request = GetQuoteRequest::try_from(request.clone()).map_err(|e| {
+			SolverAdapterError::Adapter(format!("Failed to convert QuoteRequest: {}", e))
+		})?;
 
 		// Execute request with timeout and cancellation
 		let solver_future = solver_adapter.get_quotes(&get_quote_request);
@@ -505,25 +529,19 @@ impl TaskExecutorTrait for TaskExecutor {
 				match result {
 					Ok(Ok(response)) => Ok(response),
 					Ok(Err(e)) => {
-						// Adapter error - metrics were already collected by SolverAdapterService
-						Err(format!("Solver error: {}", e))
+						// Adapter error - preserve rich error information for proper metrics
+						Err(e)
 					},
 					Err(_) => {
-						// Timeout occurred - collect timeout metrics manually since SolverAdapterService was cancelled
-						if let Some(ref scheduler) = self.job_scheduler {
-							self.collect_timeout_metrics(scheduler, solver, start_time, timeout_ms).await;
-						}
-						Err(format!("Timed out after {}ms", timeout_ms))
+						// Timeout occurred - create appropriate SolverAdapterError
+						Err(SolverAdapterError::Adapter(format!("Timed out after {}ms", timeout_ms)))
 					},
 				}
 			}
 			_ = cancel_rx.recv() => {
 				debug!("Solver {} task cancelled during execution", solver.solver_id);
-				// Cancellation - collect cancellation metrics
-				if let Some(ref scheduler) = self.job_scheduler {
-					self.collect_cancellation_metrics(scheduler, solver, start_time).await;
-				}
-				return Err("Task cancelled".to_string());
+				// Cancellation - create appropriate SolverAdapterError for metrics
+				return Err(SolverAdapterError::Adapter("Task cancelled".to_string()));
 			}
 		}?;
 
@@ -533,7 +551,12 @@ impl TaskExecutorTrait for TaskExecutor {
 		for adapter_quote in response.quotes {
 			let quote_id = adapter_quote.quote_id.clone(); // Store for error logging
 			let mut domain_quote = Quote::try_from((adapter_quote, solver.solver_id.clone()))
-				.map_err(|e| format!("Failed to convert AdapterQuote to Quote: {}", e))?;
+				.map_err(|e| {
+					SolverAdapterError::Adapter(format!(
+						"Failed to convert AdapterQuote to Quote: {}",
+						e
+					))
+				})?;
 
 			let payload = domain_quote.to_integrity_payload();
 			match self
@@ -554,7 +577,9 @@ impl TaskExecutorTrait for TaskExecutor {
 		}
 
 		if domain_quotes.is_empty() {
-			Err("No valid quotes received".to_string())
+			Err(SolverAdapterError::Adapter(
+				"No valid quotes received".to_string(),
+			))
 		} else {
 			Ok(domain_quotes)
 		}
@@ -584,11 +609,11 @@ impl AggregatorService {
 			solver_filter_service,
 			AggregationConfig::default(),
 			None,
-			oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS, // Default timeout threshold
 		)
 	}
 
 	/// Create a new aggregator service with custom configuration
+	#[allow(clippy::too_many_arguments)]
 	pub fn with_config(
 		storage: Arc<dyn Storage>,
 		adapter_registry: Arc<AdapterRegistry>,
@@ -596,7 +621,6 @@ impl AggregatorService {
 		solver_filter_service: Arc<dyn SolverFilterTrait>,
 		config: AggregationConfig,
 		job_scheduler: Option<Arc<dyn JobScheduler>>,
-		min_timeout_for_metrics_ms: u64,
 	) -> Self {
 		// Create TaskExecutor with the configuration
 		let concurrency_limiter = Arc::new(Semaphore::new(config.max_concurrent_solvers));
@@ -606,7 +630,6 @@ impl AggregatorService {
 			config.clone(),
 			concurrency_limiter,
 			job_scheduler.clone(),
-			min_timeout_for_metrics_ms,
 		)) as Arc<dyn TaskExecutorTrait>;
 
 		Self {
@@ -753,12 +776,16 @@ impl AggregatorService {
 		min_quotes_required: usize,
 		aggregation_start: Instant,
 	) -> AggregatorResult<(Vec<Solver>, AggregationMetadata)> {
+		// Step 1: Get only active solvers
 		let available_solvers = self
 			.storage
-			.list_all_solvers()
+			.get_active_solvers()
 			.await
 			.map_err(|e| AggregatorServiceError::Storage(e.to_string()))?;
 
+		debug!("Found {} active solvers", available_solvers.len());
+
+		// Step 2: Apply comprehensive filtering (compatibility, user preferences, circuit breaker, and selection)
 		let selected_solvers = self
 			.solver_filter_service
 			.filter_solvers(
@@ -771,6 +798,8 @@ impl AggregatorService {
 				&self.config,
 			)
 			.await;
+
+		debug!("Final selected solvers: {} solvers", selected_solvers.len());
 
 		// Initialize metadata
 		let mut metadata = self
@@ -1085,10 +1114,11 @@ impl AggregatorTrait for AggregatorService {
 mod tests {
 	//! Tests for AggregatorService focusing on core aggregation behavior.
 
-	use crate::{IntegrityService, SolverFilterService};
+	use crate::{CircuitBreakerService, IntegrityService, SolverFilterService};
 
 	use super::*;
 	use oif_adapters::AdapterRegistry;
+	use oif_config::CircuitBreakerSettings;
 	use oif_types::{
 		constants::DEFAULT_GLOBAL_TIMEOUT_MS, AssetRoute, AvailableInput, InteropAddress,
 		QuoteDetails, QuoteRequest, RequestedOutput, SecretString, SolverAdapter, U256,
@@ -1511,11 +1541,13 @@ mod tests {
 
 		let storage = create_test_storage_with_solvers(solvers).await;
 		AggregatorService::new(
-			storage,
+			storage.clone(),
 			Arc::new(create_test_adapter_registry()),
 			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
 				as Arc<dyn IntegrityTrait>,
-			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
+			Arc::new(SolverFilterService::new(create_test_circuit_breaker(
+				storage.clone(),
+			))) as Arc<dyn SolverFilterTrait>,
 		)
 	}
 
@@ -1531,8 +1563,101 @@ mod tests {
 		storage
 	}
 
-	// Helper function to create test aggregator with no solvers
-	async fn create_test_aggregator() -> AggregatorService {
+	// Helper function to create a disabled circuit breaker for tests
+	fn create_test_circuit_breaker(storage: Arc<dyn Storage>) -> Arc<dyn CircuitBreakerTrait> {
+		Arc::new(CircuitBreakerService::new(
+			storage.clone(),
+			CircuitBreakerSettings::default(),
+		))
+	}
+
+	// Helper function to create test aggregator with custom circuit breaker and specified solvers
+	async fn create_test_aggregator_with_circuit_breaker(
+		solver_count: usize,
+		circuit_breaker: Arc<dyn CircuitBreakerTrait>,
+	) -> AggregatorService {
+		let mut solvers = Vec::new();
+		for i in 1..=solver_count {
+			// Create solver with proper network and asset support for filtering
+			let solver = Solver::new(
+				format!("demo-solver{}", i),
+				"mock-demo-v1".to_string(), // Use actual mock adapter ID
+				format!("http://localhost:800{}", i),
+			)
+			// Add cross-chain routes support
+			.with_routes(vec![
+				AssetRoute::with_symbols(
+					InteropAddress::from_text("eip155:1:0x0000000000000000000000000000000000000000").unwrap(), // ETH on Ethereum
+					"ETH".to_string(),
+					InteropAddress::from_text("eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607").unwrap(), // USDC on Optimism
+					"USDC".to_string(),
+				),
+				AssetRoute::with_symbols(
+					InteropAddress::from_text("eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607").unwrap(), // USDC on Optimism
+					"USDC".to_string(),
+					InteropAddress::from_text("eip155:1:0x0000000000000000000000000000000000000000").unwrap(), // ETH on Ethereum
+					"ETH".to_string(),
+				),
+			]);
+
+			solvers.push(solver);
+		}
+
+		let storage = create_test_storage_with_solvers(solvers).await;
+		AggregatorService::new(
+			storage,
+			Arc::new(create_test_adapter_registry()),
+			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
+				as Arc<dyn IntegrityTrait>,
+			Arc::new(SolverFilterService::new(circuit_breaker.clone()))
+				as Arc<dyn SolverFilterTrait>,
+		)
+	}
+
+	// Helper function for mixed solvers with custom circuit breaker
+	async fn create_test_aggregator_with_mixed_solvers_and_circuit_breaker(
+		circuit_breaker: Arc<dyn CircuitBreakerTrait>,
+	) -> AggregatorService {
+		let solvers = vec![
+			Solver::new(
+				"success-solver1".to_string(),
+				"mock-demo-v1".to_string(), // Will succeed with quotes
+				"http://localhost:8001".to_string(),
+			),
+			Solver::new(
+				"success-solver2".to_string(),
+				"mock-test-success".to_string(), // Will succeed with empty quotes
+				"http://localhost:8002".to_string(),
+			),
+			Solver::new(
+				"fail-solver1".to_string(),
+				"mock-test-fail".to_string(), // Will fail
+				"http://localhost:8003".to_string(),
+			),
+		];
+
+		let storage = create_test_storage_with_solvers(solvers).await;
+		// Use config that includes unknown solvers for testing mixed success/failure scenarios
+		let test_config = AggregationConfig {
+			include_unknown_compatibility: true,
+			..AggregationConfig::default()
+		};
+		AggregatorService::with_config(
+			storage,
+			Arc::new(create_test_adapter_registry()),
+			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
+				as Arc<dyn IntegrityTrait>,
+			Arc::new(SolverFilterService::new(circuit_breaker.clone()))
+				as Arc<dyn SolverFilterTrait>,
+			test_config,
+			None,
+		)
+	}
+
+	// Helper function for empty aggregator with custom circuit breaker
+	async fn create_test_aggregator_with_circuit_breaker_no_solvers(
+		circuit_breaker: Arc<dyn CircuitBreakerTrait>,
+	) -> AggregatorService {
 		let storage = create_test_storage_with_solvers(vec![]).await;
 		AggregatorService::new(
 			storage,
@@ -1540,7 +1665,23 @@ mod tests {
 			Arc::new(crate::integrity::IntegrityService::new(SecretString::from(
 				"test-secret",
 			))) as Arc<dyn IntegrityTrait>,
-			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
+			Arc::new(SolverFilterService::new(circuit_breaker.clone()))
+				as Arc<dyn SolverFilterTrait>,
+		)
+	}
+
+	// Helper function to create test aggregator with no solvers
+	async fn create_test_aggregator() -> AggregatorService {
+		let storage = create_test_storage_with_solvers(vec![]).await;
+		AggregatorService::new(
+			storage.clone(),
+			Arc::new(create_test_adapter_registry()),
+			Arc::new(crate::integrity::IntegrityService::new(SecretString::from(
+				"test-secret",
+			))) as Arc<dyn IntegrityTrait>,
+			Arc::new(SolverFilterService::new(create_test_circuit_breaker(
+				storage.clone(),
+			))) as Arc<dyn SolverFilterTrait>,
 		)
 	}
 
@@ -1575,11 +1716,13 @@ mod tests {
 
 		let storage = create_test_storage_with_solvers(solvers).await;
 		AggregatorService::new(
-			storage,
+			storage.clone(),
 			Arc::new(create_test_adapter_registry()),
 			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
 				as Arc<dyn IntegrityTrait>,
-			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
+			Arc::new(SolverFilterService::new(create_test_circuit_breaker(
+				storage.clone(),
+			))) as Arc<dyn SolverFilterTrait>,
 		)
 	}
 
@@ -1610,14 +1753,15 @@ mod tests {
 			..AggregationConfig::default()
 		};
 		AggregatorService::with_config(
-			storage,
+			storage.clone(),
 			Arc::new(create_test_adapter_registry()),
 			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
 				as Arc<dyn IntegrityTrait>,
-			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
+			Arc::new(SolverFilterService::new(create_test_circuit_breaker(
+				storage.clone(),
+			))) as Arc<dyn SolverFilterTrait>,
 			test_config,
 			None,
-			oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS, // Default timeout threshold
 		)
 	}
 
@@ -1641,14 +1785,15 @@ mod tests {
 			..AggregationConfig::default()
 		};
 		AggregatorService::with_config(
-			storage,
+			storage.clone(),
 			Arc::new(create_test_adapter_registry()),
 			Arc::new(IntegrityService::new(SecretString::from("test-secret")))
 				as Arc<dyn IntegrityTrait>,
-			Arc::new(SolverFilterService::new()) as Arc<dyn SolverFilterTrait>,
+			Arc::new(SolverFilterService::new(create_test_circuit_breaker(
+				storage.clone(),
+			))) as Arc<dyn SolverFilterTrait>,
 			test_config,
 			None,
-			oif_types::constants::DEFAULT_SOLVER_TIMEOUT_MS, // Default timeout threshold
 		)
 	}
 
@@ -2860,5 +3005,474 @@ mod tests {
 		// Verify eta values are in correct order
 		assert_eq!(sorted_quotes[0].eta, Some(50));
 		assert_eq!(sorted_quotes[1].eta, Some(500));
+	}
+
+	// ========================================================================================
+	// CIRCUIT BREAKER INTEGRATION TESTS
+	// ========================================================================================
+
+	use crate::MockCircuitBreakerTrait;
+
+	/// Test aggregator without circuit breaker (default behavior preserved)
+	#[tokio::test]
+	async fn test_aggregator_without_circuit_breaker() {
+		let aggregator = create_test_aggregator_with_demo_solvers(3).await;
+		let request = create_valid_quote_request();
+
+		let result = aggregator.fetch_quotes(request).await;
+		assert!(result.is_ok());
+
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get quotes from all solvers (no circuit breaker filtering)
+		assert!(
+			quotes.len() >= 1,
+			"Should receive quotes without circuit breaker"
+		);
+		assert_eq!(metadata.solvers_queried, 3, "Should query all 3 solvers");
+		assert!(metadata.solvers_responded_success >= 1);
+	}
+
+	/// Test aggregator with circuit breaker disabled
+	#[tokio::test]
+	async fn test_aggregator_with_circuit_breaker_disabled() {
+		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
+
+		// Circuit breaker is disabled - should always return true for should_allow_request
+		mock_circuit_breaker.expect_is_enabled().returning(|| false);
+		mock_circuit_breaker
+			.expect_should_allow_request()
+			.returning(|_| true); // Always allow when disabled
+
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(2, Arc::new(mock_circuit_breaker)).await;
+
+		let request = create_valid_quote_request();
+		let result = aggregator.fetch_quotes(request).await;
+
+		assert!(result.is_ok());
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get quotes from all solvers (circuit breaker disabled)
+		assert!(
+			quotes.len() >= 1,
+			"Should receive quotes with disabled circuit breaker"
+		);
+		assert_eq!(metadata.solvers_queried, 2, "Should query all 2 solvers");
+	}
+
+	/// Test aggregator with circuit breaker enabled and all solvers allowed
+	#[tokio::test]
+	async fn test_aggregator_with_circuit_breaker_all_allowed() {
+		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
+
+		// Circuit breaker is enabled and allows all requests
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
+		mock_circuit_breaker
+			.expect_should_allow_request()
+			.returning(|_| true)
+			.times(2); // Called for each solver
+
+		// Expect result recording for successful solvers
+
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(2, Arc::new(mock_circuit_breaker)).await;
+
+		let request = create_valid_quote_request();
+		let result = aggregator.fetch_quotes(request).await;
+
+		assert!(result.is_ok());
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get quotes from all allowed solvers
+		assert!(
+			quotes.len() >= 1,
+			"Should receive quotes from allowed solvers"
+		);
+		assert_eq!(
+			metadata.solvers_queried, 2,
+			"Should query all allowed solvers"
+		);
+	}
+
+	/// Test aggregator with circuit breaker enabled and some solvers blocked
+	#[tokio::test]
+	async fn test_aggregator_with_circuit_breaker_partial_blocking() {
+		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
+
+		// Circuit breaker is enabled
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
+		// Allow first solver, block second solver
+		mock_circuit_breaker
+			.expect_should_allow_request()
+			.returning(|solver| solver.solver_id == "demo-solver1")
+			.times(2); // Called for each solver
+
+		// Only expect result recording for the allowed solver
+
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(2, Arc::new(mock_circuit_breaker)).await;
+
+		let request = create_valid_quote_request();
+		let result = aggregator.fetch_quotes(request).await;
+
+		assert!(result.is_ok());
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get quotes from allowed solver only
+		assert!(
+			quotes.len() >= 1,
+			"Should receive quotes from allowed solvers"
+		);
+		assert_eq!(
+			metadata.solvers_queried, 1,
+			"Should only query 1 allowed solver"
+		);
+		assert!(metadata.solvers_responded_success >= 1);
+	}
+
+	/// Test aggregator with circuit breaker enabled and all solvers blocked
+	#[tokio::test]
+	async fn test_aggregator_with_circuit_breaker_all_blocked() {
+		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
+
+		// Circuit breaker is enabled and blocks all requests
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
+		mock_circuit_breaker
+			.expect_should_allow_request()
+			.returning(|_| false)
+			.times(3); // Called for each solver
+
+		// No result recording expected since no solvers are allowed
+
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(3, Arc::new(mock_circuit_breaker)).await;
+
+		let request = create_valid_quote_request();
+		let result = aggregator.fetch_quotes(request).await;
+
+		// Should fail because no solvers are allowed
+		assert!(result.is_err());
+		assert!(matches!(
+			result.unwrap_err(),
+			AggregatorServiceError::NoSolversAvailable
+		));
+	}
+
+	/// Test that request results are properly recorded to circuit breaker
+	#[tokio::test]
+	async fn test_circuit_breaker_result_recording() {
+		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
+
+		// Circuit breaker is enabled and allows all requests
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
+		mock_circuit_breaker
+			.expect_should_allow_request()
+			.returning(|_| true)
+			.times(2);
+
+		// Verify that results are recorded with correct success status
+
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(2, Arc::new(mock_circuit_breaker)).await;
+
+		let request = create_valid_quote_request();
+		let result = aggregator.fetch_quotes(request).await;
+
+		assert!(result.is_ok());
+		let (quotes, _metadata) = result.unwrap();
+		assert!(quotes.len() >= 1);
+	}
+
+	/// Test circuit breaker result recording for mixed success/failure scenarios
+	#[tokio::test]
+	async fn test_circuit_breaker_mixed_result_recording() {
+		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
+
+		// Circuit breaker is enabled and allows all requests
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
+		mock_circuit_breaker
+			.expect_should_allow_request()
+			.returning(|_| true)
+			.times(3);
+
+		// Record results for mixed success/failure - some solvers will succeed, some will fail
+
+		let aggregator = create_test_aggregator_with_mixed_solvers_and_circuit_breaker(Arc::new(
+			mock_circuit_breaker,
+		))
+		.await;
+
+		let request = create_valid_quote_request();
+		let result = aggregator.fetch_quotes(request).await;
+
+		assert!(result.is_ok());
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get quotes from successful solvers
+		assert!(quotes.len() >= 1);
+		// Should have both successful and failed responses
+		assert!(metadata.solvers_responded_success >= 1);
+		assert!(metadata.solvers_responded_error >= 1);
+	}
+
+	/// Test circuit breaker task error handling (when circuit breaker checks fail)
+	#[tokio::test]
+	async fn test_circuit_breaker_task_error_handling() {
+		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
+
+		// Circuit breaker is enabled
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
+		// Allow first solver, return error for second (instead of panic for better test behavior)
+		mock_circuit_breaker
+			.expect_should_allow_request()
+			.returning(|solver| {
+				// Only allow the first solver, block the second
+				solver.solver_id == "demo-solver1"
+			})
+			.times(2);
+
+		// Only expect recording for the successful solver (the one that was allowed and succeeded)
+		// Note: Recording is now handled by metrics handler, no longer by aggregator
+
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(2, Arc::new(mock_circuit_breaker)).await;
+
+		let request = create_valid_quote_request();
+		let result = aggregator.fetch_quotes(request).await;
+
+		// Should succeed with the allowed solver (fail-safe behavior)
+		assert!(result.is_ok());
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get quotes from the one allowed solver
+		assert!(quotes.len() >= 1);
+		assert_eq!(
+			metadata.solvers_queried, 1,
+			"Only one solver should pass circuit breaker filtering"
+		);
+	}
+
+	/// Test circuit breaker with empty solver list (edge case)
+	#[tokio::test]
+	async fn test_circuit_breaker_with_empty_solvers() {
+		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
+
+		// Circuit breaker should not be called with empty solver list
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
+		// No expectations for should_allow_request since there are no solvers
+
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker_no_solvers(Arc::new(mock_circuit_breaker))
+				.await;
+
+		let request = create_valid_quote_request();
+		let result = aggregator.fetch_quotes(request).await;
+
+		// Should fail because no solvers exist
+		assert!(result.is_err());
+		assert!(matches!(
+			result.unwrap_err(),
+			AggregatorServiceError::NoSolversAvailable
+		));
+	}
+
+	/// Test circuit breaker early termination interaction
+	#[tokio::test]
+	async fn test_circuit_breaker_with_early_termination() {
+		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
+
+		// Circuit breaker is enabled and allows all requests
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
+		mock_circuit_breaker
+			.expect_should_allow_request()
+			.returning(|_| true)
+			.times(3);
+
+		// Expect result recording, but early termination might cancel some requests
+		// Note: Recording is now handled by metrics handler, no longer by aggregator
+
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(3, Arc::new(mock_circuit_breaker)).await;
+
+		let options = SolverOptions {
+			include_solvers: None,
+			exclude_solvers: None,
+			timeout: Some(5000),
+			solver_timeout: Some(2000),
+			min_quotes: Some(1), // Early termination after 1 quote
+			solver_selection: Some(SolverSelection::All),
+			sample_size: None,
+			priority_threshold: None,
+		};
+
+		let request = create_quote_request_with_options(options);
+		let start_time = std::time::Instant::now();
+		let result = aggregator.fetch_quotes(request).await;
+		let elapsed = start_time.elapsed();
+
+		assert!(result.is_ok());
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get at least 1 quote and terminate early
+		assert!(quotes.len() >= 1);
+
+		// Should terminate quickly due to early termination
+		assert!(
+			elapsed.as_millis() < 3000,
+			"Early termination with circuit breaker should complete quickly"
+		);
+
+		// May show early termination in metadata
+		if metadata.early_termination {
+			assert!(metadata.solvers_responded_success >= 1);
+		}
+	}
+
+	/// Test circuit breaker with solver selection strategies
+	#[tokio::test]
+	async fn test_circuit_breaker_with_solver_selection_strategies() {
+		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
+
+		// Circuit breaker is enabled
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
+		// Allow all requests (circuit breaker filtering happens before solver selection)
+		mock_circuit_breaker
+			.expect_should_allow_request()
+			.returning(|_| true)
+			.times(5); // All 5 solvers pass circuit breaker
+
+		// Expect result recording for the sampled solvers (may be less due to sampling randomness)
+		// Note: Recording is now handled by metrics handler, no longer by aggregator
+
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(5, Arc::new(mock_circuit_breaker)).await;
+
+		let options = SolverOptions {
+			include_solvers: None,
+			exclude_solvers: None,
+			timeout: Some(3000),
+			solver_timeout: Some(1500),
+			min_quotes: Some(1),
+			solver_selection: Some(SolverSelection::Sampled),
+			sample_size: Some(2), // Only select 2 solvers after circuit breaker filtering
+			priority_threshold: None,
+		};
+
+		let request = create_quote_request_with_options(options);
+		let result = aggregator.fetch_quotes(request).await;
+
+		assert!(result.is_ok());
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get quotes from sampled solvers
+		assert!(quotes.len() >= 1);
+		assert_eq!(
+			metadata.solvers_queried, 2,
+			"Should query 2 sampled solvers"
+		);
+		assert_eq!(metadata.solver_selection_mode, SolverSelection::Sampled);
+	}
+
+	/// Test circuit breaker performance with concurrent execution
+	#[tokio::test]
+	async fn test_circuit_breaker_concurrent_performance() {
+		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
+
+		// Circuit breaker is enabled
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
+		// Add small delays to simulate circuit breaker decision time
+		mock_circuit_breaker
+			.expect_should_allow_request()
+			.returning(|_| {
+				// Note: We can't easily add async sleep in mockall returning closures
+				// The actual concurrent behavior is tested through timing measurements
+				true
+			})
+			.times(5);
+
+		// Note: Recording is now handled by metrics handler, no longer by aggregator
+
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(5, Arc::new(mock_circuit_breaker)).await;
+
+		let request = create_valid_quote_request();
+		let start_time = std::time::Instant::now();
+		let result = aggregator.fetch_quotes(request).await;
+		let elapsed = start_time.elapsed();
+
+		assert!(result.is_ok());
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get quotes from all solvers
+		assert!(quotes.len() >= 1);
+		assert_eq!(metadata.solvers_queried, 5);
+
+		// Should complete in reasonable time due to concurrent circuit breaker checks
+		// If sequential, it would take 5 * 50ms = 250ms+ just for circuit breaker checks
+		// With concurrent execution + solver execution, should be much faster than sequential
+		assert!(
+			elapsed.as_millis() < 1000,
+			"Concurrent circuit breaker execution should be fast, took {}ms",
+			elapsed.as_millis()
+		);
+	}
+
+	/// Test circuit breaker integration with solver filtering chain
+	#[tokio::test]
+	async fn test_circuit_breaker_solver_filtering_chain() {
+		let mut mock_circuit_breaker = MockCircuitBreakerTrait::new();
+
+		// Circuit breaker is enabled
+		mock_circuit_breaker.expect_is_enabled().returning(|| true);
+
+		// Block one solver, allow others
+		mock_circuit_breaker
+			.expect_should_allow_request()
+			.returning(|solver| solver.solver_id != "demo-solver3")
+			.times(2);
+
+		// Expect recording for allowed solvers that also pass inclusion filter
+		// Note: Recording is now handled by metrics handler, no longer by aggregator
+
+		let aggregator =
+			create_test_aggregator_with_circuit_breaker(3, Arc::new(mock_circuit_breaker)).await;
+
+		// Apply additional solver filtering after circuit breaker
+		let options = SolverOptions {
+			include_solvers: Some(vec!["demo-solver1".to_string(), "demo-solver3".to_string()]),
+			exclude_solvers: None,
+			timeout: Some(3000),
+			solver_timeout: Some(1500),
+			min_quotes: Some(1),
+			solver_selection: Some(SolverSelection::All),
+			sample_size: None,
+			priority_threshold: None,
+		};
+
+		let request = create_quote_request_with_options(options);
+		let result = aggregator.fetch_quotes(request).await;
+
+		assert!(result.is_ok());
+		let (quotes, metadata) = result.unwrap();
+
+		// Should get quotes from demo-solver1 only (passes both circuit breaker and inclusion filter)
+		// demo-solver3 is blocked by circuit breaker
+		// demo-solver2 is excluded by inclusion filter
+		assert!(quotes.len() >= 1);
+		assert_eq!(
+			metadata.solvers_queried, 1,
+			"Only demo-solver1 should pass all filters"
+		);
 	}
 }

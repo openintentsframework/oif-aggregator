@@ -15,13 +15,14 @@ use oif_storage::Storage;
 use oif_types::models::health::SolverStats;
 use oif_types::solvers::Solver;
 use oif_types::solvers::{AssetSource, SupportedAssets};
+use oif_types::{CircuitState, SolverStatus};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
-use oif_types::{SolverRuntimeConfig, SolverStatus};
+use oif_types::SolverRuntimeConfig;
 
 use thiserror::Error;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 /// Trait for solver service operations
 #[cfg_attr(test, mockall::automock)]
@@ -135,41 +136,6 @@ impl SolverService {
 
 		Ok((page_items, total, active_count, healthy_count))
 	}
-
-	/// Update solver status and metrics in storage based on health check result
-	async fn update_solver_status(
-		storage: &Arc<dyn Storage>,
-		solver: &Solver,
-		is_healthy: bool,
-	) -> Result<(), SolverServiceError> {
-		use chrono::Utc;
-		use oif_types::solvers::HealthStatus;
-
-		// Clone solver and update ONLY health status and timestamp
-		// Note: Both metrics AND status are now intelligently updated by MetricsUpdateHandler
-		// which has access to comprehensive historical data for better decision making
-		let mut updated_solver = solver.clone();
-
-		// Only update last_seen and health status here - status decisions moved to MetricsUpdateHandler
-		updated_solver.last_seen = Some(Utc::now());
-
-		// Update health status using our new structure (immediate health state only)
-		let health_status = if is_healthy {
-			HealthStatus::healthy()
-		} else {
-			HealthStatus::unhealthy("Health check failed".to_string())
-		};
-		updated_solver.metrics.health_status = Some(health_status);
-		updated_solver.metrics.last_updated = Utc::now();
-
-		// Save to storage
-		storage
-			.update_solver(updated_solver)
-			.await
-			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
-
-		Ok(())
-	}
 }
 
 #[async_trait]
@@ -235,7 +201,7 @@ impl SolverServiceTrait for SolverService {
 
 		let solvers = self
 			.storage
-			.list_all_solvers()
+			.get_active_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
@@ -259,16 +225,14 @@ impl SolverServiceTrait for SolverService {
 	}
 
 	async fn get_stats(&self) -> Result<SolverStats, SolverServiceError> {
-		// Get all solvers
-		let solvers = self
+		use std::collections::HashMap;
+
+		let total = self
 			.storage
-			.list_all_solvers()
+			.count_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
-		let total = solvers.len();
-
-		// Get active solvers
 		let active_solvers = self
 			.storage
 			.get_active_solvers()
@@ -278,12 +242,78 @@ impl SolverServiceTrait for SolverService {
 		let active = active_solvers.len();
 		let inactive = total.saturating_sub(active);
 
-		// Perform health checks
-		let health_details = self.health_check_all().await?;
-		let healthy = health_details
-			.values()
-			.filter(|&&is_healthy| is_healthy)
-			.count();
+		// Check if circuit breaker states exist (optimization for disabled circuit breaker)
+		let circuit_states = self
+			.storage
+			.list_circuit_states()
+			.await
+			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
+
+		// Determine health status efficiently
+		let mut health_details = HashMap::new();
+		let mut healthy = 0;
+
+		if circuit_states.is_empty() {
+			// No circuit breaker states exist - circuit breaker is likely disabled
+			// Use active_solvers directly - they are all healthy by definition
+			healthy = active_solvers.len();
+
+			// Mark all active solvers as healthy
+			for solver in &active_solvers {
+				health_details.insert(solver.solver_id.clone(), true);
+			}
+
+			// Load all solvers only to get IDs of inactive ones and mark them as unhealthy
+			let solvers = self
+				.storage
+				.list_all_solvers()
+				.await
+				.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
+
+			for solver in &solvers {
+				// Skip if already marked as healthy (active)
+				if !health_details.contains_key(&solver.solver_id) {
+					health_details.insert(solver.solver_id.clone(), false);
+				}
+			}
+		} else {
+			// Circuit breaker states exist - use them for more accurate health determination
+			// Load all solvers for health status evaluation
+			let solvers = self
+				.storage
+				.list_all_solvers()
+				.await
+				.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
+
+			let circuit_state_map: HashMap<String, &oif_types::CircuitBreakerState> =
+				circuit_states
+					.iter()
+					.map(|state| (state.solver_id.clone(), state))
+					.collect();
+
+			for solver in &solvers {
+				let is_healthy = match circuit_state_map.get(&solver.solver_id) {
+					Some(circuit_state) => match circuit_state.state {
+						CircuitState::Closed => true,   // Circuit closed = healthy
+						CircuitState::HalfOpen => true, // Half-open = recovering (consider healthy)
+						CircuitState::Open => false,    // Circuit open = unhealthy (blocked)
+					},
+					None => {
+						// No circuit state exists - use solver status
+						match solver.status {
+							SolverStatus::Active => true, // Active solver without circuit issues = healthy
+							_ => false,                   // Disabled/Inactive = unhealthy
+						}
+					},
+				};
+
+				health_details.insert(solver.solver_id.clone(), is_healthy);
+				if is_healthy {
+					healthy += 1;
+				}
+			}
+		}
+
 		let unhealthy = total.saturating_sub(healthy);
 
 		Ok(SolverStats {
@@ -321,7 +351,7 @@ impl SolverServiceTrait for SolverService {
 		};
 
 		if is_config_source {
-			info!(
+			debug!(
 				"Solver '{}' has {} manually configured items, skipping auto-discovery",
 				solver_id, item_count
 			);
@@ -329,7 +359,7 @@ impl SolverServiceTrait for SolverService {
 		}
 
 		// Assets/routes should be auto-discovered, proceed with fetching
-		info!(
+		debug!(
 			"Solver '{}' is configured for auto-discovery, fetching from API",
 			solver_id
 		);
@@ -369,7 +399,7 @@ impl SolverServiceTrait for SolverService {
 					SupportedAssets::Assets { assets, .. } => assets.len(),
 					SupportedAssets::Routes { routes, .. } => routes.len(),
 				};
-				info!(
+				debug!(
 					"Auto-discovered {} items for solver: {}",
 					item_count, solver_id
 				);
@@ -392,7 +422,7 @@ impl SolverServiceTrait for SolverService {
 				.await
 				.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
-			info!("Updated solver metadata for: {}", solver_id);
+			debug!("Updated solver metadata for: {}", solver_id);
 		}
 
 		Ok(())
@@ -400,7 +430,6 @@ impl SolverServiceTrait for SolverService {
 
 	async fn health_check_solver(&self, solver_id: &str) -> Result<bool, SolverServiceError> {
 		use crate::solver_adapter::SolverAdapterService;
-		use chrono::Utc;
 
 		// Get solver from storage
 		let solver = self
@@ -411,9 +440,6 @@ impl SolverServiceTrait for SolverService {
 			.ok_or_else(|| {
 				SolverServiceError::NotFound(format!("Solver '{}' not found", solver_id))
 			})?;
-
-		// Clone solver before moving it to adapter service
-		let mut updated_solver = solver.clone();
 
 		// Create adapter service for the solver
 		let adapter_service = SolverAdapterService::from_solver(
@@ -429,31 +455,15 @@ impl SolverServiceTrait for SolverService {
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
-		// Business logic: Update ONLY health status based on health check result
-		// Note: Both metrics AND status are now intelligently updated by MetricsUpdateHandler
-		// which has access to comprehensive historical data for better decision making
+		// Log the result
 		if is_healthy {
-			info!("Health check passed for solver: {}", solver_id);
+			debug!("Health check passed for solver: {}", solver_id);
 		} else {
 			warn!("Health check failed for solver: {}", solver_id);
 		}
 
-		// Update solver health status and timestamp only - status decisions moved to MetricsUpdateHandler
-		updated_solver.last_seen = Some(Utc::now());
-
-		// Update health status using our new structure (immediate health state only)
-		let health_status = if is_healthy {
-			oif_types::solvers::HealthStatus::healthy()
-		} else {
-			oif_types::solvers::HealthStatus::unhealthy("Health check failed".to_string())
-		};
-		updated_solver.metrics.health_status = Some(health_status);
-		updated_solver.metrics.last_updated = chrono::Utc::now();
-
-		self.storage
-			.update_solver(updated_solver)
-			.await
-			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
+		// Note: No manual health status update needed - the adapter_service.health_check() call
+		// automatically emits metrics that are processed by the metrics_update handler.
 
 		debug!("Health check completed for solver: {}", solver_id);
 
@@ -461,28 +471,19 @@ impl SolverServiceTrait for SolverService {
 	}
 
 	async fn health_check_all_solvers(&self) -> Result<(), SolverServiceError> {
-		info!("Starting health checks for all solvers");
+		debug!("Starting health checks for all solvers");
 
 		// Get all solvers from storage
 		let solvers = self
 			.storage
-			.list_all_solvers()
+			.get_active_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
-		// Filter solvers that should have health checks (active/inactive)
-		let checkable_solvers: Vec<_> = solvers
-			.into_iter()
-			.filter(|solver| matches!(solver.status, SolverStatus::Active | SolverStatus::Inactive))
-			.collect();
+		debug!("Found {} solvers eligible for health checks", solvers.len());
 
-		info!(
-			"Found {} solvers eligible for health checks",
-			checkable_solvers.len()
-		);
-
-		if checkable_solvers.is_empty() {
-			info!("No solvers found for health checks - all done");
+		if solvers.is_empty() {
+			debug!("No solvers found for health checks - all done");
 			return Ok(());
 		}
 
@@ -490,9 +491,9 @@ impl SolverServiceTrait for SolverService {
 		let success_count = Arc::new(AtomicUsize::new(0));
 		let error_count = Arc::new(AtomicUsize::new(0));
 
-		let results: Vec<(String, bool)> = stream::iter(checkable_solvers)
+		let results: Vec<(String, bool)> = stream::iter(solvers)
 			.map(|solver| {
-				let storage = Arc::clone(&self.storage);
+				let _storage = Arc::clone(&self.storage); // Not used in this closure anymore
 				let adapter_registry = Arc::clone(&self.adapter_registry);
 				let job_scheduler = self.job_scheduler.clone();
 				let success_count = Arc::clone(&success_count);
@@ -538,10 +539,8 @@ impl SolverServiceTrait for SolverService {
 						},
 					};
 
-					// Update solver status in storage
-					if let Err(e) = Self::update_solver_status(&storage, &solver, is_healthy).await {
-						warn!("Failed to update solver status for {}: {}", solver_id, e);
-					}
+					// Note: Health status is automatically updated via metrics_update handler
+					// when the solver_adapter emits health_check metrics.
 
 					(solver_id, is_healthy)
 				}
@@ -562,8 +561,8 @@ impl SolverServiceTrait for SolverService {
 		let final_success_count = success_count.load(Ordering::Relaxed);
 		let final_error_count = error_count.load(Ordering::Relaxed);
 
-		info!(
-			"Parallel health checks completed - {} successful, {} failed",
+		debug!(
+			"Health checks completed - {} successful, {} failed",
 			final_success_count, final_error_count
 		);
 
@@ -571,12 +570,12 @@ impl SolverServiceTrait for SolverService {
 	}
 
 	async fn fetch_assets_all_solvers(&self) -> Result<(), SolverServiceError> {
-		info!("Starting parallel asset auto-discovery for all solvers");
+		debug!("Starting parallel asset auto-discovery for all solvers");
 
 		// Get all solvers from storage
 		let solvers = self
 			.storage
-			.list_all_solvers()
+			.get_active_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
@@ -593,13 +592,13 @@ impl SolverServiceTrait for SolverService {
 			})
 			.collect();
 
-		info!(
+		debug!(
 			"Found {} solvers requiring asset auto-discovery",
 			auto_discovery_solvers.len()
 		);
 
 		if auto_discovery_solvers.is_empty() {
-			info!("No solvers found requiring asset auto-discovery - all done");
+			debug!("No solvers found requiring asset auto-discovery - all done");
 			return Ok(());
 		}
 
@@ -636,7 +635,7 @@ impl SolverServiceTrait for SolverService {
 		let final_success_count = success_count.load(Ordering::Relaxed);
 		let final_error_count = error_count.load(Ordering::Relaxed);
 
-		info!(
+		debug!(
 			"Asset auto-discovery completed - {} successful, {} failed",
 			final_success_count, final_error_count
 		);
@@ -678,5 +677,127 @@ mod tests {
 
 		let stats = mock.get_stats().await.unwrap();
 		assert_eq!(stats.total, 0);
+	}
+
+	#[tokio::test]
+	async fn test_get_stats_with_circuit_breaker() {
+		use chrono::Duration;
+		use oif_adapters::AdapterRegistry;
+		use oif_storage::MemoryStore;
+		use oif_types::{CircuitBreakerState, Solver, SolverStatus};
+
+		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
+		let adapter_registry = Arc::new(AdapterRegistry::new());
+		let service = SolverService::new(storage.clone(), adapter_registry, None);
+
+		// Create test solvers
+		let mut solver1 = Solver::new(
+			"solver-1".to_string(),
+			"test-adapter".to_string(),
+			"http://test1".to_string(),
+		);
+		solver1.status = SolverStatus::Active;
+		let mut solver2 = Solver::new(
+			"solver-2".to_string(),
+			"test-adapter".to_string(),
+			"http://test2".to_string(),
+		);
+		solver2.status = SolverStatus::Disabled;
+		let mut solver3 = Solver::new(
+			"solver-3".to_string(),
+			"test-adapter".to_string(),
+			"http://test3".to_string(),
+		);
+		solver3.status = SolverStatus::Active;
+
+		// Store solvers
+		storage.create_solver(solver1).await.unwrap();
+		storage.create_solver(solver2).await.unwrap();
+		storage.create_solver(solver3).await.unwrap();
+
+		// Create circuit breaker states
+		let cb_state1 = CircuitBreakerState::new_closed("solver-1".to_string());
+		let cb_state3 = CircuitBreakerState::new_open(
+			"solver-3".to_string(),
+			"Test failure".to_string(),
+			Duration::seconds(30),
+			5,
+		);
+
+		storage
+			.update_solver_circuit_state(cb_state1)
+			.await
+			.unwrap();
+		storage
+			.update_solver_circuit_state(cb_state3)
+			.await
+			.unwrap();
+		// solver-2 has no circuit state
+
+		// Test efficient stats with circuit breaker enabled (has circuit states)
+		let stats = service.get_stats().await.unwrap();
+
+		assert_eq!(stats.total, 3);
+		assert_eq!(stats.active, 2); // solver1 and solver3 are active
+		assert_eq!(stats.inactive, 1); // solver2 is disabled
+		assert_eq!(stats.healthy, 1); // only solver1 (closed circuit + active)
+		assert_eq!(stats.unhealthy, 2); // solver2 (disabled) + solver3 (open circuit)
+
+		// Check health details
+		assert_eq!(stats.health_details.get("solver-1"), Some(&true)); // Closed circuit = healthy
+		assert_eq!(stats.health_details.get("solver-2"), Some(&false)); // Disabled status = unhealthy
+		assert_eq!(stats.health_details.get("solver-3"), Some(&false)); // Open circuit = unhealthy
+	}
+
+	#[tokio::test]
+	async fn test_get_stats_without_circuit_breaker() {
+		use oif_adapters::AdapterRegistry;
+		use oif_storage::MemoryStore;
+		use oif_types::{Solver, SolverStatus};
+
+		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
+		let adapter_registry = Arc::new(AdapterRegistry::new());
+		let service = SolverService::new(storage.clone(), adapter_registry, None);
+
+		// Create test solvers
+		let mut solver1 = Solver::new(
+			"solver-1".to_string(),
+			"test-adapter".to_string(),
+			"http://test1".to_string(),
+		);
+		solver1.status = SolverStatus::Active;
+		let mut solver2 = Solver::new(
+			"solver-2".to_string(),
+			"test-adapter".to_string(),
+			"http://test2".to_string(),
+		);
+		solver2.status = SolverStatus::Disabled;
+		let mut solver3 = Solver::new(
+			"solver-3".to_string(),
+			"test-adapter".to_string(),
+			"http://test3".to_string(),
+		);
+		solver3.status = SolverStatus::Active;
+
+		// Store solvers
+		storage.create_solver(solver1).await.unwrap();
+		storage.create_solver(solver2).await.unwrap();
+		storage.create_solver(solver3).await.unwrap();
+
+		// NO circuit breaker states - circuit breaker disabled optimization should kick in
+
+		// Test efficient stats without circuit breaker (no circuit states)
+		let stats = service.get_stats().await.unwrap();
+
+		assert_eq!(stats.total, 3);
+		assert_eq!(stats.active, 2); // solver1 and solver3 are active
+		assert_eq!(stats.inactive, 1); // solver2 is disabled
+		assert_eq!(stats.healthy, 2); // solver1 and solver3 (both active, no circuit blocking)
+		assert_eq!(stats.unhealthy, 1); // only solver2 (disabled)
+
+		// Check health details - should only use solver status
+		assert_eq!(stats.health_details.get("solver-1"), Some(&true)); // Active = healthy
+		assert_eq!(stats.health_details.get("solver-2"), Some(&false)); // Disabled = unhealthy
+		assert_eq!(stats.health_details.get("solver-3"), Some(&true)); // Active = healthy (no circuit blocking)
 	}
 }

@@ -1,6 +1,6 @@
 //! Storage traits for pluggable storage implementations
 
-use crate::{MetricsTimeSeries, Order, RollingMetrics, Solver, StorageResult};
+use crate::{CircuitBreakerState, MetricsTimeSeries, Order, RollingMetrics, Solver, StorageResult};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 
@@ -34,6 +34,28 @@ pub trait OrderStorageTrait: Repository<Order> + Send + Sync {
 pub trait SolverStorageTrait: Repository<Solver> + Send + Sync {
 	/// Get active solvers only
 	async fn get_active(&self) -> StorageResult<Vec<Solver>>;
+}
+
+/// Trait for circuit breaker state storage operations
+#[async_trait]
+pub trait CircuitBreakerStorageTrait: Send + Sync {
+	/// Get circuit breaker state for a solver
+	async fn get_circuit_state(
+		&self,
+		solver_id: &str,
+	) -> StorageResult<Option<CircuitBreakerState>>;
+
+	/// Update or create circuit breaker state for a solver
+	async fn update_circuit_state(&self, state: CircuitBreakerState) -> StorageResult<()>;
+
+	/// Delete circuit breaker state for a solver
+	async fn delete_circuit_state(&self, solver_id: &str) -> StorageResult<bool>;
+
+	/// List all circuit breaker states
+	async fn list_circuit_states(&self) -> StorageResult<Vec<CircuitBreakerState>>;
+
+	/// Clean up circuit breaker states older than the specified timestamp
+	async fn cleanup_stale_circuits(&self, older_than: DateTime<Utc>) -> StorageResult<usize>;
 }
 
 /// Trait for metrics time-series storage operations
@@ -70,7 +92,9 @@ pub trait MetricsStorageTrait: Send + Sync {
 
 /// Main storage trait that combines all storage operations
 #[async_trait]
-pub trait StorageTrait: OrderStorageTrait + SolverStorageTrait + MetricsStorageTrait {
+pub trait StorageTrait:
+	OrderStorageTrait + SolverStorageTrait + MetricsStorageTrait + CircuitBreakerStorageTrait
+{
 	/// Health check for the storage system
 	async fn health_check(&self) -> StorageResult<bool>;
 
@@ -220,5 +244,40 @@ pub trait StorageTrait: OrderStorageTrait + SolverStorageTrait + MetricsStorageT
 	/// Get the total number of metrics time-series records
 	async fn count_solver_metrics_timeseries(&self) -> StorageResult<usize> {
 		<Self as MetricsStorageTrait>::count_metrics_timeseries(self).await
+	}
+
+	// ===============================
+	// Circuit breaker convenience methods
+	// ===============================
+
+	/// Get circuit breaker state for a solver
+	async fn get_solver_circuit_state(
+		&self,
+		solver_id: &str,
+	) -> StorageResult<Option<CircuitBreakerState>> {
+		<Self as CircuitBreakerStorageTrait>::get_circuit_state(self, solver_id).await
+	}
+
+	/// Update or create circuit breaker state for a solver
+	async fn update_solver_circuit_state(&self, state: CircuitBreakerState) -> StorageResult<()> {
+		<Self as CircuitBreakerStorageTrait>::update_circuit_state(self, state).await
+	}
+
+	/// Delete circuit breaker state for a solver
+	async fn delete_solver_circuit_state(&self, solver_id: &str) -> StorageResult<bool> {
+		<Self as CircuitBreakerStorageTrait>::delete_circuit_state(self, solver_id).await
+	}
+
+	/// List all circuit breaker states
+	async fn list_all_circuit_states(&self) -> StorageResult<Vec<CircuitBreakerState>> {
+		<Self as CircuitBreakerStorageTrait>::list_circuit_states(self).await
+	}
+
+	/// Clean up stale circuit breaker states
+	async fn cleanup_stale_solver_circuits(
+		&self,
+		older_than: DateTime<Utc>,
+	) -> StorageResult<usize> {
+		<Self as CircuitBreakerStorageTrait>::cleanup_stale_circuits(self, older_than).await
 	}
 }

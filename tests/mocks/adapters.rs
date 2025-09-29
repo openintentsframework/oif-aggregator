@@ -621,8 +621,7 @@ impl SolverAdapter for TimingControlledAdapter {
 		_request: &SubmitOrderRequest,
 		_config: &SolverRuntimeConfig,
 	) -> AdapterResult<SubmitOrderResponse> {
-		// Record call and simulate delay
-		self.tracker.record_call();
+		// Don't record submit_order calls - only track get_quotes for solver filtering tests
 		tokio::time::sleep(Duration::from_millis(self.response_delay_ms)).await;
 
 		if self.should_fail {
@@ -672,8 +671,7 @@ impl SolverAdapter for TimingControlledAdapter {
 		order_id: &str,
 		_config: &SolverRuntimeConfig,
 	) -> AdapterResult<GetOrderResponse> {
-		// Record call and simulate delay
-		self.tracker.record_call();
+		// Don't record get_order_details calls - only track get_quotes for solver filtering tests
 		tokio::time::sleep(Duration::from_millis(self.response_delay_ms)).await;
 
 		if self.should_fail {
@@ -717,8 +715,7 @@ impl SolverAdapter for TimingControlledAdapter {
 	}
 
 	async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> {
-		// Record call and simulate delay
-		self.tracker.record_call();
+		// Don't record health_check calls - only track get_quotes for solver filtering tests
 		tokio::time::sleep(Duration::from_millis(self.response_delay_ms / 10)).await;
 
 		if self.should_fail {

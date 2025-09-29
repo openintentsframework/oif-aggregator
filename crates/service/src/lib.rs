@@ -3,6 +3,7 @@
 //! Core logic for quote aggregation and scoring.
 
 pub mod aggregator;
+pub mod circuit_breaker;
 pub mod integrity;
 pub mod jobs;
 pub mod order;
@@ -14,9 +15,12 @@ pub use aggregator::{
 	AggregatorResult, AggregatorService, AggregatorServiceError, AggregatorTrait, SolverTaskResult,
 	TaskExecutor, TaskExecutorTrait,
 };
+pub use circuit_breaker::{CircuitBreakerService, CircuitBreakerTrait};
 
 #[cfg(test)]
 pub use aggregator::{MockAggregatorTrait, MockTaskExecutorTrait};
+#[cfg(test)]
+pub use circuit_breaker::MockCircuitBreakerTrait;
 #[cfg(test)]
 pub use integrity::MockIntegrityTrait;
 pub use integrity::{IntegrityError, IntegrityService, IntegrityTrait};

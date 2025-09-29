@@ -4,12 +4,13 @@ use std::sync::Arc;
 
 use oif_adapters::AdapterRegistry;
 use oif_aggregator::{service::IntegrityService, AggregatorBuilder};
-use oif_service::aggregator::AggregatorService;
+use oif_config::CircuitBreakerSettings;
+use oif_service::{aggregator::AggregatorService, CircuitBreakerService};
 use oif_types::orders::OrderStatus;
 
 mod mocks;
 
-use mocks::{configs::MockConfigs, entities::MockEntities};
+use mocks::{configs::CircuitBreakerConfigs, entities::MockEntities};
 
 use crate::mocks::api_fixtures::INTEGRITY_SECRET;
 
@@ -90,11 +91,16 @@ async fn test_aggregation_service_creation() {
 			.expect("Failed to create test solver");
 	}
 
+	let circuit_breaker = Arc::new(CircuitBreakerService::new(
+		storage.clone(),
+		CircuitBreakerSettings::default(),
+	)) as Arc<dyn oif_service::CircuitBreakerTrait>;
+
 	let service = AggregatorService::new(
-		storage,
+		storage.clone(),
 		adapter_registry,
 		integrity_service,
-		Arc::new(oif_service::SolverFilterService::new())
+		Arc::new(oif_service::SolverFilterService::new(circuit_breaker))
 			as Arc<dyn oif_service::SolverFilterTrait>,
 	);
 
@@ -200,7 +206,7 @@ async fn test_adapter_registry_duplicate_prevention() {
 
 #[test]
 fn test_solver_config_creation() {
-	let config = MockConfigs::test_solver_config();
+	let config = CircuitBreakerConfigs::test_solver_config();
 
 	assert_eq!(config.solver_id, "test-solver");
 	assert_eq!(config.adapter_id, "test-adapter");

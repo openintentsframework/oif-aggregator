@@ -88,6 +88,21 @@ Place your configuration file at: `config/config.json`
       "burst_size": 100
     }
   },
+  "circuit_breaker": {
+    "enabled": true,
+    "failure_threshold": 5,
+    "success_rate_threshold": 0.2,
+    "min_requests_for_rate_check": 30,
+    "base_timeout_seconds": 10,
+    "max_timeout_seconds": 600,
+    "half_open_max_calls": 5,
+    "max_recovery_attempts": 10,
+    "persistent_failure_action": "ExtendTimeout",
+    "metrics_max_age_minutes": 30,
+    "service_error_threshold": 0.2,
+    "metrics_window_duration_minutes": 15,
+    "metrics_max_window_age_minutes": 60
+  },
   "logging": {
     "level": "debug",
     "format": "compact",
@@ -253,6 +268,76 @@ Solvers can define their asset support in two modes:
 
 **Environment Override**: `RUST_LOG` (overrides `level`)
 
+### Circuit Breaker Configuration
+
+The circuit breaker provides automatic failure protection by temporarily blocking requests to failing solvers to prevent cascading failures.
+
+```json
+{
+  "circuit_breaker": {
+    "enabled": true,                           // Enable circuit breaker protection
+    "failure_threshold": 5,                    // Consecutive failures to open circuit
+    "success_rate_threshold": 0.2,             // Success rate below which to open (20%)
+    "min_requests_for_rate_check": 30,         // Minimum requests before checking rate
+    "base_timeout_seconds": 10,                // Base timeout when circuit opens
+    "max_timeout_seconds": 600,                // Maximum timeout (10 minutes)
+    "half_open_max_calls": 5,                  // Test requests in half-open state
+    "max_recovery_attempts": 10,               // Max recovery attempts before action
+    "persistent_failure_action": "ExtendTimeout",  // Action for persistent failures
+    "metrics_max_age_minutes": 30,             // Max age for metrics evaluation
+    "service_error_threshold": 0.2,            // Service error rate threshold (20%)
+    "metrics_window_duration_minutes": 15,     // Window duration for rate calculations
+    "metrics_max_window_age_minutes": 60       // Max age for windowed metrics
+  }
+}
+```
+
+#### Circuit Breaker Settings
+
+**Core Protection Settings:**
+- `enabled` - Enable/disable circuit breaker protection (default: `true`)
+- `failure_threshold` - Consecutive failures needed to open circuit (default: `5`)
+- `success_rate_threshold` - Success rate below which circuit opens (default: `0.2` = 20%)
+- `service_error_threshold` - Service error rate threshold (default: `0.2` = 20%)
+
+**Timeout & Recovery Settings:**
+- `base_timeout_seconds` - Initial timeout when circuit opens (default: `10`)
+- `max_timeout_seconds` - Maximum timeout duration (default: `600` = 10 minutes)
+- `half_open_max_calls` - Test requests allowed in half-open state (default: `5`)
+- `max_recovery_attempts` - Recovery attempts before persistent action (default: `10`)
+
+**Metrics & Evaluation Settings:**
+- `min_requests_for_rate_check` - Minimum requests before rate evaluation (default: `30`)
+- `metrics_max_age_minutes` - Maximum age for metrics to be considered (default: `30`)
+- `metrics_window_duration_minutes` - Duration of rolling window for rate calculations (default: `15`)
+- `metrics_max_window_age_minutes` - Maximum age for windowed metrics (default: `60`)
+
+**Persistent Failure Actions:**
+- `"KeepTrying"` - Continue indefinitely with capped timeout
+- `"DisableSolver"` - Administratively disable solver (requires manual re-enable)
+- `"ExtendTimeout"` - Use 24-hour timeout between recovery attempts (default)
+
+#### Circuit Breaker States
+
+**Closed** - Normal operation, all requests allowed
+**Open** - Blocking requests due to failures, waiting for timeout
+**HalfOpen** - Testing recovery with limited requests
+
+#### Example Configurations
+
+```json
+{
+  "circuit_breaker": {
+    "enabled": true,
+    "failure_threshold": 8,
+    "success_rate_threshold": 0.1,
+    "min_requests_for_rate_check": 50,
+    "base_timeout_seconds": 15,
+    "persistent_failure_action": "ExtendTimeout"
+  }
+}
+```
+
 ### Security Configuration
 
 ```json
@@ -301,10 +386,19 @@ Solvers can define their asset support in two modes:
 - Use localhost endpoints for local development
 - Keep development secrets separate from production
 
+### Circuit Breaker
+- **Production**: Enable circuit breaker (`enabled: true`) for reliability
+- **Start conservative**: Use higher thresholds initially, then tune based on actual solver behavior
+- **Monitor metrics**: Track circuit breaker state changes and adjust thresholds accordingly
+- **Consider solver types**: High-throughput solvers may need higher `min_requests_for_rate_check`
+- **Balance protection vs availability**: Lower thresholds = faster failure detection but more false positives
+- **Use `ExtendTimeout`** for persistent failures in production to reduce noise while allowing recovery
+
 ---
 
 **💡 Need Help?** 
 - Read the [Quotes & Aggregation Guide](quotes-and-aggregation.md) to understand how configuration affects quote processing
 - Check the [Security Guide](security.md) for security-related configuration
 - See [Maintenance Guide](maintenance.md) for operational configuration
+- Review the [Circuit Breaker Implementation Guide](circuit-breaker.md) for detailed circuit breaker implementation and behavior
 - Review examples in the [GitHub repository](https://github.com/openintentsframework/oif-aggregator/tree/main/config)

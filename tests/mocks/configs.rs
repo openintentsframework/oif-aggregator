@@ -1,149 +1,172 @@
-//! Configuration mocks and builders for tests
+//! Configuration builders and fixtures for testing
+//!
+//! This module provides helper functions to create test configurations
+//! with various circuit breaker settings and solver configurations.
 
-use oif_config::settings::*;
-use std::collections::HashMap;
+use oif_config::{settings::SecuritySettings, CircuitBreakerSettings, ConfigurableValue, Settings};
+use oif_types::PersistentFailureAction;
+use std::time::Duration;
 
-/// Configuration builders for tests
+/// Test solver configuration structure for adapter tests
+#[derive(Debug, Clone)]
 #[allow(dead_code)]
-pub struct MockConfigs;
+pub struct TestSolverConfig {
+	pub solver_id: String,
+	pub adapter_id: String,
+	pub endpoint: String,
+	pub enabled: bool,
+}
+
+/// Builder for circuit breaker test configurations
+#[allow(dead_code)]
+pub struct CircuitBreakerConfigs;
 
 #[allow(dead_code)]
-impl MockConfigs {
-	/// Create minimal test settings with sensible defaults
-	pub fn test_settings() -> Settings {
-		Settings {
-			server: Some(ServerSettings {
-				host: "127.0.0.1".to_string(),
-				port: 3001, // Different port for testing
-			}),
-			solvers: HashMap::new(), // Empty for testing
-			aggregation: Some(AggregationSettings {
-				global_timeout_ms: Some(5000), // Override default for testing
-				per_solver_timeout_ms: Some(2000),
-				max_concurrent_solvers: Some(5), // Lower concurrency for testing
-				max_retries_per_solver: Some(2), // Fewer retries for faster tests
-				retry_delay_ms: Some(500),       // Faster retries for testing
-				include_unknown_compatibility: Some(true), // Include unknown solvers for testing
-			}),
-			environment: Some(EnvironmentSettings {
-				rate_limiting: RateLimitSettings {
-					enabled: false,
-					requests_per_minute: 60,
-					burst_size: 10,
-				},
-			}),
-			logging: Some(LoggingSettings {
-				level: "debug".to_string(),
-				format: LogFormat::Compact,
-				structured: false,
-			}),
-			security: SecuritySettings {
-				integrity_secret: oif_config::ConfigurableValue::from_plain("test-secret"),
-			},
-			maintenance: None,
-			metrics: None,
+impl CircuitBreakerConfigs {
+	/// Standard circuit breaker configuration for most tests
+	pub fn standard() -> CircuitBreakerSettings {
+		CircuitBreakerSettings {
+			enabled: true,
+			failure_threshold: 3,
+			success_rate_threshold: 0.5,
+			min_requests_for_rate_check: 5,
+			base_timeout_seconds: 30,
+			max_timeout_seconds: 300,
+			half_open_max_calls: 3,
+			max_recovery_attempts: 5,
+			persistent_failure_action: PersistentFailureAction::ExtendTimeout,
+			metrics_max_age_minutes: 10,
+			service_error_threshold: 0.5,
+			metrics_window_duration_minutes: 15,
+			metrics_max_window_age_minutes: 60,
 		}
 	}
 
-	/// Create test settings with rate limiting enabled
-	pub fn test_settings_with_rate_limit(requests_per_minute: u32, burst_size: u32) -> Settings {
-		let mut settings = Self::test_settings();
-		if let Some(ref mut env) = settings.environment {
-			env.rate_limiting = RateLimitSettings {
-				enabled: true,
-				requests_per_minute,
-				burst_size,
-			};
+	/// Strict configuration that opens quickly on failures
+	pub fn strict_failure_threshold(threshold: u32) -> CircuitBreakerSettings {
+		CircuitBreakerSettings {
+			enabled: true,
+			failure_threshold: threshold,
+			success_rate_threshold: 0.1,     // Very lenient success rate
+			min_requests_for_rate_check: 20, // High threshold to avoid rate checks
+			base_timeout_seconds: 60,
+			max_timeout_seconds: 600,
+			half_open_max_calls: 2,
+			max_recovery_attempts: 3,
+			persistent_failure_action: PersistentFailureAction::ExtendTimeout,
+			metrics_max_age_minutes: 5,
+			service_error_threshold: 0.5,
+			metrics_window_duration_minutes: 15,
+			metrics_max_window_age_minutes: 60,
 		}
-		settings
 	}
 
-	/// Create test settings for production-like environment
-	pub fn test_settings_production() -> Settings {
-		let mut settings = Self::test_settings();
-		if let Some(ref mut logging) = settings.logging {
-			logging.level = "info".to_string();
-			logging.format = LogFormat::Json;
+	/// Configuration with strict success rate requirements
+	pub fn strict_success_rate(rate: f64, min_requests: u64) -> CircuitBreakerSettings {
+		CircuitBreakerSettings {
+			enabled: true,
+			failure_threshold: 100, // High failure threshold to focus on rate
+			success_rate_threshold: rate,
+			min_requests_for_rate_check: min_requests,
+			base_timeout_seconds: 30,
+			max_timeout_seconds: 300,
+			half_open_max_calls: 3,
+			max_recovery_attempts: 5,
+			persistent_failure_action: PersistentFailureAction::ExtendTimeout,
+			metrics_max_age_minutes: 5,
+			service_error_threshold: 0.5,
+			metrics_window_duration_minutes: 15,
+			metrics_max_window_age_minutes: 60,
 		}
-		settings
 	}
 
-	/// Create a test solver config
-	pub fn test_solver_config() -> SolverConfig {
-		SolverConfig {
+	/// Configuration with fast timeout for testing timeout behavior
+	pub fn fast_timeout(timeout: Duration) -> CircuitBreakerSettings {
+		let timeout_secs = timeout.as_secs();
+		CircuitBreakerSettings {
+			enabled: true,
+			failure_threshold: 5,
+			success_rate_threshold: 0.3,
+			min_requests_for_rate_check: 10,
+			base_timeout_seconds: timeout_secs,
+			max_timeout_seconds: timeout_secs * 2,
+			half_open_max_calls: 2,
+			max_recovery_attempts: 3,
+			persistent_failure_action: PersistentFailureAction::ExtendTimeout,
+			metrics_max_age_minutes: 5,
+			service_error_threshold: 0.5,
+			metrics_window_duration_minutes: 15,
+			metrics_max_window_age_minutes: 60,
+		}
+	}
+
+	/// Configuration for testing recovery scenarios
+	pub fn fast_recovery(failure_threshold: u32, base_timeout: Duration) -> CircuitBreakerSettings {
+		CircuitBreakerSettings {
+			enabled: true,
+			failure_threshold,
+			success_rate_threshold: 0.3,
+			min_requests_for_rate_check: 10,
+			base_timeout_seconds: base_timeout.as_secs(),
+			max_timeout_seconds: base_timeout.as_secs() * 3,
+			half_open_max_calls: 1,
+			max_recovery_attempts: 2,
+			persistent_failure_action: PersistentFailureAction::ExtendTimeout,
+			metrics_max_age_minutes: 2, // Short age for quick recovery tests
+			service_error_threshold: 0.5,
+			metrics_window_duration_minutes: 15,
+			metrics_max_window_age_minutes: 60,
+		}
+	}
+
+	/// Configuration with circuit breaker disabled
+	pub fn disabled() -> CircuitBreakerSettings {
+		CircuitBreakerSettings {
+			enabled: false,
+			failure_threshold: 3,
+			success_rate_threshold: 0.5,
+			min_requests_for_rate_check: 5,
+			base_timeout_seconds: 30,
+			max_timeout_seconds: 300,
+			half_open_max_calls: 3,
+			max_recovery_attempts: 5,
+			persistent_failure_action: PersistentFailureAction::ExtendTimeout,
+			metrics_max_age_minutes: 10,
+			service_error_threshold: 0.5,
+			metrics_window_duration_minutes: 15,
+			metrics_max_window_age_minutes: 60,
+		}
+	}
+
+	/// Test solver configuration for adapter tests
+	pub fn test_solver_config() -> TestSolverConfig {
+		TestSolverConfig {
 			solver_id: "test-solver".to_string(),
 			adapter_id: "test-adapter".to_string(),
-			name: Some("Test Solver".to_string()),
-			description: Some("Test solver for unit testing".to_string()),
 			endpoint: "http://localhost:8080".to_string(),
-			headers: Some(HashMap::new()),
-			adapter_metadata: None,
-			supported_assets: None,
 			enabled: true,
 		}
 	}
 
-	/// Create custom solver config with builder pattern
-	pub fn solver_config() -> SolverConfigBuilder {
-		SolverConfigBuilder::new()
+	/// Test settings for metrics tests
+	pub fn test_settings() -> Settings {
+		let mut settings = Settings::default();
+		settings.security.integrity_secret =
+			ConfigurableValue::from_plain("test-secret-for-metrics-e2e-tests-12345678901234567890");
+		settings
 	}
 }
 
-/// Builder for creating custom solver configurations
 #[allow(dead_code)]
-pub struct SolverConfigBuilder {
-	config: SolverConfig,
-}
-
-#[allow(dead_code)]
-impl SolverConfigBuilder {
-	pub fn new() -> Self {
-		Self {
-			config: SolverConfig {
-				solver_id: "test-solver".to_string(),
-				adapter_id: "test-adapter".to_string(),
-				name: Some("Test Solver".to_string()),
-				description: Some("Test solver".to_string()),
-				endpoint: "http://localhost:8080".to_string(),
-				headers: Some(HashMap::new()),
-				adapter_metadata: None,
-				supported_assets: None,
-				enabled: true,
-			},
-		}
-	}
-
-	pub fn id(mut self, id: &str) -> Self {
-		self.config.solver_id = id.to_string();
-		self
-	}
-
-	pub fn adapter_id(mut self, adapter_id: &str) -> Self {
-		self.config.adapter_id = adapter_id.to_string();
-		self
-	}
-
-	pub fn name(mut self, name: &str) -> Self {
-		self.config.name = Some(name.to_string());
-		self
-	}
-
-	pub fn description(mut self, description: Option<&str>) -> Self {
-		self.config.description = description.map(|s| s.to_string());
-		self
-	}
-
-	pub fn endpoint(mut self, endpoint: &str) -> Self {
-		self.config.endpoint = endpoint.to_string();
-		self
-	}
-
-	pub fn enabled(mut self, enabled: bool) -> Self {
-		self.config.enabled = enabled;
-		self
-	}
-
-	pub fn build(self) -> SolverConfig {
-		self.config
+/// Creates a complete Settings object with circuit breaker configuration
+pub fn create_test_settings_with_circuit_breaker(cb_config: CircuitBreakerSettings) -> Settings {
+	Settings {
+		circuit_breaker: Some(cb_config),
+		security: SecuritySettings {
+			integrity_secret: ConfigurableValue::from_plain(
+				"test-secret-for-e2e-tests-12345678901234567890",
+			),
+		},
+		..Settings::default()
 	}
 }

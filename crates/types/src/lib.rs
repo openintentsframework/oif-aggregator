@@ -5,6 +5,7 @@
 
 pub mod adapters;
 pub mod auth;
+pub mod circuit_breaker;
 pub mod constants;
 pub mod integrity;
 pub mod metrics;
@@ -26,8 +27,8 @@ pub use quotes::{
 };
 
 pub use solvers::{
-	HealthStatus, Solver, SolverConfig, SolverError, SolverResponse, SolverResult, SolverStatus,
-	SolverStorage, SolverValidationError, SolverValidationResult,
+	Solver, SolverConfig, SolverError, SolverResponse, SolverResult, SolverStatus, SolverStorage,
+	SolverValidationError, SolverValidationResult,
 };
 
 pub use adapters::{
@@ -64,4 +65,8 @@ pub use metrics::{
 	ErrorType, MetricsAggregate, MetricsBucket, MetricsComputationError, MetricsDataPoint,
 	MetricsTimeSeries, Operation, OperationStats, RollingMetrics, TimeBucket, TimeRange,
 	TimeWindow,
+};
+
+pub use circuit_breaker::{
+	CircuitBreakerState, CircuitDecision, CircuitState, PersistentFailureAction,
 };

@@ -11,6 +11,7 @@ Welcome to the comprehensive documentation for the **Open Intent Framework (OIF)
 
 ### 🏗️ **Understanding the System**
 - **[Quotes & Aggregation Guide](quotes-and-aggregation.md)** - How quote aggregation works
+- **[Circuit Breaker Implementation Guide](circuit-breaker.md)** - Automatic failure protection system
 
 ### 🔧 **Operations & Deployment**
 - **[Docker Guide](docker.md)** - Container deployment and development workflows

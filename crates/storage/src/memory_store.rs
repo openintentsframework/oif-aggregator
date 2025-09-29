@@ -4,7 +4,10 @@ use crate::traits::{MetricsStorage, OrderStorage, SolverStorage, Storage, Storag
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
-use oif_types::{storage::Repository, MetricsTimeSeries, Order, RollingMetrics, Solver};
+use oif_types::storage::CircuitBreakerStorageTrait;
+use oif_types::{
+	storage::Repository, CircuitBreakerState, MetricsTimeSeries, Order, RollingMetrics, Solver,
+};
 use std::sync::Arc;
 
 /// In-memory storage for solvers, quotes, and orders
@@ -17,6 +20,7 @@ pub struct MemoryStore {
 	pub solvers: Arc<DashMap<String, Solver>>,
 	pub orders: Arc<DashMap<String, Order>>,
 	pub metrics_timeseries: Arc<DashMap<String, Arc<MetricsTimeSeries>>>,
+	pub circuit_states: Arc<DashMap<String, CircuitBreakerState>>,
 }
 
 impl MemoryStore {
@@ -26,6 +30,7 @@ impl MemoryStore {
 			solvers: Arc::new(DashMap::new()),
 			orders: Arc::new(DashMap::new()),
 			metrics_timeseries: Arc::new(DashMap::new()),
+			circuit_states: Arc::new(DashMap::new()),
 		}
 	}
 
@@ -240,6 +245,58 @@ impl MetricsStorage for MemoryStore {
 
 	async fn count_metrics_timeseries(&self) -> StorageResult<usize> {
 		Ok(self.metrics_timeseries.len())
+	}
+}
+
+#[async_trait]
+impl CircuitBreakerStorageTrait for MemoryStore {
+	async fn get_circuit_state(
+		&self,
+		solver_id: &str,
+	) -> StorageResult<Option<CircuitBreakerState>> {
+		Ok(self
+			.circuit_states
+			.get(solver_id)
+			.map(|entry| entry.clone()))
+	}
+
+	async fn update_circuit_state(&self, state: CircuitBreakerState) -> StorageResult<()> {
+		self.circuit_states.insert(state.solver_id.clone(), state);
+		Ok(())
+	}
+
+	async fn delete_circuit_state(&self, solver_id: &str) -> StorageResult<bool> {
+		Ok(self.circuit_states.remove(solver_id).is_some())
+	}
+
+	async fn list_circuit_states(&self) -> StorageResult<Vec<CircuitBreakerState>> {
+		Ok(self
+			.circuit_states
+			.iter()
+			.map(|entry| entry.value().clone())
+			.collect())
+	}
+
+	async fn cleanup_stale_circuits(&self, older_than: DateTime<Utc>) -> StorageResult<usize> {
+		let keys_to_remove: Vec<String> = self
+			.circuit_states
+			.iter()
+			.filter_map(|entry| {
+				if entry.value().last_updated < older_than {
+					Some(entry.key().clone())
+				} else {
+					None
+				}
+			})
+			.collect();
+
+		let mut removed = 0;
+		for key in keys_to_remove {
+			if self.circuit_states.remove(&key).is_some() {
+				removed += 1;
+			}
+		}
+		Ok(removed)
 	}
 }
 

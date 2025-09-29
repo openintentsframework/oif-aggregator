@@ -14,8 +14,10 @@ use oif_config::AggregationConfig;
 use oif_types::constants::limits::{DEFAULT_PRIORITY_THRESHOLD, DEFAULT_SAMPLE_SIZE};
 use oif_types::quotes::request::{SolverOptions, SolverSelection};
 use oif_types::{QuoteRequest, Solver};
+use std::sync::Arc;
 
-use tracing::{debug, info};
+use crate::CircuitBreakerTrait;
+use tracing::debug;
 
 /// Fixed weight for unknown solvers in weighted sampling (1%)
 /// We assign a low weight (1%) to unknown solvers to allow them to be sampled
@@ -305,13 +307,15 @@ impl SolverSelector {
 pub struct SolverFilterService {
 	analyzer: CompatibilityAnalyzer,
 	selector: SolverSelector,
+	circuit_breaker: Arc<dyn CircuitBreakerTrait>,
 }
 
 impl SolverFilterService {
-	pub fn new() -> Self {
+	pub fn new(circuit_breaker: Arc<dyn CircuitBreakerTrait>) -> Self {
 		Self {
 			analyzer: CompatibilityAnalyzer,
 			selector: SolverSelector::new(),
+			circuit_breaker,
 		}
 	}
 
@@ -327,7 +331,7 @@ impl SolverFilterService {
 		if let Some(include_list) = &options.include_solvers {
 			if !include_list.is_empty() {
 				filtered.retain(|(solver, _)| include_list.contains(&solver.solver_id));
-				info!("Applied include filter: {} solvers", filtered.len());
+				debug!("Applied include filter: {} solvers", filtered.len());
 			}
 		}
 
@@ -335,7 +339,7 @@ impl SolverFilterService {
 		if let Some(exclude_list) = &options.exclude_solvers {
 			if !exclude_list.is_empty() {
 				filtered.retain(|(solver, _)| !exclude_list.contains(&solver.solver_id));
-				info!(
+				debug!(
 					"Applied exclude filter: {} solvers remaining",
 					filtered.len()
 				);
@@ -355,8 +359,8 @@ impl SolverFilterTrait for SolverFilterService {
 		options: &SolverOptions,
 		config: &AggregationConfig,
 	) -> Vec<Solver> {
-		info!(
-			"Starting solver filtering: {} available",
+		debug!(
+			"Starting solver filtering: {} available solvers",
 			available_solvers.len()
 		);
 
@@ -377,7 +381,7 @@ impl SolverFilterTrait for SolverFilterService {
 			solver_compatibility.retain(|(_, compat)| !matches!(compat, Compatibility::Unknown));
 		}
 
-		info!(
+		debug!(
 			"Compatibility filtering: {} viable from {} total",
 			solver_compatibility.len(),
 			initial_count
@@ -386,23 +390,43 @@ impl SolverFilterTrait for SolverFilterService {
 		// Step 3: Apply include/exclude filters
 		solver_compatibility = self.apply_filters(solver_compatibility, options);
 
-		// Step 4: Apply selection strategy
-		let selected = self.selector.select_solvers(solver_compatibility, options);
+		debug!(
+			"After include/exclude filtering: {} solvers",
+			solver_compatibility.len()
+		);
 
-		info!("Final selection: {} solvers", selected.len());
+		// Step 4: Apply circuit breaker filtering (before selection to ensure correct counts)
+		let mut circuit_filtered_solvers = Vec::new();
+		for (solver, compatibility) in solver_compatibility {
+			if self.circuit_breaker.should_allow_request(&solver).await {
+				circuit_filtered_solvers.push((solver, compatibility));
+			} else {
+				debug!(
+					"Circuit breaker blocked solver: {} (compatibility: {:?})",
+					solver.solver_id, compatibility
+				);
+			}
+		}
+
+		debug!(
+			"After circuit breaker filtering: {} solvers",
+			circuit_filtered_solvers.len()
+		);
+
+		// Step 5: Apply selection strategy
+		let selected = self
+			.selector
+			.select_solvers(circuit_filtered_solvers, options);
+
+		debug!("Final selection: {} solvers", selected.len());
 		selected
-	}
-}
-
-impl Default for SolverFilterService {
-	fn default() -> Self {
-		Self::new()
 	}
 }
 
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::MockCircuitBreakerTrait;
 	use oif_config::AggregationConfig;
 	use oif_types::{
 		quotes::request::SolverOptions, AssetRoute, AvailableInput, InteropAddress, QuoteRequest,
@@ -411,6 +435,15 @@ mod tests {
 	use std::collections::HashMap;
 
 	// Helper functions for creating test data
+
+	/// Create a disabled circuit breaker for tests
+	fn create_disabled_circuit_breaker() -> Arc<dyn CircuitBreakerTrait> {
+		let mut mock = MockCircuitBreakerTrait::new();
+		mock.expect_should_allow_request().returning(|_| true); // Always allow requests
+		mock.expect_is_enabled().returning(|| false); // Always allow requests
+		Arc::new(mock)
+	}
+
 	fn create_test_solver_with_routes(id: &str, assets: Vec<(u64, &str)>) -> Solver {
 		// Convert assets to cross-chain routes directly
 		let mut routes = Vec::new();
@@ -1243,7 +1276,7 @@ mod tests {
 
 		#[tokio::test]
 		async fn test_basic_filtering() {
-			let service = SolverFilterService::new();
+			let service = SolverFilterService::new(create_disabled_circuit_breaker());
 			let solvers = vec![
 				create_test_solver_with_routes(
 					"compatible",
@@ -1286,7 +1319,7 @@ mod tests {
 
 		#[tokio::test]
 		async fn test_exclude_unknown_compatibility() {
-			let service = SolverFilterService::new();
+			let service = SolverFilterService::new(create_disabled_circuit_breaker());
 			let solvers = vec![
 				create_test_solver_with_routes(
 					"compatible",
@@ -1322,7 +1355,7 @@ mod tests {
 
 		#[tokio::test]
 		async fn test_include_exclude_filters() {
-			let service = SolverFilterService::new();
+			let service = SolverFilterService::new(create_disabled_circuit_breaker());
 			let solvers = vec![
 				create_test_solver_with_routes("solver1", vec![]),
 				create_test_solver_with_routes("solver2", vec![]),
@@ -1351,7 +1384,7 @@ mod tests {
 
 		#[tokio::test]
 		async fn test_no_viable_solvers() {
-			let service = SolverFilterService::new();
+			let service = SolverFilterService::new(create_disabled_circuit_breaker());
 			let solvers = vec![
 				create_test_solver_with_routes(
 					"incompatible1",
@@ -1378,7 +1411,7 @@ mod tests {
 
 		#[tokio::test]
 		async fn test_solver_selection_integration() {
-			let service = SolverFilterService::new();
+			let service = SolverFilterService::new(create_disabled_circuit_breaker());
 			let solvers = vec![
 				create_test_solver_with_routes(
 					"compatible",
