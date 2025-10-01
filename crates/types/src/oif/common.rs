@@ -79,7 +79,6 @@ pub enum OrderStatus {
 	/// Next: Either PostFilled (if post-fill tx needed) or Settled (if no post-fill).
 	Executed,
 	/// Order has been settled and is ready to be claimed.
-	/// Next: Either PreClaimed (if pre-claim tx needed) or Finalized (after claim).
 	Settled,
 	/// Order is settling and is ready to be claimed
 	Settling,
@@ -263,7 +262,7 @@ pub struct Output {
 }
 
 /// Quote preview for a swap or transfer
-/// Specifies the desired assets and destination for a swap or transfer.
+/// Contains the inputs and outputs that represent a quote preview.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
@@ -273,7 +272,6 @@ pub struct QuotePreview {
 	/// Outputs for the preview
 	pub outputs: Vec<Output>,
 }
-
 /// EIP-712 type property
 /// Single field definition used inside the EIP-712 `types` map
 /// Example: { name: "amount", type: "uint256" }

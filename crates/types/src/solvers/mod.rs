@@ -255,13 +255,11 @@ impl Solver {
 	/// Record a successful request
 	pub fn record_success(
 		&mut self,
-		response_time_ms: u64,
 		window_duration_minutes: u32,
 		max_window_age_minutes: u32,
 		min_requests_for_rate_check: u64,
 	) {
 		self.metrics.record_success(
-			response_time_ms,
 			window_duration_minutes,
 			max_window_age_minutes,
 			min_requests_for_rate_check,
@@ -561,7 +559,6 @@ impl SolverMetrics {
 	/// Record a successful request
 	pub fn record_success(
 		&mut self,
-		_response_time_ms: u64,
 		window_duration_minutes: u32,
 		max_window_age_minutes: u32,
 		min_requests_for_rate_check: u64,
@@ -695,8 +692,8 @@ mod tests {
 		let mut solver = create_test_solver();
 
 		// Record some successes
-		solver.record_success(100, 15, 60, 5);
-		solver.record_success(200, 15, 60, 5);
+		solver.record_success(15, 60, 5);
+		solver.record_success(15, 60, 5);
 
 		assert_eq!(solver.metrics.total_requests, 2);
 		assert_eq!(solver.metrics.successful_requests, 2);
@@ -723,7 +720,7 @@ mod tests {
 		assert!(initial_score > 0.0);
 
 		// Record success should improve score
-		solver.record_success(100, 15, 60, 5);
+		solver.record_success(15, 60, 5);
 		let improved_score = solver.priority_score();
 		assert!(improved_score > initial_score);
 
@@ -863,9 +860,8 @@ mod tests {
 	#[test]
 	fn test_solver_metrics_record_success() {
 		let mut metrics = SolverMetrics::new();
-		let response_time = 150;
 
-		metrics.record_success(response_time, 15, 60, 5);
+		metrics.record_success(15, 60, 5);
 
 		// Check lifetime counters
 		assert_eq!(metrics.total_requests, 1);
@@ -881,7 +877,7 @@ mod tests {
 		assert_eq!(metrics.consecutive_failures, 0);
 
 		// Test multiple successes
-		metrics.record_success(200, 15, 60, 5);
+		metrics.record_success(15, 60, 5);
 		assert_eq!(metrics.total_requests, 2);
 		assert_eq!(metrics.successful_requests, 2);
 		assert_eq!(metrics.recent_total_requests, 2);
@@ -979,7 +975,7 @@ mod tests {
 		assert_eq!(metrics.consecutive_failures, 3);
 
 		// Success should reset consecutive failures
-		metrics.record_success(100, 15, 60, 5);
+		metrics.record_success(15, 60, 5);
 		assert_eq!(metrics.consecutive_failures, 0);
 	}
 
@@ -1104,9 +1100,9 @@ mod tests {
 		let mut metrics = SolverMetrics::new();
 
 		// Mix of successes and different error types
-		metrics.record_success(100, 15, 60, 5);
+		metrics.record_success(15, 60, 5);
 		metrics.record_failure(Some(ErrorType::ServiceError), 15, 60, 5);
-		metrics.record_success(150, 15, 60, 5);
+		metrics.record_success(15, 60, 5);
 		metrics.record_failure(Some(ErrorType::ClientError), 15, 60, 5);
 		metrics.record_failure(Some(ErrorType::ApplicationError), 15, 60, 5);
 
@@ -1127,7 +1123,7 @@ mod tests {
 		let mut metrics = SolverMetrics::new();
 
 		// Add some data
-		metrics.record_success(100, 15, 60, 5);
+		metrics.record_success(15, 60, 5);
 		metrics.record_failure(Some(ErrorType::ServiceError), 15, 60, 5);
 
 		assert_eq!(metrics.total_requests, 2);
@@ -1153,7 +1149,7 @@ mod tests {
 		// Small delay to ensure timestamp difference
 		std::thread::sleep(std::time::Duration::from_millis(10));
 
-		metrics.record_success(100, 15, 60, 5);
+		metrics.record_success(15, 60, 5);
 		assert!(
 			metrics.last_updated > initial_update,
 			"Success should update timestamp"

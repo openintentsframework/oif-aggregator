@@ -180,6 +180,22 @@ impl From<crate::oif::common::OrderStatus> for OrderStatus {
 	}
 }
 
+impl From<&crate::oif::common::OrderStatus> for OrderStatus {
+	fn from(s: &crate::oif::common::OrderStatus) -> Self {
+		match s {
+			crate::oif::common::OrderStatus::Created => Self::Created,
+			crate::oif::common::OrderStatus::Pending => Self::Pending,
+			crate::oif::common::OrderStatus::Executing => Self::Executing,
+			crate::oif::common::OrderStatus::Executed => Self::Executed,
+			crate::oif::common::OrderStatus::Settled => Self::Settled,
+			crate::oif::common::OrderStatus::Settling => Self::Settling,
+			crate::oif::common::OrderStatus::Finalized => Self::Finalized,
+			crate::oif::common::OrderStatus::Failed => Self::Failed,
+			crate::oif::common::OrderStatus::Refunded => Self::Refunded,
+		}
+	}
+}
+
 impl From<OrderStatus> for crate::oif::common::OrderStatus {
 	fn from(s: OrderStatus) -> Self {
 		match s {

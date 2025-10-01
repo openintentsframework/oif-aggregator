@@ -237,8 +237,9 @@ impl OifGetOrderResponse {
 	/// Get created timestamp as DateTime<Utc> (convenience method)
 	pub fn created_at(&self) -> DateTime<Utc> {
 		let timestamp = self.created_at_timestamp();
+		let safe_timestamp = i64::try_from(timestamp).unwrap_or(i64::MAX);
 		chrono::Utc
-			.timestamp_opt(timestamp as i64, 0)
+			.timestamp_opt(safe_timestamp, 0)
 			.single()
 			.unwrap_or_default()
 	}
@@ -246,8 +247,9 @@ impl OifGetOrderResponse {
 	/// Get updated timestamp as DateTime<Utc> (convenience method)
 	pub fn updated_at(&self) -> DateTime<Utc> {
 		let timestamp = self.updated_at_timestamp();
+		let safe_timestamp = i64::try_from(timestamp).unwrap_or(i64::MAX);
 		chrono::Utc
-			.timestamp_opt(timestamp as i64, 0)
+			.timestamp_opt(safe_timestamp, 0)
 			.single()
 			.unwrap_or_default()
 	}
@@ -441,7 +443,7 @@ impl OifGetQuoteRequest {
 	}
 
 	/// Get the intent (version-agnostic)
-	pub fn intent(&self) -> &v0::IntentRequest {
+	pub fn intent(&self) -> &OifIntentRequestLatest {
 		match self {
 			Self::V0(request) => &request.intent,
 		}
@@ -616,6 +618,31 @@ impl OifPostOrderResponse {
 	pub fn version(&self) -> &'static str {
 		match self {
 			Self::V0(_) => "v0",
+		}
+	}
+
+	/// Check if this is a v0 post order response
+	pub fn is_v0(&self) -> bool {
+		matches!(self, Self::V0(_))
+	}
+
+	/// Check if this post order response supports a specific version
+	pub fn supports_version(&self, version: &str) -> bool {
+		self.version() == version
+	}
+
+	/// Get the inner v0 response
+	/// Returns None if this is not a v0 response
+	pub fn as_v0(&self) -> Option<&v0::PostOrderResponse> {
+		match self {
+			Self::V0(response) => Some(response),
+		}
+	}
+
+	/// Get the response in the latest supported format
+	pub fn as_latest(&self) -> &crate::oif::OifPostOrderResponseLatest {
+		match self {
+			Self::V0(response) => response,
 		}
 	}
 }

@@ -80,7 +80,7 @@ impl OrdersResponse {
 	/// Create response from domain order
 	pub fn from_domain(order: &Order) -> OrderResult<Self> {
 		// Convert OIF OrderStatus to domain OrderStatus for message generation
-		let domain_status = OrderStatus::from(order.status().clone());
+		let domain_status = OrderStatus::from(order.status());
 		Ok(Self {
 			order_id: order.order_id.clone(),
 			status: domain_status.to_string(),
@@ -137,7 +137,7 @@ impl TryFrom<&Order> for OrderResponse {
 	fn try_from(order: &Order) -> Result<Self, Self::Error> {
 		Ok(OrderResponse {
 			order_id: order.order_id.clone(),
-			status: OrderStatus::from(order.status().clone()),
+			status: OrderStatus::from(order.status()),
 			quote_id: order.oif_quote_id().cloned(),
 			created_at: order.created_at(),
 			updated_at: order.updated_at(),

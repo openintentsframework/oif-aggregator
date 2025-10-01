@@ -183,7 +183,6 @@ impl MetricsUpdateHandler {
 
 		if metrics_data.was_successful {
 			solver.metrics.record_success(
-				metrics_data.response_time_ms,
 				circuit_breaker_settings.metrics_window_duration_minutes,
 				circuit_breaker_settings.metrics_max_window_age_minutes,
 				circuit_breaker_settings.min_requests_for_rate_check,

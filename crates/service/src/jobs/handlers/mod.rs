@@ -4,6 +4,7 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 use crate::jobs::JobScheduler;
+use crate::CircuitBreakerTrait;
 use crate::{order::OrderServiceTrait, AggregatorTrait, IntegrityTrait, SolverServiceTrait};
 use oif_adapters::AdapterRegistry;
 use oif_config::Settings;
@@ -68,7 +69,7 @@ impl BackgroundJobHandler {
 		order_service: Arc<dyn OrderServiceTrait>,
 		job_scheduler: Arc<dyn JobScheduler>,
 		settings: Settings,
-		circuit_breaker: Arc<dyn crate::circuit_breaker::CircuitBreakerTrait>,
+		circuit_breaker: Arc<dyn CircuitBreakerTrait>,
 	) -> Self {
 		Self {
 			health_check_handler: SolverHealthCheckHandler::new(Arc::clone(&solver_service)),
