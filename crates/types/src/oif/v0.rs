@@ -164,6 +164,7 @@ impl GetQuoteRequest {
 /// OIF Order union type with versioning support
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "kebab-case")]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub enum Order {
 	#[serde(rename = "oif-escrow-v0")]
 	OifEscrowV0 { payload: OrderPayload },
@@ -206,6 +207,7 @@ pub enum OrderTest {
 /// Standard order payload structure for most order types
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct OrderPayload {
 	#[serde(rename = "signatureType")]
 	pub signature_type: SignatureType,

@@ -170,23 +170,27 @@ impl SolverOptions {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[cfg_attr(feature = "openapi", schema(example = json!({
-    "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8",
-    "availableInputs": [
-        {
-            "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8",
-            "asset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
-            "amount": "1000000000000000000"
-        }
-    ],
-    "requestedOutputs": [
-        {
-            "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
-            "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
-            "amount": "1000000000000000000"
-        }
-    ],
-    "preference": "speed",
-    "minValidUntil": 600,
+    "intent": {
+        "intentType": "oif-swap",
+        "inputs": [
+            {
+                "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8",
+                "asset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                "amount": "1000000000000000000"
+            }
+        ],
+        "outputs": [
+            {
+                "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+                "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
+                "amount": "1000000"
+            }
+        ],
+        "swapType": "exact-input",
+        "minValidUntil": 600,
+        "preference": "speed",
+        "partialFill": false
+    },
     "solverOptions": {
         "timeout": 4000,
         "solverTimeout": 2000

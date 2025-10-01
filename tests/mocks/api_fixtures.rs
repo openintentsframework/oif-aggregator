@@ -41,7 +41,7 @@ impl ApiFixtures {
 				],
 				"outputs": [
 					{
-						"asset": usdc_addr.to_hex(), // USDC
+						"asset": usdc_addr.to_hex(),
 						"amount": TestConstants::TWO_THOUSAND_USDC,
 						"receiver": user_addr.to_hex()
 					}

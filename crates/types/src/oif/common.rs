@@ -64,6 +64,7 @@ pub struct Settlement {
 /// Order lifecycle status that is fundamental across OIF versions.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub enum OrderStatus {
 	/// Order has been created but not yet prepared.
 	/// Next: Prepare transaction will be sent, moving to Pending.
@@ -113,6 +114,7 @@ impl fmt::Display for OrderStatus {
 /// Core signature mechanisms that remain stable across OIF versions.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "kebab-case")]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub enum SignatureType {
 	Eip712,
 	Eip3009,
@@ -276,6 +278,7 @@ pub struct QuotePreview {
 /// Single field definition used inside the EIP-712 `types` map
 /// Example: { name: "amount", type: "uint256" }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct EIP712TypeProperty {
 	/// Field name
 	pub name: String,
@@ -307,6 +310,7 @@ pub type EIP712Types = HashMap<String, Vec<EIP712TypeProperty>>;
 /// Status enum for order submission responses
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub enum PostOrderResponseStatus {
 	/// Order received and passed basic validation, queued for full validation
 	Received,

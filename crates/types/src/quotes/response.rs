@@ -57,9 +57,12 @@ pub struct AggregationMetadata {
             },
             "primaryType": "Order",
             "message": {
-                "user": "0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0",
+                "orderType": "swap",
+                "inputAsset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                "outputAsset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
                 "amount": "1000000000000000000"
-            }
+            },
+            "types": {}
         }
     },
     "validUntil": 1756457492,
@@ -67,6 +70,22 @@ pub struct AggregationMetadata {
     "provider": "Example Solver v1.0",
     "failureHandling": "refund-automatic",
     "partialFill": false,
+    "preview": {
+        "inputs": [
+            {
+                "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8",
+                "asset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                "amount": "1000000000000000000"
+            }
+        ],
+        "outputs": [
+            {
+                "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+                "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
+                "amount": "1000000"
+            }
+        ]
+    },
     "integrityChecksum": "hmac-sha256:a1b2c3d4e5f6...",
     "oifMetadata": {"provider": "data"},
     "metadata": {"aggregator": "metadata"}
@@ -111,29 +130,49 @@ pub struct QuoteResponse {
         {
             "quoteId": "6a22e92f-3e5d-4f05-ab5f-007b01e58b21",
             "solverId": "example-solver",
-            "orders": [
-                {
+            "order": {
+                "type": "oif-escrow-v0",
+                "payload": {
                     "signatureType": "eip712",
-                    "domain": "0x01000002147a69000000000022d473030f116ddee9f6b43ac78ba3",
-                    "primaryType": "PermitBatchWitnessTransferFrom",
+                    "domain": {
+                        "name": "TestDomain",
+                        "version": "1",
+                        "chainId": 1
+                    },
+                    "primaryType": "Order",
                     "message": {
-                        "digest": "0xdfbfeb9aed6340d513ef52f716cef5b50b677118d364c8448bff1c9ea9fd0b14"
-                    }
-                }
-            ],
-            "details": {
-                "requestedOutputs": [
-                    {
-                        "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
-                        "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
+                        "orderType": "swap",
+                        "inputAsset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                        "outputAsset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
                         "amount": "1000000000000000000"
-                    }
-                ]
+                    },
+                    "types": {}
+                }
             },
             "validUntil": 1756457492,
             "eta": 30,
             "provider": "Example Solver v1.0",
-            "integrityChecksum": "hmac-sha256:a1b2c3d4e5f6..."
+            "failureHandling": "refund-automatic",
+            "partialFill": false,
+            "preview": {
+                "inputs": [
+                    {
+                        "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8",
+                        "asset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                        "amount": "1000000000000000000"
+                    }
+                ],
+                "outputs": [
+                    {
+                        "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+                        "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
+                        "amount": "1000000"
+                    }
+                ]
+            },
+            "integrityChecksum": "hmac-sha256:a1b2c3d4e5f6...",
+            "oifMetadata": {"provider": "data"},
+            "metadata": {"aggregator": "metadata"}
         }
     ],
     "totalQuotes": 1,
