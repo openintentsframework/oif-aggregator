@@ -11,10 +11,7 @@ use tokio::time::sleep;
 // Removed unused imports
 
 mod mocks;
-use mocks::{
-	adapters::TimingControlledAdapter, api_fixtures::ApiFixtures, configs::CircuitBreakerConfigs,
-	test_server::TestServer,
-};
+use mocks::{api_fixtures::ApiFixtures, configs::CircuitBreakerConfigs, test_server::TestServer};
 
 /// Test circuit breaker blocks requests after consecutive failures
 #[tokio::test]
@@ -24,11 +21,15 @@ async fn test_circuit_breaker_opens_on_consecutive_failures() {
 		vec![
 			(
 				"failing-solver".to_string(),
-				TimingControlledAdapter::failing("failing"),
+				mocks::adapters::MockTestAdapter::with_failure_config(
+					"failing-adapter".to_string(),
+				),
 			),
 			(
 				"working-solver".to_string(),
-				TimingControlledAdapter::fast("working"),
+				mocks::adapters::MockTestAdapter::with_success_config(
+					"working-adapter".to_string(),
+				),
 			),
 		],
 	)
@@ -101,11 +102,11 @@ async fn test_circuit_breaker_opens_on_success_rate() {
 		vec![
 			(
 				"working-solver".to_string(),
-				TimingControlledAdapter::fast("working"),
+				mocks::adapters::MockDemoAdapter::with_config("working-adapter".to_string()),
 			),
 			(
 				"slow-solver".to_string(),
-				TimingControlledAdapter::timeout("slow"), // This will timeout and be recorded as failure
+				mocks::adapters::MockDemoAdapter::with_config("slow-adapter".to_string()), // This will timeout and be recorded as failure
 			),
 		],
 	)
@@ -166,7 +167,7 @@ async fn test_circuit_breaker_recovery_timeout() {
 		),
 		vec![(
 			"test-solver".to_string(),
-			TimingControlledAdapter::fast("test"),
+			mocks::adapters::MockDemoAdapter::new(),
 		)],
 	)
 	.await
@@ -211,7 +212,7 @@ async fn test_circuit_breaker_recovery() {
 		vec![
 			(
 				"recovering-solver".to_string(),
-				TimingControlledAdapter::fast("recovering"),
+				mocks::adapters::MockDemoAdapter::new(),
 			), // Initially healthy
 		],
 	)
@@ -255,15 +256,15 @@ async fn test_circuit_breaker_mixed_solver_states() {
 		vec![
 			(
 				"healthy-solver".to_string(),
-				TimingControlledAdapter::fast("healthy"),
+				mocks::adapters::MockDemoAdapter::with_config("healthy-adapter".to_string()),
 			),
 			(
 				"failing-solver".to_string(),
-				TimingControlledAdapter::failing("failing"),
+				mocks::adapters::MockDemoAdapter::with_config("failing-adapter".to_string()),
 			),
 			(
 				"slow-solver".to_string(),
-				TimingControlledAdapter::slow("slow"),
+				mocks::adapters::MockDemoAdapter::with_config("slow-adapter".to_string()),
 			),
 		],
 	)
@@ -314,7 +315,7 @@ async fn test_circuit_breaker_health_endpoint() {
 		CircuitBreakerConfigs::standard(),
 		vec![(
 			"test-solver".to_string(),
-			TimingControlledAdapter::fast("test"),
+			mocks::adapters::MockDemoAdapter::new(),
 		)],
 	)
 	.await
@@ -348,7 +349,7 @@ async fn test_circuit_breaker_order_flow() {
 		CircuitBreakerConfigs::standard(),
 		vec![(
 			"order-solver".to_string(),
-			TimingControlledAdapter::fast("order"),
+			mocks::adapters::MockDemoAdapter::new(),
 		)],
 	)
 	.await

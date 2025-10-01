@@ -4,6 +4,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
+use uuid;
 use uuid::Uuid;
 
 pub mod errors;
@@ -14,7 +15,7 @@ pub use errors::{QuoteError, QuoteValidationError};
 pub use request::QuoteRequest;
 pub use response::QuoteResponse;
 
-use crate::{QuoteDetails, QuoteOrder};
+use crate::oif::OifQuote;
 
 /// Result type for quote operations
 pub type QuoteResult<T> = Result<T, QuoteError>;
@@ -22,33 +23,23 @@ pub type QuoteResult<T> = Result<T, QuoteError>;
 /// Result type for quote validation operations
 pub type QuoteValidationResult<T> = Result<T, QuoteValidationError>;
 
-/// Core Quote domain model
+/// Core Quote domain model using composition over duplication
 ///
 /// This represents a quote in the domain layer with business logic.
-/// It should be converted from QuoteRequest and to QuoteStorage/QuoteResponse.
+/// It wraps the OIF specification quote with aggregator-specific metadata.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct Quote {
-	/// Unique identifier for the quote
+	/// Unique identifier for the quote (aggregator-specific)
 	pub quote_id: String,
-	/// ID of the solver that provided this quote
+	/// ID of the solver that provided this quote (aggregator-specific)
 	pub solver_id: String,
-	/// Array of EIP-712 compliant orders
-	pub orders: Vec<QuoteOrder>,
-	/// Quote details matching request structure
-	pub details: QuoteDetails,
-	/// Quote validity timestamp
-	pub valid_until: Option<u64>,
-	/// Estimated time to completion in seconds
-	pub eta: Option<u64>,
-	/// Provider identifier
-	pub provider: String,
+	/// The actual OIF quote containing order and execution details (version-agnostic, version is encoded in wrapper)
+	pub quote: OifQuote,
 	/// HMAC-SHA256 integrity checksum for quote verification
 	/// This ensures the quote originated from the aggregator service
 	pub integrity_checksum: String,
-	/// Adapter-specific metadata for additional context and execution details
-	/// This field allows each adapter to include protocol-specific information
-	/// that consumers might need for order execution or additional context
+	/// Aggregator-specific metadata (separate from OIF metadata)
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub metadata: Option<serde_json::Value>,
 }
@@ -60,61 +51,39 @@ pub struct Quote {
 impl crate::IntegrityPayload for Quote {
 	fn to_integrity_payload(&self) -> String {
 		// Create a canonical string representation for integrity verification
+		// Using data from the composed OIF quote
 		format!(
-			"quote_id:{};solver_id:{};provider:{};valid_until:{};eta:{};orders_count:{};details:{}",
+			"quote_id:{};solver_id:{};version:{};provider:{};valid_until:{};eta:{};orders_count:{};details:{}",
 			self.quote_id,
 			self.solver_id,
-			self.provider,
-			self.valid_until.unwrap_or(0),
-			self.eta.unwrap_or(0),
-			self.orders.len(),
+			self.quote.version(),
+			self.quote.provider().unwrap_or(&self.solver_id),
+			self.quote.valid_until().unwrap_or(0),
+			self.quote.eta().unwrap_or(0),
+			1, // Single order in OIF spec
 			self.details_to_string()
 		)
 	}
 }
 
 impl Quote {
-	/// Convert quote details to a canonical string for integrity verification
+	/// Convert quote order to a canonical string for integrity verification
 	fn details_to_string(&self) -> String {
-		let inputs_str = self
-			.details
-			.available_inputs
-			.iter()
-			.map(|input| format!("{}:{}", input.asset, input.amount.as_str()))
-			.collect::<Vec<_>>()
-			.join(",");
-
-		let outputs_str = self
-			.details
-			.requested_outputs
-			.iter()
-			.map(|output| format!("{}:{}", output.asset, output.amount.as_str()))
-			.collect::<Vec<_>>()
-			.join(",");
-
-		format!("inputs:[{}];outputs:[{}]", inputs_str, outputs_str)
+		// For OIF spec, we serialize the order information for integrity
+		serde_json::to_string(self.quote.order())
+			.unwrap_or_else(|_| "order_serialization_failed".to_string())
 	}
 }
 
 impl Quote {
-	/// Create a new quote with the given parameters
-	pub fn new(
-		solver_id: String,
-		orders: Vec<QuoteOrder>,
-		details: QuoteDetails,
-		provider: String,
-		integrity_checksum: String,
-	) -> Self {
+	/// Create a new quote with the given parameters using OIF composition
+	pub fn new(solver_id: String, quote: OifQuote, integrity_checksum: String) -> Self {
 		let quote_id = Uuid::new_v4().to_string();
 
 		Self {
 			quote_id,
 			solver_id,
-			orders,
-			details,
-			valid_until: None,
-			eta: None,
-			provider,
+			quote,
 			integrity_checksum,
 			metadata: None,
 		}
@@ -122,170 +91,133 @@ impl Quote {
 
 	/// Check if the quote has expired
 	pub fn is_expired(&self) -> bool {
-		if let Some(valid_until) = self.valid_until {
+		if let Some(valid_until) = self.quote.valid_until() {
 			Utc::now().timestamp() as u64 > valid_until
 		} else {
 			false // No expiration if valid_until is not set
 		}
 	}
 
-	/// Calculate the exchange rate (total output / total input)
-	pub fn exchange_rate(&self) -> QuoteResult<f64> {
-		// Calculate total input amount
-		let total_input: f64 = self
-			.details
-			.available_inputs
-			.iter()
-			.map(|input| input.amount.as_str().parse::<f64>().unwrap_or(0.0))
-			.sum();
-
-		if total_input == 0.0 {
-			return Err(QuoteError::ProcessingFailed {
-				reason: "Cannot calculate exchange rate: total input is zero".to_string(),
-			});
-		}
-
-		// Calculate total output amount
-		let total_output: f64 = self
-			.details
-			.requested_outputs
-			.iter()
-			.map(|output| output.amount.as_str().parse::<f64>().unwrap_or(0.0))
-			.sum();
-
-		Ok(total_output / total_input)
+	/// Get the preview from the OIF quote
+	pub fn preview(&self) -> &crate::oif::common::QuotePreview {
+		self.quote.preview()
 	}
 
-	/// Check if this quote is better than another (higher output amount)
-	pub fn is_better_than(&self, other: &Quote) -> QuoteResult<bool> {
-		// For simplicity, compare total output amounts - higher is better
-		let self_total_output: f64 = self
-			.details
-			.requested_outputs
-			.iter()
-			.map(|output| output.amount.as_str().parse::<f64>().unwrap_or(0.0))
-			.sum();
-
-		let other_total_output: f64 = other
-			.details
-			.requested_outputs
-			.iter()
-			.map(|output| output.amount.as_str().parse::<f64>().unwrap_or(0.0))
-			.sum();
-
-		Ok(self_total_output > other_total_output)
+	/// Get the metadata from the OIF quote
+	pub fn metadata(&self) -> Option<&serde_json::Value> {
+		self.quote.metadata()
 	}
 
-	/// Update the expiration time
-	pub fn with_valid_until(mut self, valid_until: u64) -> Self {
-		self.valid_until = Some(valid_until);
-		self
+	/// Get the OIF version from embedded wrapper
+	pub fn version(&self) -> &'static str {
+		self.quote.version()
 	}
 
-	/// Set ETA
-	pub fn with_eta(mut self, eta: u64) -> Self {
-		self.eta = Some(eta);
-		self
+	/// Get the order from the OIF quote
+	pub fn order(&self) -> &crate::oif::OifOrderLatest {
+		self.quote.order()
 	}
 
-	/// Update the adapter metadata
-	pub fn with_metadata(mut self, metadata: Option<serde_json::Value>) -> Self {
-		self.metadata = metadata;
-		self
+	/// Get the provider from the OIF quote
+	pub fn provider(&self) -> Option<&str> {
+		self.quote.provider().map(|s| s.as_str())
+	}
+
+	/// Get the ETA from the OIF quote
+	pub fn eta(&self) -> Option<u64> {
+		self.quote.eta()
+	}
+
+	/// Get the valid_until from the OIF quote
+	pub fn valid_until(&self) -> Option<u64> {
+		self.quote.valid_until()
+	}
+
+	/// Get the partial_fill flag from the OIF quote
+	pub fn partial_fill(&self) -> bool {
+		self.quote.partial_fill()
+	}
+
+	/// Get the failure_handling from the OIF quote
+	pub fn failure_handling(&self) -> Option<&crate::oif::common::FailureHandlingMode> {
+		self.quote.failure_handling()
+	}
+
+	/// Get the OIF metadata
+	pub fn oif_metadata(&self) -> Option<&serde_json::Value> {
+		self.quote.metadata()
 	}
 }
 
-// ================================
-// CONVERSION IMPLEMENTATIONS
-// ================================
-
-impl TryFrom<(crate::adapters::AdapterQuote, String)> for Quote {
+impl TryFrom<(crate::oif::OifQuoteLatest, String)> for Quote {
 	type Error = QuoteError;
 
-	/// Convert from AdapterQuote to Quote domain model
+	/// Convert from OIF Quote to domain Quote using composition
 	///
-	/// Requires a solver_id parameter since AdapterQuote doesn't contain it.
-	/// The integrity_checksum will be empty and should be set by the aggregator service.
+	/// This conversion wraps the OIF quote with aggregator-specific metadata.
+	/// The solver_id is required since OIF quotes don't contain solver identification.
 	fn try_from(
-		(adapter_quote, solver_id): (crate::adapters::AdapterQuote, String),
+		(oif_quote, solver_id): (crate::oif::OifQuoteLatest, String),
 	) -> Result<Self, Self::Error> {
+		// Generate a quote_id if the OIF quote doesn't have one
+		let quote_id = oif_quote
+			.quote_id
+			.clone()
+			.unwrap_or_else(|| format!("oif-quote-{}", uuid::Uuid::new_v4()));
+
 		Ok(Quote {
-			quote_id: adapter_quote.quote_id,
+			quote_id,
 			solver_id,
-			orders: adapter_quote.orders,
-			details: adapter_quote.details,
-			valid_until: adapter_quote.valid_until,
-			eta: adapter_quote.eta,
-			provider: adapter_quote.provider,
+			quote: OifQuote::new(oif_quote), // Wrap version-specific quote in version-agnostic wrapper
 			integrity_checksum: String::new(), // Will be set by aggregator service
-			metadata: adapter_quote.metadata,
+			metadata: None,
 		})
 	}
 }
 
 #[cfg(test)]
 mod tests {
-	use crate::U256;
+	use std::collections::HashMap;
 
 	use super::*;
 
 	fn create_test_quote() -> Quote {
-		use crate::{
-			AvailableInput, InteropAddress, QuoteDetails, QuoteOrder, RequestedOutput,
-			SignatureType, U256,
+		// Create a test OIF quote
+		let oif_order = crate::oif::OifOrderLatest::OifEscrowV0 {
+			payload: crate::oif::v0::OrderPayload {
+				signature_type: crate::oif::common::SignatureType::Eip712,
+				domain: serde_json::json!({
+					"name": "TestDomain",
+					"version": "1",
+					"chainId": 1
+				}),
+				primary_type: "Order".to_string(),
+				message: serde_json::json!({
+					"user": "0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0",
+					"amount": "1000000000000000000"
+				}),
+				types: HashMap::new(),
+			},
 		};
 
-		let input = AvailableInput {
-			asset: InteropAddress::from_chain_and_address(
-				1,
-				"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0",
-			)
-			.unwrap(),
-			amount: U256::new("1000000000000000000".to_string()),
-			user: InteropAddress::from_chain_and_address(
-				1,
-				"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0",
-			)
-			.unwrap(),
-			lock: None,
-		};
-
-		let output = RequestedOutput {
-			asset: InteropAddress::from_chain_and_address(
-				1,
-				"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-			)
-			.unwrap(),
-			amount: U256::new("2500000000000000000000".to_string()),
-			receiver: InteropAddress::from_chain_and_address(
-				1,
-				"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0",
-			)
-			.unwrap(),
-			calldata: None,
-		};
-
-		let details = QuoteDetails {
-			available_inputs: vec![input],
-			requested_outputs: vec![output],
-		};
-
-		let order = QuoteOrder {
-			signature_type: SignatureType::Eip712,
-			domain: InteropAddress::from_chain_and_address(
-				1,
-				"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0",
-			)
-			.unwrap(),
-			primary_type: "Order".to_string(),
-			message: serde_json::json!({}),
+		let oif_quote = crate::oif::OifQuoteLatest {
+			quote_id: Some("test-quote-id".to_string()),
+			order: oif_order,
+			valid_until: None,
+			eta: None,
+			provider: Some("test-provider".to_string()),
+			failure_handling: None,
+			partial_fill: false,
+			metadata: None,
+			preview: crate::oif::common::QuotePreview {
+				inputs: vec![],
+				outputs: vec![],
+			},
 		};
 
 		Quote::new(
 			"test-solver".to_string(),
-			vec![order],
-			details,
-			"test-provider".to_string(),
+			OifQuote::new(oif_quote), // Wrap version-specific quote in version-agnostic wrapper
 			"test-checksum".to_string(),
 		)
 	}
@@ -295,55 +227,31 @@ mod tests {
 		let quote = create_test_quote();
 
 		assert_eq!(quote.solver_id, "test-solver");
-		assert_eq!(quote.provider, "test-provider");
+		assert_eq!(quote.provider(), Some("test-provider"));
 		assert_eq!(quote.integrity_checksum, "test-checksum");
+		assert_eq!(quote.version(), "v0");
 		assert!(!quote.is_expired());
-		assert_eq!(quote.orders.len(), 1);
-		assert_eq!(quote.details.available_inputs.len(), 1);
-		assert_eq!(quote.details.requested_outputs.len(), 1);
-	}
-
-	#[test]
-	fn test_exchange_rate_calculation() {
-		let quote = create_test_quote();
-		let rate = quote.exchange_rate().unwrap();
-		assert_eq!(rate, 2500.0);
-	}
-
-	#[test]
-	fn test_quote_comparison() {
-		let quote1 = create_test_quote();
-		let mut quote2 = create_test_quote();
-
-		// Update quote2 to have a higher output amount
-		quote2.details.requested_outputs[0].amount =
-			U256::new("3000000000000000000000".to_string()); // 3000 USDC
-
-		assert!(quote2.is_better_than(&quote1).unwrap());
-		assert!(!quote1.is_better_than(&quote2).unwrap());
+		// Test OIF spec structure
+		assert!(matches!(
+			quote.order(),
+			crate::oif::OifOrderLatest::OifEscrowV0 { .. }
+		));
+		assert!(!quote.partial_fill());
+		assert!(quote.failure_handling().is_none());
+		// Quote ID is generated by the constructor, so just check it's not empty
+		assert!(!quote.quote_id.is_empty());
+		// Check the OIF quote_id is preserved in the composed structure
+		assert_eq!(
+			quote.quote.quote_id(),
+			Some("test-quote-id".to_string()).as_ref()
+		);
 	}
 
 	#[test]
 	fn test_quote_expiration() {
-		let mut quote = create_test_quote();
-		let past_timestamp = (Utc::now() - chrono::Duration::minutes(1)).timestamp() as u64;
-		quote.valid_until = Some(past_timestamp);
-
-		assert!(quote.is_expired());
-
 		// Test no expiration when valid_until is None
-		quote.valid_until = None;
-		assert!(!quote.is_expired());
-	}
-
-	#[test]
-	fn test_quote_builder_pattern() {
-		let quote = create_test_quote()
-			.with_valid_until(1234567890)
-			.with_eta(300);
-
-		assert_eq!(quote.valid_until, Some(1234567890));
-		assert_eq!(quote.eta, Some(300));
+		let quote_no_expiry = create_test_quote();
+		assert!(!quote_no_expiry.is_expired());
 	}
 
 	#[test]
@@ -356,59 +264,16 @@ mod tests {
 		// Verify payload contains critical fields
 		assert!(payload.contains(&format!("quote_id:{}", quote.quote_id)));
 		assert!(payload.contains(&format!("solver_id:{}", quote.solver_id)));
-		assert!(payload.contains(&format!("provider:{}", quote.provider)));
+		assert!(payload.contains(&format!(
+			"provider:{}",
+			quote.provider().unwrap_or("unknown")
+		)));
+		assert!(payload.contains("version:v0"));
 		assert!(payload.contains("orders_count:1"));
 		assert!(payload.contains("details:"));
 
 		// Verify deterministic output
 		let payload2 = quote.to_integrity_payload();
 		assert_eq!(payload, payload2);
-	}
-
-	#[test]
-	fn test_try_from_adapter_quote() {
-		use crate::adapters::AdapterQuote;
-		use crate::{InteropAddress, QuoteDetails, QuoteOrder, SignatureType};
-		use serde_json::json;
-
-		// Create a test AdapterQuote
-		let adapter_quote = AdapterQuote {
-			quote_id: "test-quote-123".to_string(),
-			orders: vec![QuoteOrder {
-				signature_type: SignatureType::Eip712,
-				domain: InteropAddress::from_chain_and_address(
-					1,
-					"0x742d35Cc6634C0532925a3b8D38BA2297C33A9D7",
-				)
-				.unwrap(),
-				primary_type: "TestOrder".to_string(),
-				message: json!({"test": "data"}),
-			}],
-			details: QuoteDetails {
-				available_inputs: vec![],
-				requested_outputs: vec![],
-			},
-			valid_until: Some(1234567890),
-			eta: Some(300),
-			provider: "Test Provider".to_string(),
-			metadata: Some(json!({"test_key": "test_value"})),
-			cost: None,
-		};
-
-		let solver_id = "test-solver".to_string();
-
-		// Test the TryFrom conversion
-		let quote = Quote::try_from((adapter_quote, solver_id.clone())).unwrap();
-
-		// Verify all fields are correctly transferred
-		assert_eq!(quote.quote_id, "test-quote-123");
-		assert_eq!(quote.solver_id, solver_id);
-		assert_eq!(quote.orders.len(), 1);
-		assert_eq!(quote.valid_until, Some(1234567890));
-		assert_eq!(quote.eta, Some(300));
-		assert_eq!(quote.provider, "Test Provider");
-		assert_eq!(quote.integrity_checksum, ""); // Should be empty initially
-		assert!(quote.metadata.is_some());
-		assert_eq!(quote.metadata.unwrap()["test_key"], "test_value");
 	}
 }

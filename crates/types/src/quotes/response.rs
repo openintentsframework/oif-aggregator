@@ -8,7 +8,6 @@ use serde_json::json;
 use utoipa::ToSchema;
 
 use crate::quotes::request::SolverSelection;
-use crate::{QuoteDetails, QuoteOrder};
 
 use super::{Quote, QuoteError, QuoteResult};
 
@@ -41,61 +40,65 @@ pub struct AggregationMetadata {
 	pub solver_selection_mode: SolverSelection,
 }
 
-/// Response format for individual quotes in the API
+/// Response format for individual quotes in the API - closely matches OIF Quote response
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[cfg_attr(feature = "openapi", schema(example = json!({
     "quoteId": "6a22e92f-3e5d-4f05-ab5f-007b01e58b21",
     "solverId": "example-solver",
-    "orders": [
-        {
+    "order": {
+        "type": "oif-escrow-v0",
+        "payload": {
             "signatureType": "eip712",
-            "domain": "0x01000002147a69000000000022d473030f116ddee9f6b43ac78ba3",
-            "primaryType": "PermitBatchWitnessTransferFrom",
+            "domain": {
+                "name": "TestDomain",
+                "version": "1",
+                "chainId": 1
+            },
+            "primaryType": "Order",
             "message": {
-                "digest": "0xdfbfeb9aed6340d513ef52f716cef5b50b677118d364c8448bff1c9ea9fd0b14",
-                "deadline": "1756457492",
-                "nonce": "1756457192541"
-            }
-        }
-    ],
-    "details": {
-        "requestedOutputs": [
-            {
-                "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
-                "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
+                "user": "0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0",
                 "amount": "1000000000000000000"
             }
-        ]
+        }
     },
     "validUntil": 1756457492,
     "eta": 30,
     "provider": "Example Solver v1.0",
-    "integrityChecksum": "hmac-sha256:a1b2c3d4e5f6..."
+    "failureHandling": "refund-automatic",
+    "partialFill": false,
+    "integrityChecksum": "hmac-sha256:a1b2c3d4e5f6...",
+    "oifMetadata": {"provider": "data"},
+    "metadata": {"aggregator": "metadata"}
 })))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QuoteResponse {
-	/// Unique identifier for the quote
+	/// Unique identifier for the quote (always present in aggregator responses)
 	pub quote_id: String,
-	/// ID of the solver that provided this quote
+	/// ID of the solver that provided this quote (aggregator-specific)
 	pub solver_id: String,
-	/// Array of EIP-712 compliant orders
-	pub orders: Vec<QuoteOrder>,
-	/// Quote details matching request structure
-	pub details: QuoteDetails,
-	/// Quote validity timestamp
+	/// Order from OIF specification (uses latest version)
+	pub order: crate::oif::OifOrderLatest,
+	/// Quote validity timestamp (from OIF)
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub valid_until: Option<u64>,
-	/// Estimated time to completion in seconds
+	/// Estimated time to completion in seconds (from OIF)
+	#[serde(skip_serializing_if = "Option::is_none")]
 	pub eta: Option<u64>,
-	/// Provider identifier
-	pub provider: String,
-	/// HMAC-SHA256 integrity checksum for quote verification
-	/// This ensures the quote originated from the aggregator service
+	/// Provider identifier (from OIF)
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub provider: Option<String>,
+	/// Failure handling policy for execution (from OIF)
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub failure_handling: Option<crate::oif::common::FailureHandlingMode>,
+	/// Whether the quote supports partial fill (from OIF)
+	pub partial_fill: bool,
+	/// HMAC-SHA256 integrity checksum for quote verification (aggregator-specific)
 	pub integrity_checksum: String,
-
-	/// Adapter-specific metadata for additional context and execution details
-	/// This field allows each adapter to include protocol-specific information
-	/// that consumers might need for order execution or additional context
+	/// Metadata from the OIF quote (provider-specific)
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub oif_metadata: Option<serde_json::Value>,
+	/// Aggregator-specific metadata for additional context and execution details
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub metadata: Option<serde_json::Value>,
 }
@@ -150,7 +153,9 @@ pub struct QuoteResponse {
 })))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QuotesResponse {
+	/// List of quotes
 	pub quotes: Vec<QuoteResponse>,
+	/// Total number of quotes
 	pub total_quotes: usize,
 	/// Optional metadata about the aggregation process
 	#[serde(skip_serializing_if = "Option::is_none")]
@@ -212,12 +217,14 @@ impl TryFrom<Quote> for QuoteResponse {
 		Ok(Self {
 			quote_id: quote.quote_id,
 			solver_id: quote.solver_id,
-			orders: quote.orders,
-			details: quote.details,
-			valid_until: quote.valid_until,
-			eta: quote.eta,
-			provider: quote.provider,
+			order: quote.quote.order().clone(),
+			valid_until: quote.quote.valid_until(),
+			eta: quote.quote.eta(),
+			provider: quote.quote.provider().cloned(),
+			failure_handling: quote.quote.failure_handling().cloned(),
+			partial_fill: quote.quote.partial_fill(),
 			integrity_checksum: quote.integrity_checksum,
+			oif_metadata: quote.quote.metadata().cloned(),
 			metadata: quote.metadata,
 		})
 	}
@@ -228,14 +235,26 @@ impl TryFrom<QuoteResponse> for Quote {
 	type Error = QuoteError;
 
 	fn try_from(response: QuoteResponse) -> Result<Self, Self::Error> {
-		Ok(Quote {
-			quote_id: response.quote_id,
-			solver_id: response.solver_id,
-			orders: response.orders,
-			details: response.details,
+		// Reconstruct the OIF quote from the flattened fields
+		let oif_quote = crate::oif::v0::Quote {
+			quote_id: Some(response.quote_id.clone()),
+			order: response.order,
 			valid_until: response.valid_until,
 			eta: response.eta,
 			provider: response.provider,
+			failure_handling: response.failure_handling,
+			partial_fill: response.partial_fill,
+			metadata: response.oif_metadata,
+			preview: crate::oif::common::QuotePreview {
+				inputs: vec![],  // Default empty inputs for backward compatibility
+				outputs: vec![], // Default empty outputs for backward compatibility
+			},
+		};
+
+		Ok(Quote {
+			quote_id: response.quote_id,
+			solver_id: response.solver_id,
+			quote: crate::oif::OifQuote::new(oif_quote),
 			integrity_checksum: response.integrity_checksum,
 			metadata: response.metadata,
 		})
@@ -244,70 +263,46 @@ impl TryFrom<QuoteResponse> for Quote {
 
 #[cfg(test)]
 mod tests {
+	use std::collections::HashMap;
+
 	use super::*;
-	use crate::quotes::Quote;
+	use crate::{quotes::Quote, OifQuote};
 
 	fn create_test_quote() -> Quote {
-		use crate::{
-			AvailableInput, InteropAddress, QuoteDetails, QuoteOrder, RequestedOutput,
-			SignatureType, U256,
+		let order = crate::oif::v0::Order::OifEscrowV0 {
+			payload: crate::oif::v0::OrderPayload {
+				signature_type: crate::oif::common::SignatureType::Eip712,
+				domain: serde_json::json!({
+					"name": "TestDomain",
+					"version": "1",
+					"chainId": 1
+				}),
+				primary_type: "Order".to_string(),
+				message: serde_json::json!({}),
+				types: HashMap::new(),
+			},
 		};
 
-		let input = AvailableInput {
-			asset: InteropAddress::from_chain_and_address(
-				1,
-				"0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-			)
-			.unwrap(),
-			amount: U256::new("1000000000000000000".to_string()),
-			user: InteropAddress::from_chain_and_address(
-				1,
-				"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0",
-			)
-			.unwrap(),
-			lock: None,
-		};
-
-		let output = RequestedOutput {
-			asset: InteropAddress::from_chain_and_address(
-				1,
-				"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0",
-			)
-			.unwrap(),
-			amount: U256::new("2500000000".to_string()),
-			receiver: InteropAddress::from_chain_and_address(
-				1,
-				"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0",
-			)
-			.unwrap(),
-			calldata: None,
-		};
-
-		let details = QuoteDetails {
-			available_inputs: vec![input],
-			requested_outputs: vec![output],
-		};
-
-		let order = QuoteOrder {
-			signature_type: SignatureType::Eip712,
-			domain: InteropAddress::from_chain_and_address(
-				1,
-				"0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0",
-			)
-			.unwrap(),
-			primary_type: "Order".to_string(),
-			message: serde_json::json!({}),
+		let oif_quote = crate::oif::v0::Quote {
+			quote_id: Some("test-oif-quote".to_string()),
+			order,
+			valid_until: None,
+			eta: None,
+			provider: Some("test-provider".to_string()),
+			failure_handling: None,
+			partial_fill: false,
+			metadata: None,
+			preview: crate::oif::common::QuotePreview {
+				inputs: vec![],
+				outputs: vec![],
+			},
 		};
 
 		Quote::new(
 			"test-solver".to_string(),
-			vec![order],
-			details,
-			"test-provider".to_string(),
+			OifQuote::new(oif_quote),
 			"test-checksum".to_string(),
 		)
-		.with_valid_until(1234567890)
-		.with_eta(300)
 	}
 
 	#[test]
@@ -315,34 +310,27 @@ mod tests {
 		let quote = create_test_quote();
 		let response = QuoteResponse::from_domain(&quote).unwrap();
 
+		// Test flattened fields
 		assert_eq!(response.quote_id, quote.quote_id);
 		assert_eq!(response.solver_id, quote.solver_id);
-		assert_eq!(response.orders, quote.orders);
-		assert_eq!(
-			response.details.available_inputs,
-			quote.details.available_inputs
-		);
-		assert_eq!(
-			response.details.requested_outputs,
-			quote.details.requested_outputs
-		);
-		assert_eq!(response.valid_until, quote.valid_until);
-		assert_eq!(response.eta, quote.eta);
-		assert_eq!(response.provider, quote.provider);
+		assert_eq!(response.order, quote.quote.order().clone());
+		assert_eq!(response.valid_until, quote.valid_until());
+		assert_eq!(response.eta, quote.eta());
+		assert_eq!(response.provider.as_deref(), quote.provider());
 		assert_eq!(response.integrity_checksum, quote.integrity_checksum);
 	}
 
 	#[test]
 	fn test_quotes_response_creation() {
 		let quote1 = create_test_quote();
-		let mut quote2 = create_test_quote();
-		// Better quote - update the first output amount
-		quote2.details.requested_outputs[0].amount = crate::U256::new("3000000000".to_string());
+		let quote2 = create_test_quote(); // TODO: Use .with_eta(200) when builder methods are re-implemented
 
 		let quotes = vec![quote1, quote2];
 		let response = QuotesResponse::from_domain_quotes(quotes).unwrap();
 
 		assert_eq!(response.total_quotes, 2);
+		assert_eq!(response.quotes.len(), 2);
+		assert!(response.metadata.is_none());
 	}
 
 	#[test]

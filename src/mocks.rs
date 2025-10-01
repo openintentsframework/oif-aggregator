@@ -8,19 +8,23 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use oif_types::chrono::Utc;
 
-use oif_types::adapters::{
-	models::{
-		AdapterQuote, AssetAmount, AvailableInput, GetOrderResponse, GetQuoteRequest,
-		GetQuoteResponse, OrderResponse, OrderStatus, QuoteDetails, QuoteOrder, RequestedOutput,
-		Settlement, SettlementType, SignatureType, SolMandateOutput, StandardOrder,
-		SubmitOrderRequest, SubmitOrderResponse,
-	},
-	traits::SolverAdapter,
-	AdapterError, AdapterResult, AdapterValidationError, SupportedAssetsData,
-};
+use oif_types::oif::common::PostOrderResponseStatus;
 use oif_types::serde_json::{json, Value};
-use oif_types::Solver;
+use oif_types::{
+	adapters::{
+		traits::SolverAdapter, AdapterError, AdapterResult, AdapterValidationError,
+		SupportedAssetsData,
+	},
+	oif::{
+		common::{AssetAmount, OrderStatus, Settlement, SettlementType},
+		v0::{GetOrderResponse, PostOrderResponse as SubmitOrderResponse},
+	},
+};
 use oif_types::{Asset, InteropAddress, SolverRuntimeConfig, U256};
+use oif_types::{
+	OifGetOrderResponse, OifGetQuoteRequest, OifGetQuoteResponse, OifPostOrderRequest,
+	OifPostOrderResponse, Solver,
+};
 
 /// Simple mock adapter for examples and testing
 #[derive(Debug, Clone)]
@@ -63,152 +67,146 @@ impl SolverAdapter for MockDemoAdapter {
 
 	async fn get_quotes(
 		&self,
-		request: &GetQuoteRequest,
+		request: &OifGetQuoteRequest,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetQuoteResponse> {
+	) -> AdapterResult<OifGetQuoteResponse> {
 		// Create mock quote based on request
 		let quote_id = format!("mock-quote-{}", Utc::now().timestamp());
 
 		// Use the input from request or provide defaults
-		let available_input = request
-			.available_inputs
-			.first()
-			.cloned()
-			.unwrap_or_else(|| AvailableInput {
-				user: InteropAddress::from_chain_and_address(
-					1,
-					"0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03",
-				)
-				.unwrap(),
-				asset: InteropAddress::from_chain_and_address(
-					1,
-					"0x0000000000000000000000000000000000000000",
-				)
-				.unwrap(),
-				amount: U256::new("1000000000000000000".to_string()),
-				lock: None,
-			});
+		let available_input =
+			request
+				.inputs()
+				.first()
+				.cloned()
+				.unwrap_or_else(|| oif_types::Input {
+					user: InteropAddress::from_chain_and_address(
+						1,
+						"0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03",
+					)
+					.unwrap(),
+					asset: InteropAddress::from_chain_and_address(
+						1,
+						"0x0000000000000000000000000000000000000000",
+					)
+					.unwrap(),
+					amount: Some(U256::new("1000000000000000000".to_string())),
+					lock: None,
+				});
 
 		// Use the output from request or provide defaults
-		let requested_output = request
-			.requested_outputs
-			.first()
-			.cloned()
-			.unwrap_or_else(|| RequestedOutput {
-				asset: InteropAddress::from_chain_and_address(
-					1,
-					"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
-				)
-				.unwrap(),
-				amount: U256::new("1000000".to_string()),
-				receiver: InteropAddress::from_chain_and_address(
-					1,
-					"0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03",
-				)
-				.unwrap(),
-				calldata: None,
-			});
+		let requested_output =
+			request
+				.outputs()
+				.first()
+				.cloned()
+				.unwrap_or_else(|| oif_types::Output {
+					asset: InteropAddress::from_chain_and_address(
+						1,
+						"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
+					)
+					.unwrap(),
+					amount: Some(U256::new("1000000".to_string())),
+					receiver: InteropAddress::from_chain_and_address(
+						1,
+						"0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03",
+					)
+					.unwrap(),
+					calldata: None,
+				});
 
-		let quote = AdapterQuote {
-			quote_id: quote_id.clone(),
-			orders: vec![QuoteOrder {
-				signature_type: SignatureType::Eip712,
-				domain: available_input.user.clone(),
-				primary_type: "Order".to_string(),
-				message: json!({
-					"orderType": "swap",
-					"inputAsset": available_input.asset.to_hex(),
-					"outputAsset": requested_output.asset.to_hex(),
-					"mockProvider": self.name
-				}),
-			}],
-			details: QuoteDetails {
-				available_inputs: vec![available_input],
-				requested_outputs: vec![requested_output],
+		let quote = oif_types::oif::v0::Quote {
+			preview: oif_types::oif::common::QuotePreview {
+				inputs: vec![],
+				outputs: vec![],
+			},
+			quote_id: Some(quote_id.clone()),
+			order: oif_types::oif::v0::Order::OifEscrowV0 {
+				payload: oif_types::oif::v0::OrderPayload {
+					signature_type: oif_types::SignatureType::Eip712,
+					domain: json!({
+						"name": "MockAdapter",
+						"version": "1",
+						"chainId": 1
+					}),
+					primary_type: "MockOrder".to_string(),
+					message: json!({
+						"orderType": "swap",
+						"inputAsset": available_input.asset.to_hex(),
+						"outputAsset": requested_output.asset.to_hex(),
+						"mockProvider": self.name
+					}),
+					types: std::collections::HashMap::new(),
+				},
 			},
 			valid_until: Some(Utc::now().timestamp() as u64 + 300),
 			eta: Some(30),
-			provider: format!("{} Provider", self.name),
-			metadata: None,
-			cost: None,
+			provider: Some(format!("{} Provider", self.name)),
+			failure_handling: None,
+			partial_fill: false,
+			metadata: Some(json!({
+				"inputs": vec![available_input],
+				"outputs": vec![requested_output],
+			})),
 		};
 
-		Ok(GetQuoteResponse {
+		let response = oif_types::GetQuoteResponse {
 			quotes: vec![quote],
-		})
+		};
+		Ok(OifGetQuoteResponse::new(response))
 	}
 
 	async fn submit_order(
 		&self,
-		_request: &SubmitOrderRequest,
+		_request: &OifPostOrderRequest,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<SubmitOrderResponse> {
+	) -> AdapterResult<OifPostOrderResponse> {
 		let order_id = format!("mock-order-{}", Utc::now().timestamp());
 
-		Ok(SubmitOrderResponse {
-			status: "success".to_string(),
+		let response = SubmitOrderResponse {
+			status: PostOrderResponseStatus::Received,
 			order_id: Some(order_id.clone()),
 			message: Some("Order submitted successfully".to_string()),
-			order: StandardOrder {
-				expires: Utc::now().timestamp() as u64 + 300,
-				fill_deadline: Utc::now().timestamp() as u64 + 300,
-				input_oracle: "0x0000000000000000000000000000000000000000".to_string(),
-				inputs: vec![vec![
-					"0x0000000000000000000000000000000000000000".to_string(),
-					"0x0000000000000000000000000000000000000000".to_string(),
-				]],
-				nonce: "0x0000000000000000000000000000000000000000".to_string(),
-				origin_chain_id: "1".to_string(),
-				outputs: vec![SolMandateOutput {
-					amount: "1000000000000000000".to_string(),
-					call: "0x".to_string(),
-					chain_id: "1".to_string(),
-					context: "0x".to_string(),
-					oracle: "0x0000000000000000000000000000000000000000".to_string(),
-					recipient: "0x0000000000000000000000000000000000000000".to_string(),
-					settler: "0x0000000000000000000000000000000000000000".to_string(),
-					token: "0x0000000000000000000000000000000000000000".to_string(),
-				}],
-				user: "0x0000000000000000000000000000000000000000".to_string(),
-			},
-		})
+			order: None,
+			metadata: None,
+		};
+		Ok(OifPostOrderResponse::new(response))
 	}
 
 	async fn get_order_details(
 		&self,
 		order_id: &str,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetOrderResponse> {
-		Ok(GetOrderResponse {
-			order: OrderResponse {
-				id: order_id.to_string(),
-				quote_id: Some("mock-quote-123".to_string()),
-				status: OrderStatus::Finalized,
-				created_at: Utc::now().timestamp() as u64 - 60,
-				updated_at: Utc::now().timestamp() as u64,
-				input_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0x0000000000000000000000000000000000000000",
-					)
-					.unwrap(),
-					amount: U256::new("1000000000000000000".to_string()),
-				},
-				output_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
-					)
-					.unwrap(),
-					amount: U256::new("1000000".to_string()),
-				},
-				settlement: Settlement {
-					settlement_type: SettlementType::Escrow,
-					data: json!({"escrow_address": "0x1234567890123456789012345678901234567890"}),
-				},
-				fill_transaction: None,
+	) -> AdapterResult<OifGetOrderResponse> {
+		let response = GetOrderResponse {
+			id: order_id.to_string(),
+			status: OrderStatus::Finalized,
+			created_at: Utc::now().timestamp() as u64 - 60,
+			updated_at: Utc::now().timestamp() as u64,
+			quote_id: Some("mock-quote-123".to_string()),
+			input_amounts: vec![AssetAmount {
+				asset: InteropAddress::from_chain_and_address(
+					1,
+					"0x0000000000000000000000000000000000000000",
+				)
+				.unwrap(),
+				amount: Some(U256::new("1000000000000000000".to_string())),
+			}],
+			output_amounts: vec![AssetAmount {
+				asset: InteropAddress::from_chain_and_address(
+					1,
+					"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
+				)
+				.unwrap(),
+				amount: Some(U256::new("1000000".to_string())),
+			}],
+			settlement: Settlement {
+				settlement_type: SettlementType::Escrow,
+				data: json!({"escrow_address": "0x1234567890123456789012345678901234567890"}),
 			},
-		})
+			fill_transaction: None,
+		};
+		Ok(OifGetOrderResponse::new(response))
 	}
 
 	async fn get_supported_assets(
@@ -303,9 +301,9 @@ impl SolverAdapter for MockTestAdapter {
 
 	async fn get_quotes(
 		&self,
-		_request: &GetQuoteRequest,
+		_request: &OifGetQuoteRequest,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetQuoteResponse> {
+	) -> AdapterResult<OifGetQuoteResponse> {
 		if self.should_fail {
 			return Err(oif_types::AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {
@@ -314,14 +312,15 @@ impl SolverAdapter for MockTestAdapter {
 			));
 		}
 
-		Ok(GetQuoteResponse { quotes: vec![] })
+		let response = oif_types::GetQuoteResponse { quotes: vec![] };
+		Ok(OifGetQuoteResponse::new(response))
 	}
 
 	async fn submit_order(
 		&self,
-		_request: &SubmitOrderRequest,
+		_request: &OifPostOrderRequest,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<SubmitOrderResponse> {
+	) -> AdapterResult<OifPostOrderResponse> {
 		if self.should_fail {
 			return Err(oif_types::AdapterError::from(
 				AdapterValidationError::InvalidConfiguration {
@@ -331,70 +330,50 @@ impl SolverAdapter for MockTestAdapter {
 		}
 
 		let order_id = format!("test-order-{}", Utc::now().timestamp());
-		Ok(SubmitOrderResponse {
-			status: "success".to_string(),
+		let response = SubmitOrderResponse {
+			status: PostOrderResponseStatus::Received,
 			order_id: Some(order_id.clone()),
 			message: Some("Order submitted successfully".to_string()),
-			order: StandardOrder {
-				expires: Utc::now().timestamp() as u64 + 300,
-				fill_deadline: Utc::now().timestamp() as u64 + 300,
-				input_oracle: "0x0000000000000000000000000000000000000000".to_string(),
-				inputs: vec![vec![
-					"0x0000000000000000000000000000000000000000".to_string(),
-					"0x0000000000000000000000000000000000000000".to_string(),
-				]],
-				nonce: "0x0000000000000000000000000000000000000000".to_string(),
-				origin_chain_id: "1".to_string(),
-				outputs: vec![SolMandateOutput {
-					amount: "1000000000000000000".to_string(),
-					call: "0x".to_string(),
-					chain_id: "1".to_string(),
-					context: "0x".to_string(),
-					oracle: "0x0000000000000000000000000000000000000000".to_string(),
-					recipient: "0x0000000000000000000000000000000000000000".to_string(),
-					settler: "0x0000000000000000000000000000000000000000".to_string(),
-					token: "0x0000000000000000000000000000000000000000".to_string(),
-				}],
-				user: "0x0000000000000000000000000000000000000000".to_string(),
-			},
-		})
+			order: None,
+			metadata: None,
+		};
+		Ok(OifPostOrderResponse::new(response))
 	}
 
 	async fn get_order_details(
 		&self,
 		order_id: &str,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetOrderResponse> {
-		Ok(GetOrderResponse {
-			order: OrderResponse {
-				id: order_id.to_string(),
-				quote_id: None,
-				status: OrderStatus::Created,
-				created_at: Utc::now().timestamp() as u64,
-				updated_at: Utc::now().timestamp() as u64,
-				input_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0x0000000000000000000000000000000000000000",
-					)
-					.unwrap(),
-					amount: U256::new("0".to_string()),
-				},
-				output_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0x0000000000000000000000000000000000000000",
-					)
-					.unwrap(),
-					amount: U256::new("0".to_string()),
-				},
-				settlement: Settlement {
-					settlement_type: SettlementType::Escrow,
-					data: json!({}),
-				},
-				fill_transaction: None,
+	) -> AdapterResult<OifGetOrderResponse> {
+		let response = GetOrderResponse {
+			id: order_id.to_string(),
+			status: OrderStatus::Created,
+			created_at: Utc::now().timestamp() as u64,
+			updated_at: Utc::now().timestamp() as u64,
+			quote_id: None,
+			input_amounts: vec![AssetAmount {
+				asset: InteropAddress::from_chain_and_address(
+					1,
+					"0x0000000000000000000000000000000000000000",
+				)
+				.unwrap(),
+				amount: Some(U256::new("0".to_string())),
+			}],
+			output_amounts: vec![AssetAmount {
+				asset: InteropAddress::from_chain_and_address(
+					1,
+					"0x0000000000000000000000000000000000000000",
+				)
+				.unwrap(),
+				amount: Some(U256::new("0".to_string())),
+			}],
+			settlement: Settlement {
+				settlement_type: SettlementType::Escrow,
+				data: json!({}),
 			},
-		})
+			fill_transaction: None,
+		};
+		Ok(OifGetOrderResponse::new(response))
 	}
 
 	async fn get_supported_assets(

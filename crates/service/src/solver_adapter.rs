@@ -11,9 +11,11 @@ use async_trait::async_trait;
 use chrono::Utc;
 use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;
-use oif_types::adapters::models::{SubmitOrderRequest, SubmitOrderResponse};
-use oif_types::adapters::{GetOrderResponse, GetQuoteResponse};
-use oif_types::{GetQuoteRequest, Solver, SolverAdapter, SolverRuntimeConfig};
+use oif_types::{
+	OifGetOrderResponse, OifGetQuoteRequest, OifGetQuoteResponse, OifPostOrderRequest,
+	OifPostOrderResponse,
+};
+use oif_types::{Solver, SolverAdapter, SolverRuntimeConfig};
 use regex::Regex;
 use thiserror::Error;
 
@@ -84,20 +86,20 @@ pub trait SolverAdapterTrait: Send + Sync {
 	/// Get quotes from this solver (automatically collects metrics if JobScheduler available)
 	async fn get_quotes(
 		&self,
-		request: &GetQuoteRequest,
-	) -> Result<GetQuoteResponse, SolverAdapterError>;
+		request: &OifGetQuoteRequest,
+	) -> Result<OifGetQuoteResponse, SolverAdapterError>;
 
 	/// Submit an order to this solver (automatically collects metrics if JobScheduler available)
 	async fn submit_order(
 		&self,
-		request: &SubmitOrderRequest,
-	) -> Result<SubmitOrderResponse, SolverAdapterError>;
+		request: &OifPostOrderRequest,
+	) -> Result<OifPostOrderResponse, SolverAdapterError>;
 
 	/// Get order details from this solver (automatically collects metrics if JobScheduler available)
 	async fn get_order_details(
 		&self,
 		order_id: &str,
-	) -> Result<GetOrderResponse, SolverAdapterError>;
+	) -> Result<OifGetOrderResponse, SolverAdapterError>;
 
 	/// Perform health check on this solver (automatically collects metrics if JobScheduler available)
 	async fn health_check(&self) -> Result<bool, SolverAdapterError>;
@@ -364,8 +366,8 @@ impl SolverAdapterTrait for SolverAdapterService {
 	/// Get quotes from this solver (automatically collects metrics if JobScheduler available)
 	async fn get_quotes(
 		&self,
-		request: &GetQuoteRequest,
-	) -> Result<GetQuoteResponse, SolverAdapterError> {
+		request: &OifGetQuoteRequest,
+	) -> Result<OifGetQuoteResponse, SolverAdapterError> {
 		self.execute_with_metrics("get_quotes", || async {
 			let adapter = self.get_adapter();
 			adapter
@@ -379,8 +381,8 @@ impl SolverAdapterTrait for SolverAdapterService {
 	/// Submit an order to this solver (automatically collects metrics if JobScheduler available)
 	async fn submit_order(
 		&self,
-		request: &SubmitOrderRequest,
-	) -> Result<SubmitOrderResponse, SolverAdapterError> {
+		request: &OifPostOrderRequest,
+	) -> Result<OifPostOrderResponse, SolverAdapterError> {
 		self.execute_with_metrics("submit_order", || async {
 			let adapter = self.get_adapter();
 			adapter
@@ -395,7 +397,7 @@ impl SolverAdapterTrait for SolverAdapterService {
 	async fn get_order_details(
 		&self,
 		order_id: &str,
-	) -> Result<GetOrderResponse, SolverAdapterError> {
+	) -> Result<OifGetOrderResponse, SolverAdapterError> {
 		self.execute_with_metrics("get_order_details", || async {
 			let adapter = self.get_adapter();
 			adapter

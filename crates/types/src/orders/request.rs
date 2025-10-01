@@ -57,3 +57,39 @@ pub struct OrderRequest {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub metadata: Option<serde_json::Value>,
 }
+
+impl TryFrom<&OrderRequest> for crate::oif::OifPostOrderRequest {
+	type Error = crate::orders::OrderValidationError;
+
+	/// Convert from OrderRequest to OifPostOrderRequest using proper error handling
+	///
+	/// This conversion validates the order request and extracts the OIF-compliant request
+	/// that adapters expect, providing better error handling than manual construction.
+	fn try_from(request: &OrderRequest) -> Result<Self, Self::Error> {
+		// Validate that signature is not empty
+		if request.signature.is_empty() {
+			return Err(crate::orders::OrderValidationError::InvalidSignature {
+				reason: "Signature is required".to_string(),
+			});
+		}
+
+		// Validate that quote_id is not empty
+		if request.quote_response.quote_id.is_empty() {
+			return Err(crate::orders::OrderValidationError::InvalidQuoteId {
+				quote_id: "".to_string(),
+			});
+		}
+
+		// Create the latest version PostOrderRequest
+		let post_order_request = crate::oif::OifPostOrderRequestLatest {
+			order: request.quote_response.order.clone(),
+			signature: request.signature.clone(),
+			quote_id: Some(request.quote_response.quote_id.clone()),
+			origin_submission: None, // Not provided in OrderRequest
+			metadata: request.metadata.clone(),
+		};
+
+		// Wrap in version-agnostic wrapper
+		Ok(crate::oif::OifPostOrderRequest::new(post_order_request))
+	}
+}

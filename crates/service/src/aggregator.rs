@@ -123,7 +123,9 @@ use oif_types::quotes::errors::QuoteValidationError;
 use oif_types::quotes::request::{SolverOptions, SolverSelection};
 use oif_types::quotes::response::AggregationMetadata;
 use oif_types::ErrorType;
-use oif_types::{GetQuoteRequest, IntegrityPayload, Quote, QuotePreference, QuoteRequest, Solver};
+use oif_types::{
+	IntegrityPayload, OifGetQuoteRequest, Quote, QuotePreference, QuoteRequest, Solver,
+};
 
 use std::sync::Arc;
 use tokio::sync::{broadcast, mpsc, Semaphore};
@@ -516,12 +518,10 @@ impl TaskExecutorTrait for TaskExecutor {
 			SolverAdapterError::Adapter(format!("Failed to create solver adapter service: {}", e))
 		})?;
 
-		let get_quote_request = GetQuoteRequest::try_from(request.clone()).map_err(|e| {
-			SolverAdapterError::Adapter(format!("Failed to convert QuoteRequest: {}", e))
-		})?;
-
-		// Execute request with timeout and cancellation
-		let solver_future = solver_adapter.get_quotes(&get_quote_request);
+		// Convert request to OIF format with proper error handling
+		let oif_request = OifGetQuoteRequest::try_from(request)
+			.map_err(|e| SolverAdapterError::Adapter(format!("Invalid quote request: {}", e)))?;
+		let solver_future = solver_adapter.get_quotes(&oif_request);
 		let solver_timeout_duration = Duration::from_millis(timeout_ms);
 
 		let response = tokio::select! {
@@ -548,15 +548,20 @@ impl TaskExecutorTrait for TaskExecutor {
 		// Process quotes and generate integrity checksums
 		let mut domain_quotes = Vec::new();
 
-		for adapter_quote in response.quotes {
-			let quote_id = adapter_quote.quote_id.clone(); // Store for error logging
-			let mut domain_quote = Quote::try_from((adapter_quote, solver.solver_id.clone()))
-				.map_err(|e| {
-					SolverAdapterError::Adapter(format!(
-						"Failed to convert AdapterQuote to Quote: {}",
-						e
-					))
-				})?;
+		for adapter_quote in response.quotes() {
+			let quote_id = adapter_quote
+				.quote_id
+				.clone()
+				.unwrap_or_else(|| "unknown".to_string()); // Store for error logging
+			let mut domain_quote =
+				Quote::try_from((adapter_quote.clone(), solver.solver_id.clone())).map_err(
+					|e| {
+						SolverAdapterError::Adapter(format!(
+							"Failed to convert AdapterQuote to Quote: {}",
+							e
+						))
+					},
+				)?;
 
 			let payload = domain_quote.to_integrity_payload();
 			match self
@@ -1010,6 +1015,8 @@ impl AggregatorService {
 	) -> AggregatorResult<Vec<Quote>> {
 		// Get user preference, default to Speed sorting for best user experience
 		let preference = request
+			.quote_request
+			.intent
 			.preference
 			.as_ref()
 			.unwrap_or(&QuotePreference::Speed);
@@ -1020,7 +1027,7 @@ impl AggregatorService {
 				// Sort by eta (estimated time to completion) - fastest first
 				// Quotes without eta are placed at the end
 				quotes.sort_by(|a, b| {
-					match (a.eta, b.eta) {
+					match (a.eta(), b.eta()) {
 						(Some(eta_a), Some(eta_b)) => eta_a.cmp(&eta_b), // Ascending: fastest first
 						(Some(_), None) => std::cmp::Ordering::Less,     // Quote with eta comes first
 						(None, Some(_)) => std::cmp::Ordering::Greater,  // Quote without eta goes last
@@ -1028,7 +1035,7 @@ impl AggregatorService {
 					}
 				});
 
-				let preference_source = if request.preference.is_some() {
+				let preference_source = if request.quote_request.intent.preference.is_some() {
 					"explicit"
 				} else {
 					"default"
@@ -1114,15 +1121,35 @@ impl AggregatorTrait for AggregatorService {
 mod tests {
 	//! Tests for AggregatorService focusing on core aggregation behavior.
 
+	use std::collections::HashMap;
+
 	use crate::{CircuitBreakerService, IntegrityService, SolverFilterService};
 
 	use super::*;
 	use oif_adapters::AdapterRegistry;
 	use oif_config::CircuitBreakerSettings;
 	use oif_types::{
-		constants::DEFAULT_GLOBAL_TIMEOUT_MS, AssetRoute, AvailableInput, InteropAddress,
-		QuoteDetails, QuoteRequest, RequestedOutput, SecretString, SolverAdapter, U256,
+		constants::DEFAULT_GLOBAL_TIMEOUT_MS,
+		oif::common::{PostOrderResponseStatus, QuotePreview},
+		AssetRoute, Input, InteropAddress, OifGetOrderResponse, OifGetQuoteResponse,
+		OifPostOrderRequest, OifPostOrderResponse, Output, QuoteRequest, SecretString,
+		SolverAdapter, U256,
 	};
+
+	#[cfg(test)]
+	use oif_types::oif::{
+		common::{
+			AssetAmount, FailureHandlingMode, IntentType, OrderStatus, OriginSubmission,
+			QuotePreference, Settlement, SettlementType, SignatureType, SwapType,
+		},
+		v0::{
+			self, GetOrderResponse, IntentRequest, Order, OrderPayload, PostOrderRequest,
+			PostOrderResponse,
+		},
+	};
+
+	#[cfg(test)]
+	use serde_json::json;
 
 	/// Simple mock adapter for testing success scenarios
 	#[derive(Debug, Clone)]
@@ -1180,9 +1207,9 @@ mod tests {
 
 		async fn get_quotes(
 			&self,
-			request: &oif_types::GetQuoteRequest,
+			request: &OifGetQuoteRequest,
 			_config: &oif_types::SolverRuntimeConfig,
-		) -> oif_types::AdapterResult<oif_types::GetQuoteResponse> {
+		) -> oif_types::AdapterResult<OifGetQuoteResponse> {
 			// Simulate delay if configured
 			if let Some(delay_ms) = self.delay_ms {
 				tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
@@ -1196,7 +1223,7 @@ mod tests {
 				));
 			}
 
-			use oif_types::adapters::models::*;
+			use oif_types::oif::v0::*;
 			use oif_types::serde_json::json;
 
 			// Create a realistic quote response
@@ -1206,82 +1233,90 @@ mod tests {
 				oif_types::chrono::Utc::now().timestamp()
 			);
 
-			let available_input = request
-				.available_inputs
-				.first()
-				.cloned()
-				.unwrap_or_else(|| AvailableInput {
-					user: oif_types::InteropAddress::from_chain_and_address(
-						1,
-						"0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03",
-					)
-					.unwrap(),
-					asset: oif_types::InteropAddress::from_chain_and_address(
-						1,
-						"0x0000000000000000000000000000000000000000",
-					)
-					.unwrap(),
-					amount: oif_types::U256::new("1000000000000000000".to_string()),
-					lock: None,
-				});
-
-			let requested_output =
+			let available_input =
 				request
-					.requested_outputs
+					.intent()
+					.inputs
 					.first()
 					.cloned()
-					.unwrap_or_else(|| RequestedOutput {
-						asset: oif_types::InteropAddress::from_chain_and_address(
-							1,
-							"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
-						)
-						.unwrap(),
-						amount: oif_types::U256::new("1000000".to_string()),
-						receiver: oif_types::InteropAddress::from_chain_and_address(
+					.unwrap_or_else(|| Input {
+						user: oif_types::InteropAddress::from_chain_and_address(
 							1,
 							"0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03",
 						)
 						.unwrap(),
-						calldata: None,
+						asset: oif_types::InteropAddress::from_chain_and_address(
+							1,
+							"0x0000000000000000000000000000000000000000",
+						)
+						.unwrap(),
+						amount: Some(oif_types::U256::new("1000000000000000000".to_string())),
+						lock: None,
 					});
 
-			let quote = AdapterQuote {
-				quote_id,
-				orders: vec![QuoteOrder {
-					signature_type: SignatureType::Eip712,
-					domain: oif_types::InteropAddress::from_chain_and_address(
+			let requested_output = request
+				.intent()
+				.outputs
+				.first()
+				.cloned()
+				.unwrap_or_else(|| Output {
+					asset: oif_types::InteropAddress::from_chain_and_address(
 						1,
-						"0x1234567890123456789012345678901234567890",
+						"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
 					)
 					.unwrap(),
-					primary_type: "Order".to_string(),
-					message: json!({
-						"orderType": "swap",
-						"adapter": self.id,
-						"mockProvider": "TestMockAdapter"
-					}),
-				}],
-				details: QuoteDetails {
-					available_inputs: vec![available_input],
-					requested_outputs: vec![requested_output],
+					amount: Some(oif_types::U256::new("1000000".to_string())),
+					receiver: oif_types::InteropAddress::from_chain_and_address(
+						1,
+						"0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03",
+					)
+					.unwrap(),
+					calldata: None,
+				});
+
+			let quote = Quote {
+				quote_id: Some(quote_id),
+				order: Order::OifEscrowV0 {
+					payload: OrderPayload {
+						signature_type: SignatureType::Eip712,
+						domain: json!({
+							"name": "TestOrder",
+							"version": "1",
+							"chainId": 1,
+							"verifyingContract": "0x1234567890123456789012345678901234567890"
+						}),
+						primary_type: "Order".to_string(),
+						message: json!({
+							"orderType": "swap",
+							"adapter": self.id,
+							"mockProvider": "TestMockAdapter"
+						}),
+						types: HashMap::new(),
+					},
 				},
 				valid_until: Some(oif_types::chrono::Utc::now().timestamp() as u64 + 300),
 				eta: Some(30),
-				provider: format!("{} Provider", self.id),
+				provider: Some(format!("{} Provider", self.id)),
+				failure_handling: None,
+				partial_fill: false,
 				metadata: None,
-				cost: None,
+				preview: QuotePreview {
+					inputs: vec![],
+					outputs: vec![],
+				},
 			};
 
-			Ok(oif_types::GetQuoteResponse {
+			let response = oif_types::GetQuoteResponse {
 				quotes: vec![quote],
-			})
+			};
+			Ok(OifGetQuoteResponse::new(response))
 		}
 
 		async fn submit_order(
 			&self,
-			_request: &oif_types::adapters::models::SubmitOrderRequest,
+			_request: &OifPostOrderRequest,
 			_config: &oif_types::SolverRuntimeConfig,
-		) -> oif_types::AdapterResult<oif_types::adapters::models::SubmitOrderResponse> {
+		) -> oif_types::AdapterResult<OifPostOrderResponse> {
 			// Simulate delay if configured
 			if let Some(delay_ms) = self.delay_ms {
 				tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
@@ -1300,28 +1335,21 @@ mod tests {
 				self.id,
 				oif_types::chrono::Utc::now().timestamp()
 			);
-			Ok(oif_types::adapters::models::SubmitOrderResponse {
-				status: "success".to_string(),
+			let response = PostOrderResponse {
 				order_id: Some(order_id.clone()),
-				order: oif_types::adapters::models::StandardOrder {
-					expires: oif_types::chrono::Utc::now().timestamp() as u64,
-					fill_deadline: oif_types::chrono::Utc::now().timestamp() as u64,
-					input_oracle: "0x0000000000000000000000000000000000000000".to_string(),
-					inputs: vec![],
-					nonce: "0".to_string(),
-					origin_chain_id: "1".to_string(),
-					outputs: vec![],
-					user: "0x0000000000000000000000000000000000000000".to_string(),
-				},
+				status: PostOrderResponseStatus::Received,
 				message: Some("Order submitted successfully".to_string()),
-			})
+				order: None, // Order details can be retrieved later with get_order_details
+				metadata: None,
+			};
+			Ok(OifPostOrderResponse::new(response))
 		}
 
 		async fn get_order_details(
 			&self,
 			order_id: &str,
 			_config: &oif_types::SolverRuntimeConfig,
-		) -> oif_types::AdapterResult<oif_types::adapters::GetOrderResponse> {
+		) -> oif_types::AdapterResult<OifGetOrderResponse> {
 			// Simulate delay if configured
 			if let Some(delay_ms) = self.delay_ms {
 				tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
@@ -1335,39 +1363,35 @@ mod tests {
 				));
 			}
 
-			use oif_types::adapters::models::*;
-			use oif_types::serde_json::json;
-
-			Ok(oif_types::adapters::GetOrderResponse {
-				order: OrderResponse {
-					id: order_id.to_string(),
-					quote_id: None,
-					status: OrderStatus::Finalized,
-					created_at: oif_types::chrono::Utc::now().timestamp() as u64,
-					updated_at: oif_types::chrono::Utc::now().timestamp() as u64,
-					input_amount: AssetAmount {
-						asset: oif_types::InteropAddress::from_chain_and_address(
-							1,
-							"0x0000000000000000000000000000000000000000",
-						)
-						.unwrap(),
-						amount: oif_types::U256::new("1000000000000000000".to_string()),
-					},
-					output_amount: AssetAmount {
-						asset: oif_types::InteropAddress::from_chain_and_address(
-							1,
-							"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
-						)
-						.unwrap(),
-						amount: oif_types::U256::new("1000000".to_string()),
-					},
-					settlement: Settlement {
-						settlement_type: SettlementType::Escrow,
-						data: json!({}),
-					},
-					fill_transaction: None,
+			let response = GetOrderResponse {
+				id: order_id.to_string(),
+				status: OrderStatus::Finalized,
+				created_at: oif_types::chrono::Utc::now().timestamp() as u64,
+				updated_at: oif_types::chrono::Utc::now().timestamp() as u64,
+				quote_id: None,
+				input_amounts: vec![AssetAmount {
+					asset: oif_types::InteropAddress::from_chain_and_address(
+						1,
+						"0x0000000000000000000000000000000000000000",
+					)
+					.unwrap(),
+					amount: Some(oif_types::U256::new("1000000000000000000".to_string())),
+				}],
+				output_amounts: vec![AssetAmount {
+					asset: oif_types::InteropAddress::from_chain_and_address(
+						1,
+						"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
+					)
+					.unwrap(),
+					amount: Some(oif_types::U256::new("1000000".to_string())),
+				}],
+				settlement: Settlement {
+					settlement_type: SettlementType::Escrow,
+					data: json!({}),
 				},
-			})
+				fill_transaction: None,
+			};
+			Ok(OifGetOrderResponse::new(response))
 		}
 
 		async fn health_check(
@@ -1464,6 +1488,31 @@ mod tests {
 						.unwrap(), // ETH on Ethereum
 						"ETH".to_string(),
 					),
+					// Add USDC on Ethereum to USDC on Optimism route for compatibility with test requests
+					AssetRoute::with_symbols(
+						InteropAddress::from_text(
+							"eip155:1:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+						)
+						.unwrap(), // USDC on Ethereum
+						"USDC".to_string(),
+						InteropAddress::from_text(
+							"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+						)
+						.unwrap(), // USDC on Optimism
+						"USDC".to_string(),
+					),
+					AssetRoute::with_symbols(
+						InteropAddress::from_text(
+							"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+						)
+						.unwrap(), // USDC on Optimism
+						"USDC".to_string(),
+						InteropAddress::from_text(
+							"eip155:1:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+						)
+						.unwrap(), // USDC on Ethereum
+						"USDC".to_string(),
+					),
 				]);
 				solver
 			},
@@ -1499,6 +1548,31 @@ mod tests {
 						.unwrap(), // ETH on Ethereum
 						"ETH".to_string(),
 					),
+					// Add USDC on Ethereum to USDC on Optimism route for compatibility with test requests
+					AssetRoute::with_symbols(
+						InteropAddress::from_text(
+							"eip155:1:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+						)
+						.unwrap(), // USDC on Ethereum
+						"USDC".to_string(),
+						InteropAddress::from_text(
+							"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+						)
+						.unwrap(), // USDC on Optimism
+						"USDC".to_string(),
+					),
+					AssetRoute::with_symbols(
+						InteropAddress::from_text(
+							"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+						)
+						.unwrap(), // USDC on Optimism
+						"USDC".to_string(),
+						InteropAddress::from_text(
+							"eip155:1:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+						)
+						.unwrap(), // USDC on Ethereum
+						"USDC".to_string(),
+					),
 				]);
 				solver
 			},
@@ -1533,6 +1607,31 @@ mod tests {
 						)
 						.unwrap(), // ETH on Ethereum
 						"ETH".to_string(),
+					),
+					// Add USDC on Ethereum to USDC on Optimism route for compatibility with test requests
+					AssetRoute::with_symbols(
+						InteropAddress::from_text(
+							"eip155:1:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+						)
+						.unwrap(), // USDC on Ethereum
+						"USDC".to_string(),
+						InteropAddress::from_text(
+							"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+						)
+						.unwrap(), // USDC on Optimism
+						"USDC".to_string(),
+					),
+					AssetRoute::with_symbols(
+						InteropAddress::from_text(
+							"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+						)
+						.unwrap(), // USDC on Optimism
+						"USDC".to_string(),
+						InteropAddress::from_text(
+							"eip155:1:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+						)
+						.unwrap(), // USDC on Ethereum
+						"USDC".to_string(),
 					),
 				]);
 				solver
@@ -1597,6 +1696,19 @@ mod tests {
 					"USDC".to_string(),
 					InteropAddress::from_text("eip155:1:0x0000000000000000000000000000000000000000").unwrap(), // ETH on Ethereum
 					"ETH".to_string(),
+				),
+				// Add USDC on Ethereum to USDC on Optimism route for compatibility with test requests
+				AssetRoute::with_symbols(
+					InteropAddress::from_text("eip155:1:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48").unwrap(), // USDC on Ethereum
+					"USDC".to_string(),
+					InteropAddress::from_text("eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607").unwrap(), // USDC on Optimism
+					"USDC".to_string(),
+				),
+				AssetRoute::with_symbols(
+					InteropAddress::from_text("eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607").unwrap(), // USDC on Optimism
+					"USDC".to_string(),
+					InteropAddress::from_text("eip155:1:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48").unwrap(), // USDC on Ethereum
+					"USDC".to_string(),
 				),
 			]);
 
@@ -1709,6 +1821,19 @@ mod tests {
 					InteropAddress::from_text("eip155:1:0x0000000000000000000000000000000000000000").unwrap(), // ETH on Ethereum
 					"ETH".to_string(),
 				),
+				// Add USDC on Ethereum to USDC on Optimism route for compatibility with test requests
+				AssetRoute::with_symbols(
+					InteropAddress::from_text("eip155:1:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48").unwrap(), // USDC on Ethereum
+					"USDC".to_string(),
+					InteropAddress::from_text("eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607").unwrap(), // USDC on Optimism
+					"USDC".to_string(),
+				),
+				AssetRoute::with_symbols(
+					InteropAddress::from_text("eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607").unwrap(), // USDC on Optimism
+					"USDC".to_string(),
+					InteropAddress::from_text("eip155:1:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48").unwrap(), // USDC on Ethereum
+					"USDC".to_string(),
+				),
 			]);
 
 			solvers.push(solver);
@@ -1801,29 +1926,39 @@ mod tests {
 	fn create_valid_quote_request() -> QuoteRequest {
 		let user = InteropAddress::from_text("eip155:1:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
 			.unwrap();
-		let input_asset =
-			InteropAddress::from_text("eip155:1:0x0000000000000000000000000000000000000000") // ETH on Ethereum
-				.unwrap();
-		let output_asset =
-			InteropAddress::from_text("eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607") // USDC on Optimism
-				.unwrap();
-
 		QuoteRequest {
-			user: user.clone(),
-			available_inputs: vec![AvailableInput {
+			quote_request: oif_types::GetQuoteRequest {
 				user: user.clone(),
-				asset: input_asset,
-				amount: U256::from(1000u64),
-				lock: None,
-			}],
-			requested_outputs: vec![RequestedOutput {
-				receiver: user,
-				asset: output_asset,
-				amount: U256::from(500u64),
-				calldata: None,
-			}],
-			min_valid_until: None,
-			preference: None,
+				intent: IntentRequest {
+					intent_type: IntentType::OifSwap,
+					inputs: vec![Input {
+						user: user.clone(),
+						asset: InteropAddress::from_text(
+							"eip155:1:0x0000000000000000000000000000000000000000",
+						)
+						.unwrap(), // ETH
+						amount: Some(U256::new("1000000000000000000".to_string())), // 1 ETH
+						lock: None,
+					}],
+					outputs: vec![Output {
+						asset: InteropAddress::from_text(
+							"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+						)
+						.unwrap(), // USDC on Optimism
+						amount: Some(U256::new("2500000000".to_string())), // 2500 USDC
+						receiver: user.clone(),
+						calldata: None,
+					}],
+					swap_type: None,
+					min_valid_until: None,
+					preference: None,
+					origin_submission: None,
+					failure_handling: None,
+					partial_fill: None,
+					metadata: None,
+				},
+				supported_types: vec!["oif-escrow-v0".to_string()],
+			},
 			solver_options: None,
 			metadata: None,
 		}
@@ -1831,9 +1966,44 @@ mod tests {
 
 	// Helper function to create quote request with solver options
 	fn create_quote_request_with_options(options: SolverOptions) -> QuoteRequest {
-		let mut request = create_valid_quote_request();
-		request.solver_options = Some(options);
-		request
+		let user = InteropAddress::from_text("eip155:1:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
+			.unwrap();
+		QuoteRequest {
+			quote_request: oif_types::GetQuoteRequest {
+				user: user.clone(),
+				intent: IntentRequest {
+					intent_type: IntentType::OifSwap,
+					inputs: vec![Input {
+						user: user.clone(),
+						asset: InteropAddress::from_text(
+							"eip155:1:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+						)
+						.unwrap(), // USDC on Ethereum
+						amount: Some(U256::new("1000000000".to_string())), // 1000 USDC
+						lock: None,
+					}],
+					outputs: vec![Output {
+						asset: InteropAddress::from_text(
+							"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+						)
+						.unwrap(), // USDC on Optimism
+						amount: Some(U256::new("1000000000".to_string())), // 1000 USDC
+						receiver: user.clone(),
+						calldata: None,
+					}],
+					swap_type: None,
+					min_valid_until: None,
+					preference: None,
+					origin_submission: None,
+					failure_handling: None,
+					partial_fill: None,
+					metadata: None,
+				},
+				supported_types: vec!["oif-escrow-v0".to_string()],
+			},
+			solver_options: Some(options),
+			metadata: None,
+		}
 	}
 
 	#[test]
@@ -1987,11 +2157,22 @@ mod tests {
 			.unwrap();
 
 		let request = QuoteRequest {
-			user,
-			available_inputs: vec![], // Empty - should fail validation
-			requested_outputs: vec![],
-			min_valid_until: None,
-			preference: None,
+			quote_request: oif_types::GetQuoteRequest {
+				user: user.clone(),
+				intent: IntentRequest {
+					intent_type: IntentType::OifSwap,
+					inputs: vec![], // Empty - should fail validation
+					outputs: vec![],
+					swap_type: None,
+					min_valid_until: None,
+					preference: None,
+					origin_submission: None,
+					failure_handling: None,
+					partial_fill: None,
+					metadata: None,
+				},
+				supported_types: vec!["oif-escrow-v0".to_string()],
+			},
 			solver_options: None,
 			metadata: None,
 		};
@@ -2013,17 +2194,33 @@ mod tests {
 			InteropAddress::from_text("eip155:1:0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0")
 				.unwrap();
 
+		let user = InteropAddress::from_text("eip155:1:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
+			.unwrap();
 		let request = QuoteRequest {
-			user: user.clone(),
-			available_inputs: vec![AvailableInput {
+			quote_request: oif_types::GetQuoteRequest {
 				user: user.clone(),
-				asset: asset.clone(),
-				amount: U256::from(1000u64),
-				lock: None,
-			}],
-			requested_outputs: vec![], // Empty - should fail validation
-			min_valid_until: None,
-			preference: None,
+				intent: IntentRequest {
+					intent_type: IntentType::OifSwap,
+					inputs: vec![Input {
+						user: user.clone(),
+						asset: InteropAddress::from_text(
+							"eip155:1:0x0000000000000000000000000000000000000000",
+						)
+						.unwrap(), // ETH
+						amount: Some(U256::new("1000000000000000000".to_string())), // 1 ETH
+						lock: None,
+					}],
+					outputs: vec![], // Empty outputs - should fail validation
+					swap_type: None,
+					min_valid_until: None,
+					preference: None,
+					origin_submission: None,
+					failure_handling: None,
+					partial_fill: None,
+					metadata: None,
+				},
+				supported_types: vec!["oif-escrow-v0".to_string()],
+			},
 			solver_options: None,
 			metadata: None,
 		};
@@ -2269,22 +2466,41 @@ mod tests {
 			InteropAddress::from_text("eip155:1:0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0")
 				.unwrap();
 
+		let user = InteropAddress::from_text("eip155:1:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
+			.unwrap();
 		let request = QuoteRequest {
-			user: user.clone(),
-			available_inputs: vec![AvailableInput {
+			quote_request: oif_types::GetQuoteRequest {
 				user: user.clone(),
-				asset: asset.clone(),
-				amount: U256::from(0u64), // Zero amount - should fail validation
-				lock: None,
-			}],
-			requested_outputs: vec![RequestedOutput {
-				receiver: user,
-				asset,
-				amount: U256::from(500u64),
-				calldata: None,
-			}],
-			min_valid_until: None,
-			preference: None,
+				intent: IntentRequest {
+					intent_type: IntentType::OifSwap,
+					inputs: vec![Input {
+						user: user.clone(),
+						asset: InteropAddress::from_text(
+							"eip155:1:0x0000000000000000000000000000000000000000",
+						)
+						.unwrap(), // ETH
+						amount: Some(U256::new("0".to_string())), // Zero amount - should fail validation
+						lock: None,
+					}],
+					outputs: vec![Output {
+						asset: InteropAddress::from_text(
+							"eip155:137:0x2791bca1f2de4661ed88a30c99a7a9449aa84174",
+						)
+						.unwrap(), // USDC on Polygon
+						amount: Some(U256::new("2500000000".to_string())), // 2500 USDC
+						receiver: user.clone(),
+						calldata: None,
+					}],
+					swap_type: None,
+					min_valid_until: None,
+					preference: None,
+					origin_submission: None,
+					failure_handling: None,
+					partial_fill: None,
+					metadata: None,
+				},
+				supported_types: vec!["oif-escrow-v0".to_string()],
+			},
 			solver_options: None,
 			metadata: None,
 		};
@@ -2311,22 +2527,40 @@ mod tests {
 			InteropAddress::from_text("eip155:1:0x0000000000000000000000000000000000000000")
 				.unwrap();
 
+		// Create a request with a different user address to test user validation
 		let request = QuoteRequest {
-			user: invalid_user.clone(),
-			available_inputs: vec![AvailableInput {
-				user: user.clone(), // Different user in input vs request user
-				asset: asset.clone(),
-				amount: U256::from(1000u64),
-				lock: None,
-			}],
-			requested_outputs: vec![RequestedOutput {
-				receiver: user,
-				asset,
-				amount: U256::from(500u64),
-				calldata: None,
-			}],
-			min_valid_until: None,
-			preference: None,
+			quote_request: oif_types::GetQuoteRequest {
+				user: invalid_user.clone(),
+				intent: IntentRequest {
+					intent_type: IntentType::OifSwap,
+					inputs: vec![Input {
+						user: invalid_user.clone(),
+						asset: InteropAddress::from_text(
+							"eip155:1:0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0",
+						)
+						.unwrap(), // USDC
+						amount: Some(U256::new("1000000000".to_string())), // 1000 USDC
+						lock: None,
+					}],
+					outputs: vec![Output {
+						asset: InteropAddress::from_text(
+							"eip155:1:0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+						)
+						.unwrap(), // WETH
+						amount: Some(U256::new("2500000000".to_string())), // 2500 WETH (wei)
+						receiver: invalid_user.clone(),
+						calldata: None,
+					}],
+					swap_type: None,
+					min_valid_until: None,
+					preference: None,
+					origin_submission: None,
+					failure_handling: None,
+					partial_fill: None,
+					metadata: None,
+				},
+				supported_types: vec!["oif-escrow-v0".to_string()],
+			},
 			solver_options: None,
 			metadata: None,
 		};
@@ -2873,62 +3107,138 @@ mod tests {
 
 		// Create test quote details from a sample request
 		let sample_request = create_valid_quote_request();
-		let details = QuoteDetails {
-			available_inputs: sample_request.available_inputs,
-			requested_outputs: sample_request.requested_outputs,
-		};
 
 		// Create test quotes with different eta values
 		let quotes = vec![
-			Quote {
-				quote_id: "quote_3".to_string(),
-				solver_id: "solver_3".to_string(),
-				orders: vec![],
-				details: details.clone(),
-				valid_until: Some(12345),
-				eta: Some(300), // 300 seconds (slowest)
-				provider: "test_provider".to_string(),
-				integrity_checksum: "checksum_3".to_string(),
-				metadata: None,
-			},
-			Quote {
-				quote_id: "quote_1".to_string(),
-				solver_id: "solver_1".to_string(),
-				orders: vec![],
-				details: details.clone(),
-				valid_until: Some(12345),
-				eta: Some(100), // 100 seconds (fastest)
-				provider: "test_provider".to_string(),
-				integrity_checksum: "checksum_1".to_string(),
-				metadata: None,
-			},
-			Quote {
-				quote_id: "quote_no_eta".to_string(),
-				solver_id: "solver_no_eta".to_string(),
-				orders: vec![],
-				details: details.clone(),
-				valid_until: Some(12345),
-				eta: None, // No eta (should go last)
-				provider: "test_provider".to_string(),
-				integrity_checksum: "checksum_no_eta".to_string(),
-				metadata: None,
-			},
-			Quote {
-				quote_id: "quote_2".to_string(),
-				solver_id: "solver_2".to_string(),
-				orders: vec![],
-				details: details.clone(),
-				valid_until: Some(12345),
-				eta: Some(200), // 200 seconds (middle)
-				provider: "test_provider".to_string(),
-				integrity_checksum: "checksum_2".to_string(),
-				metadata: None,
-			},
+			Quote::new(
+				"solver_3".to_string(),
+				oif_types::oif::OifQuote::new(v0::Quote {
+					quote_id: Some("quote_3".to_string()),
+					order: Order::OifEscrowV0 {
+						payload: OrderPayload {
+							signature_type: SignatureType::Eip712,
+							domain: json!({
+								"name": "TestOrder",
+								"version": "1",
+								"chainId": 1,
+								"verifyingContract": "0x1234567890123456789012345678901234567890"
+							}),
+							primary_type: "Order".to_string(),
+							message: json!({}),
+							types: HashMap::new(),
+						},
+					},
+					valid_until: Some(12345),
+					eta: Some(300), // 300 seconds (slowest)
+					provider: Some("test_provider".to_string()),
+					failure_handling: None,
+					partial_fill: false,
+					metadata: None,
+					preview: QuotePreview {
+						inputs: vec![],
+						outputs: vec![],
+					},
+				}),
+				"checksum_3".to_string(),
+			),
+			Quote::new(
+				"solver_1".to_string(),
+				oif_types::oif::OifQuote::new(v0::Quote {
+					quote_id: Some("quote_1".to_string()),
+					order: Order::OifEscrowV0 {
+						payload: OrderPayload {
+							signature_type: SignatureType::Eip712,
+							domain: json!({
+								"name": "TestOrder",
+								"version": "1",
+								"chainId": 1,
+								"verifyingContract": "0x1234567890123456789012345678901234567890"
+							}),
+							primary_type: "Order".to_string(),
+							message: json!({}),
+							types: HashMap::new(),
+						},
+					},
+					valid_until: Some(12345),
+					eta: Some(100), // 100 seconds (fastest)
+					provider: Some("test_provider".to_string()),
+					failure_handling: None,
+					partial_fill: false,
+					metadata: None,
+					preview: QuotePreview {
+						inputs: vec![],
+						outputs: vec![],
+					},
+				}),
+				"checksum_1".to_string(),
+			),
+			Quote::new(
+				"solver_no_eta".to_string(),
+				oif_types::oif::OifQuote::new(v0::Quote {
+					quote_id: Some("quote_no_eta".to_string()),
+					order: Order::OifEscrowV0 {
+						payload: OrderPayload {
+							signature_type: SignatureType::Eip712,
+							domain: json!({
+								"name": "TestOrder",
+								"version": "1",
+								"chainId": 1,
+								"verifyingContract": "0x1234567890123456789012345678901234567890"
+							}),
+							primary_type: "Order".to_string(),
+							message: json!({}),
+							types: HashMap::new(),
+						},
+					},
+					valid_until: Some(12345),
+					eta: None, // No eta (should go last)
+					provider: Some("test_provider".to_string()),
+					failure_handling: None,
+					partial_fill: false,
+					metadata: None,
+					preview: QuotePreview {
+						inputs: vec![],
+						outputs: vec![],
+					},
+				}),
+				"checksum_no_eta".to_string(),
+			),
+			Quote::new(
+				"solver_2".to_string(),
+				oif_types::oif::OifQuote::new(v0::Quote {
+					quote_id: Some("quote_2".to_string()),
+					order: Order::OifEscrowV0 {
+						payload: OrderPayload {
+							signature_type: SignatureType::Eip712,
+							domain: json!({
+								"name": "TestOrder",
+								"version": "1",
+								"chainId": 1,
+								"verifyingContract": "0x1234567890123456789012345678901234567890"
+							}),
+							primary_type: "Order".to_string(),
+							message: json!({}),
+							types: HashMap::new(),
+						},
+					},
+					valid_until: Some(12345),
+					eta: Some(200), // 200 seconds (middle)
+					provider: Some("test_provider".to_string()),
+					failure_handling: None,
+					partial_fill: false,
+					metadata: None,
+					preview: QuotePreview {
+						inputs: vec![],
+						outputs: vec![],
+					},
+				}),
+				"checksum_2".to_string(),
+			),
 		];
 
 		// Create request with Speed preference
 		let mut request = create_valid_quote_request();
-		request.preference = Some(QuotePreference::Speed);
+		request.quote_request.intent.preference = Some(QuotePreference::Speed);
 
 		// Test sorting
 		let result = aggregator.sort_quotes_by_preference(quotes, &request);
@@ -2938,16 +3248,28 @@ mod tests {
 		assert_eq!(sorted_quotes.len(), 4);
 
 		// Verify order: fastest ETA first, then slower, then no ETA last
-		assert_eq!(sorted_quotes[0].quote_id, "quote_1"); // eta: 100 (fastest)
-		assert_eq!(sorted_quotes[1].quote_id, "quote_2"); // eta: 200 (middle)
-		assert_eq!(sorted_quotes[2].quote_id, "quote_3"); // eta: 300 (slowest)
-		assert_eq!(sorted_quotes[3].quote_id, "quote_no_eta"); // eta: None (last)
+		assert_eq!(
+			sorted_quotes[0].quote.quote_id(),
+			Some(&"quote_1".to_string())
+		); // eta: 100 (fastest)
+		assert_eq!(
+			sorted_quotes[1].quote.quote_id(),
+			Some(&"quote_2".to_string())
+		); // eta: 200 (middle)
+		assert_eq!(
+			sorted_quotes[2].quote.quote_id(),
+			Some(&"quote_3".to_string())
+		); // eta: 300 (slowest)
+		assert_eq!(
+			sorted_quotes[3].quote.quote_id(),
+			Some(&"quote_no_eta".to_string())
+		); // eta: None (last)
 
 		// Verify eta values are correct
-		assert_eq!(sorted_quotes[0].eta, Some(100));
-		assert_eq!(sorted_quotes[1].eta, Some(200));
-		assert_eq!(sorted_quotes[2].eta, Some(300));
-		assert_eq!(sorted_quotes[3].eta, None);
+		assert_eq!(sorted_quotes[0].eta(), Some(100));
+		assert_eq!(sorted_quotes[1].eta(), Some(200));
+		assert_eq!(sorted_quotes[2].eta(), Some(300));
+		assert_eq!(sorted_quotes[3].eta(), None);
 	}
 
 	#[tokio::test]
@@ -2957,35 +3279,71 @@ mod tests {
 
 		// Create test quote details from a sample request
 		let sample_request = create_valid_quote_request();
-		let details = QuoteDetails {
-			available_inputs: sample_request.available_inputs,
-			requested_outputs: sample_request.requested_outputs,
-		};
 
 		// Create test quotes with different eta values in non-optimal order
 		let quotes = vec![
-			Quote {
-				quote_id: "quote_slow".to_string(),
-				solver_id: "solver_slow".to_string(),
-				orders: vec![],
-				details: details.clone(),
-				valid_until: Some(12345),
-				eta: Some(500), // Slow (should be last)
-				provider: "test_provider".to_string(),
-				integrity_checksum: "checksum_slow".to_string(),
-				metadata: None,
-			},
-			Quote {
-				quote_id: "quote_fast".to_string(),
-				solver_id: "solver_fast".to_string(),
-				orders: vec![],
-				details: details.clone(),
-				valid_until: Some(12345),
-				eta: Some(50), // Fast (should be first)
-				provider: "test_provider".to_string(),
-				integrity_checksum: "checksum_fast".to_string(),
-				metadata: None,
-			},
+			Quote::new(
+				"solver_slow".to_string(),
+				oif_types::oif::OifQuote::new(v0::Quote {
+					quote_id: Some("quote_slow".to_string()),
+					order: Order::OifEscrowV0 {
+						payload: OrderPayload {
+							signature_type: SignatureType::Eip712,
+							domain: json!({
+								"name": "TestOrder",
+								"version": "1",
+								"chainId": 1,
+								"verifyingContract": "0x1234567890123456789012345678901234567890"
+							}),
+							primary_type: "Order".to_string(),
+							message: json!({}),
+							types: HashMap::new(),
+						},
+					},
+					valid_until: Some(12345),
+					eta: Some(500), // Slow (should be last)
+					provider: Some("test_provider".to_string()),
+					failure_handling: None,
+					partial_fill: false,
+					metadata: None,
+					preview: QuotePreview {
+						inputs: vec![],
+						outputs: vec![],
+					},
+				}),
+				"checksum_slow".to_string(),
+			),
+			Quote::new(
+				"solver_fast".to_string(),
+				oif_types::oif::OifQuote::new(v0::Quote {
+					quote_id: Some("quote_fast".to_string()),
+					order: Order::OifEscrowV0 {
+						payload: OrderPayload {
+							signature_type: SignatureType::Eip712,
+							domain: json!({
+								"name": "TestOrder",
+								"version": "1",
+								"chainId": 1,
+								"verifyingContract": "0x1234567890123456789012345678901234567890"
+							}),
+							primary_type: "Order".to_string(),
+							message: json!({}),
+							types: HashMap::new(),
+						},
+					},
+					valid_until: Some(12345),
+					eta: Some(50), // Fast (should be first)
+					provider: Some("test_provider".to_string()),
+					failure_handling: None,
+					partial_fill: false,
+					metadata: None,
+					preview: QuotePreview {
+						inputs: vec![],
+						outputs: vec![],
+					},
+				}),
+				"checksum_fast".to_string(),
+			),
 		];
 
 		// Create request with no preference (should default to Speed sorting)
@@ -2999,12 +3357,18 @@ mod tests {
 		assert_eq!(sorted_quotes.len(), 2);
 
 		// Order should be sorted by eta: fastest first
-		assert_eq!(sorted_quotes[0].quote_id, "quote_fast"); // eta: 50 (fastest first)
-		assert_eq!(sorted_quotes[1].quote_id, "quote_slow"); // eta: 500 (slowest last)
+		assert_eq!(
+			sorted_quotes[0].quote.quote_id(),
+			Some(&"quote_fast".to_string())
+		); // eta: 50 (fastest first)
+		assert_eq!(
+			sorted_quotes[1].quote.quote_id(),
+			Some(&"quote_slow".to_string())
+		); // eta: 500 (slowest last)
 
 		// Verify eta values are in correct order
-		assert_eq!(sorted_quotes[0].eta, Some(50));
-		assert_eq!(sorted_quotes[1].eta, Some(500));
+		assert_eq!(sorted_quotes[0].eta(), Some(50));
+		assert_eq!(sorted_quotes[1].eta(), Some(500));
 	}
 
 	// ========================================================================================
@@ -3239,7 +3603,6 @@ mod tests {
 			.times(2);
 
 		// Only expect recording for the successful solver (the one that was allowed and succeeded)
-		// Note: Recording is now handled by metrics handler, no longer by aggregator
 
 		let aggregator =
 			create_test_aggregator_with_circuit_breaker(2, Arc::new(mock_circuit_breaker)).await;
@@ -3298,7 +3661,6 @@ mod tests {
 			.times(3);
 
 		// Expect result recording, but early termination might cancel some requests
-		// Note: Recording is now handled by metrics handler, no longer by aggregator
 
 		let aggregator =
 			create_test_aggregator_with_circuit_breaker(3, Arc::new(mock_circuit_breaker)).await;
@@ -3352,7 +3714,6 @@ mod tests {
 			.times(5); // All 5 solvers pass circuit breaker
 
 		// Expect result recording for the sampled solvers (may be less due to sampling randomness)
-		// Note: Recording is now handled by metrics handler, no longer by aggregator
 
 		let aggregator =
 			create_test_aggregator_with_circuit_breaker(5, Arc::new(mock_circuit_breaker)).await;
@@ -3401,8 +3762,6 @@ mod tests {
 			})
 			.times(5);
 
-		// Note: Recording is now handled by metrics handler, no longer by aggregator
-
 		let aggregator =
 			create_test_aggregator_with_circuit_breaker(5, Arc::new(mock_circuit_breaker)).await;
 
@@ -3443,8 +3802,6 @@ mod tests {
 			.times(2);
 
 		// Expect recording for allowed solvers that also pass inclusion filter
-		// Note: Recording is now handled by metrics handler, no longer by aggregator
-
 		let aggregator =
 			create_test_aggregator_with_circuit_breaker(3, Arc::new(mock_circuit_breaker)).await;
 

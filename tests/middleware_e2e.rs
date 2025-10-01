@@ -7,6 +7,7 @@ mod mocks;
 
 use crate::mocks::{ApiFixtures, TestServer};
 use reqwest::Client;
+use serde_json::json;
 
 #[tokio::test]
 async fn test_request_id_auto_generation() {
@@ -121,7 +122,7 @@ async fn test_body_size_limit() {
 
 	// Create a large payload (> 1MB limit) using ERC-7930 format
 	let large_payload = "x".repeat(2 * 1024 * 1024); // 2MB
-	let large_request = ApiFixtures::large_quote_request_with_payload(large_payload);
+	let large_request = ApiFixtures::large_quote_request_with_payload(json!(large_payload));
 
 	let result = client
 		.post(format!("{}/v1/quotes", server.base_url))

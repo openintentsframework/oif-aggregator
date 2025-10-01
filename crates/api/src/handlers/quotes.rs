@@ -25,8 +25,8 @@ pub async fn post_quotes(
 ) -> Result<Json<QuotesResponse>, (StatusCode, Json<ErrorResponse>)> {
 	info!(
 		"Received quotes request with {} inputs and {} outputs",
-		request.available_inputs.len(),
-		request.requested_outputs.len()
+		request.quote_request.inputs().len(),
+		request.quote_request.outputs().len()
 	);
 
 	// Validate the request
@@ -43,8 +43,8 @@ pub async fn post_quotes(
 
 	info!(
 		"Processing quotes request with {} inputs and {} outputs",
-		request.available_inputs.len(),
-		request.requested_outputs.len()
+		request.quote_request.inputs().len(),
+		request.quote_request.outputs().len()
 	);
 
 	let (quotes, metadata) = match state.aggregator_service.fetch_quotes(request.clone()).await {

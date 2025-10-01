@@ -6,7 +6,6 @@ use oif_adapters::AdapterRegistry;
 use oif_aggregator::{service::IntegrityService, AggregatorBuilder};
 use oif_config::CircuitBreakerSettings;
 use oif_service::{aggregator::AggregatorService, CircuitBreakerService};
-use oif_types::orders::OrderStatus;
 
 mod mocks;
 
@@ -59,9 +58,9 @@ fn test_quote_request_creation() {
 	// Use mock quote request from fixtures
 	let request = MockEntities::quote_request();
 
-	assert_eq!(request.available_inputs.len(), 1);
-	assert_eq!(request.requested_outputs.len(), 1);
-	assert!(request.min_valid_until.is_some());
+	assert_eq!(request.quote_request.intent.inputs.len(), 1);
+	assert_eq!(request.quote_request.intent.outputs.len(), 1);
+	assert!(request.quote_request.intent.min_valid_until.is_some());
 }
 
 #[test]
@@ -70,8 +69,11 @@ fn test_order_creation() {
 	let order = MockEntities::order();
 
 	assert!(order.order_id.starts_with("test-order-"));
-	assert!(order.quote_id.is_some());
-	assert_eq!(order.status, OrderStatus::Created);
+	assert!(order.oif_quote_id().is_some());
+	assert_eq!(
+		*order.status(),
+		oif_types::oif::common::OrderStatus::Created
+	);
 }
 
 #[tokio::test]

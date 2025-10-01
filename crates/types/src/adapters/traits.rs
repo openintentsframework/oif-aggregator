@@ -1,12 +1,12 @@
 //! Core adapter traits for user implementations
 
 use super::{AdapterResult, SolverRuntimeConfig};
-use crate::adapters::{
-	models::{SubmitOrderRequest, SubmitOrderResponse},
-	AdapterError, GetOrderResponse,
+use crate::adapters::AdapterError;
+use crate::Adapter;
+use crate::{
+	models::SupportedAssetsData, OifGetOrderResponse, OifGetQuoteRequest, OifGetQuoteResponse,
+	OifPostOrderResponse,
 };
-use crate::models::SupportedAssetsData;
-use crate::{Adapter, GetQuoteRequest, GetQuoteResponse};
 use async_trait::async_trait;
 use std::fmt::Debug;
 
@@ -29,9 +29,9 @@ pub trait SolverAdapter: Send + Sync + Debug {
 	/// Adapters can choose to handle multi-input/output or process simple swaps
 	async fn get_quotes(
 		&self,
-		request: &GetQuoteRequest,
+		request: &OifGetQuoteRequest,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetQuoteResponse>;
+	) -> AdapterResult<OifGetQuoteResponse>;
 
 	/// Submit an order to the solver using runtime configuration
 	///
@@ -39,9 +39,9 @@ pub trait SolverAdapter: Send + Sync + Debug {
 	/// Override this method if your adapter supports order submission.
 	async fn submit_order(
 		&self,
-		_order: &SubmitOrderRequest,
+		_order: &crate::OifPostOrderRequest,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<SubmitOrderResponse> {
+	) -> AdapterResult<OifPostOrderResponse> {
 		Err(AdapterError::UnsupportedOperation {
 			operation: "submit_order".to_string(),
 			adapter_id: self.id().to_string(),
@@ -62,7 +62,7 @@ pub trait SolverAdapter: Send + Sync + Debug {
 		&self,
 		_order_id: &str,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetOrderResponse> {
+	) -> AdapterResult<OifGetOrderResponse> {
 		Err(AdapterError::UnsupportedOperation {
 			operation: "get_order_details".to_string(),
 			adapter_id: self.id().to_string(),

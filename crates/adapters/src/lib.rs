@@ -13,7 +13,7 @@
 //!
 //! ```rust,no_run
 //! use oif_adapters::{ClientCache, SolverAdapter, AdapterResult};
-//! use oif_types::{Adapter, SolverRuntimeConfig, GetQuoteRequest, GetQuoteResponse, SupportedAssetsData};
+//! use oif_types::{Adapter, SolverRuntimeConfig, GetQuoteRequest, OifGetQuoteResponse, SupportedAssetsData};
 //! use oif_types::adapters::{models::{SubmitOrderRequest, SubmitOrderResponse}, GetOrderResponse};
 //! use async_trait::async_trait;
 //! use std::sync::Arc;
@@ -45,7 +45,7 @@
 //! impl SolverAdapter for MyCustomAdapter {
 //!     fn adapter_info(&self) -> &Adapter { &self.config }
 //!
-//!     async fn get_quotes(&self, _request: &GetQuoteRequest, config: &SolverRuntimeConfig) -> AdapterResult<GetQuoteResponse> {
+//!     async fn get_quotes(&self, _request: &GetQuoteRequest, config: &SolverRuntimeConfig) -> AdapterResult<OifGetQuoteResponse> {
 //!         let _client = self.get_client(config)?; // ← Optimized cached client
 //!         // Your implementation here
 //!         todo!()
@@ -96,11 +96,9 @@ use std::sync::Arc;
 
 pub mod across_adapter;
 pub mod client_cache;
-pub mod lifi_adapter;
 pub mod oif_adapter;
 
 pub use across_adapter::AcrossAdapter;
-pub use lifi_adapter::LifiAdapter;
 pub use oif_adapter::OifAdapter;
 pub use oif_types::{AdapterError, AdapterResult, SolverAdapter};
 
@@ -132,11 +130,6 @@ impl AdapterRegistry {
 		// Add default OIF adapter
 		if let Ok(oif_adapter) = OifAdapter::with_default_config() {
 			let _ = registry.register(Box::new(oif_adapter));
-		}
-
-		// Add default LiFi adapter
-		if let Ok(lifi_adapter) = LifiAdapter::with_default_config() {
-			let _ = registry.register(Box::new(lifi_adapter));
 		}
 
 		// Add default Across adapter

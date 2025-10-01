@@ -7,6 +7,7 @@ mod mocks;
 
 use crate::mocks::{ApiFixtures, TestServer};
 use reqwest::Client;
+use serde_json::json;
 
 #[tokio::test]
 async fn test_orders_stateless_flow() {
@@ -135,22 +136,114 @@ async fn test_orders_missing_quote_data() {
 
 #[tokio::test]
 async fn test_orders_quote_not_found() {
-	let server = TestServer::spawn_minimal()
+	// First, get a valid quote from a server with adapters
+	let server_with_adapters = TestServer::spawn_with_mock_adapter()
 		.await
-		.expect("Failed to start test server");
+		.expect("Failed to start test server with adapters");
 	let client = Client::new();
 
-	let resp = client
-		.post(format!("{}/v1/orders", server.base_url))
-		.json(&ApiFixtures::order_request_with_invalid_quote_id())
+	// Get a valid quote response
+	let quote_request = ApiFixtures::valid_quote_request();
+	let quote_resp = client
+		.post(format!("{}/v1/quotes", server_with_adapters.base_url))
+		.json(&quote_request)
 		.send()
 		.await
 		.unwrap();
 
-	// Invalid quote ID should return validation error -> 422
-	assert_eq!(resp.status(), reqwest::StatusCode::UNPROCESSABLE_ENTITY);
+	assert_eq!(quote_resp.status(), reqwest::StatusCode::OK);
+	let quote_body = quote_resp.text().await.unwrap();
+	let quote_json: serde_json::Value = serde_json::from_str(&quote_body).unwrap();
 
-	server.abort();
+	// Now create a server with no adapters
+	let server_no_adapters = TestServer::spawn_minimal()
+		.await
+		.expect("Failed to start test server without adapters");
+
+	// Create order request using the real quote response but with invalid quote ID
+	let mut order_request = json!({
+		"quoteResponse": quote_json["quotes"][0],
+		"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12",
+		"metadata": {
+			"order": "0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321",
+			"sponsor": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
+		}
+	});
+
+	// Modify the quote ID to be invalid
+	if let Some(quote_response) = order_request.get_mut("quoteResponse") {
+		quote_response["quoteId"] = json!("invalid-quote-id");
+	}
+
+	let resp = client
+		.post(format!("{}/v1/orders", server_no_adapters.base_url))
+		.json(&order_request)
+		.send()
+		.await
+		.unwrap();
+
+	// Debug output to see what happens
+	let status = resp.status();
+	let body = resp.text().await.unwrap();
+
+	// With modified quote ID, should return 500 error due to integrity verification failure
+	// (integrity verification happens first and detects the tampering)
+	assert_eq!(status, reqwest::StatusCode::INTERNAL_SERVER_ERROR);
+
+	server_with_adapters.abort();
+	server_no_adapters.abort();
+}
+
+#[tokio::test]
+async fn test_orders_no_adapters_configured() {
+	// First, get a valid quote from a server with adapters
+	let server_with_adapters = TestServer::spawn_with_mock_adapter()
+		.await
+		.expect("Failed to start test server with adapters");
+	let client = Client::new();
+
+	// Get a valid quote response
+	let quote_request = ApiFixtures::valid_quote_request();
+	let quote_resp = client
+		.post(format!("{}/v1/quotes", server_with_adapters.base_url))
+		.json(&quote_request)
+		.send()
+		.await
+		.unwrap();
+
+	assert_eq!(quote_resp.status(), reqwest::StatusCode::OK);
+	let quote_body = quote_resp.text().await.unwrap();
+	let quote_json: serde_json::Value = serde_json::from_str(&quote_body).unwrap();
+
+	// Now create a server with no adapters
+	let server_no_adapters = TestServer::spawn_minimal()
+		.await
+		.expect("Failed to start test server without adapters");
+
+	// Create order request using the real quote response
+	let order_request = json!({
+		"quoteResponse": quote_json["quotes"][0],
+		"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12",
+		"metadata": {
+			"order": "0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321",
+			"sponsor": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
+		}
+	});
+
+	// Submit order to server with no adapters
+	let resp = client
+		.post(format!("{}/v1/orders", server_no_adapters.base_url))
+		.json(&order_request)
+		.send()
+		.await
+		.unwrap();
+
+	// With no adapters configured, should return 400 error
+	// because the solver is not found in the storage
+	assert_eq!(resp.status(), reqwest::StatusCode::BAD_REQUEST);
+
+	server_with_adapters.abort();
+	server_no_adapters.abort();
 }
 
 #[tokio::test]

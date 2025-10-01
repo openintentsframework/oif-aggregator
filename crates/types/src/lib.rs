@@ -10,10 +10,13 @@ pub mod constants;
 pub mod integrity;
 pub mod metrics;
 pub mod models;
+pub mod oif;
 pub mod orders;
 pub mod quotes;
 pub mod solvers;
 pub mod storage;
+
+pub mod test_utils;
 
 // Re-export chrono and serde_json for convenience
 pub use chrono;
@@ -37,18 +40,30 @@ pub use adapters::{
 };
 
 // Re-export shared domain models
-pub use adapters::{
-	AdapterQuote, AvailableInput, GetQuoteRequest, GetQuoteResponse, QuoteDetails, QuoteOrder,
-	QuotePreference, RequestedOutput, SettlementType, SignatureType,
-};
 pub use models::{
-	Asset, AssetRoute, AssetRouteResponse, InteropAddress, Lock, Network, SecretString,
+	Asset, AssetRoute, AssetRouteResponse, InteropAddress, Network, SecretString,
 	SupportedAssetsData, U256,
 };
 
+// Re-export common OIF models
+pub use oif::common::{
+	AssetAmount, AssetLockReference, AuthScheme, FailureHandlingMode, Input, IntentType, Lock,
+	LockKind, OifVersion, OrderStatus, OriginMode, OriginSubmission, Output, QuotePreference,
+	Settlement, SettlementType, SignatureType, SwapType,
+};
+
+// Re-export OIF v0-specific models
+pub use oif::v0::{GetQuoteRequest, GetQuoteResponse};
+
+// Re-export OIF version-agnostic wrappers
+pub use oif::{
+	OifGetOrderResponse, OifGetQuoteRequest, OifGetQuoteResponse, OifPostOrderRequest,
+	OifPostOrderResponse, OifQuote,
+};
+
 pub use orders::{
-	Order, OrderError, OrderRequest, OrderResponse, OrderStatus, OrderStorage,
-	OrderValidationError, OrderValidationResult,
+	Order, OrderError, OrderRequest, OrderResponse, OrderStorage, OrderValidationError,
+	OrderValidationResult,
 };
 
 pub use auth::{

@@ -5,8 +5,8 @@
 
 mod mocks;
 
-use crate::mocks::api_fixtures::assert_metadata_present_and_valid;
-use crate::mocks::{ApiFixtures, TestServer};
+use crate::mocks::api_fixtures::{assert_metadata_present_and_valid, ApiFixtures};
+use crate::mocks::TestServer;
 use reqwest::Client;
 
 #[tokio::test]

@@ -9,7 +9,7 @@ use serde_json::json;
 use utoipa::ToSchema;
 
 use crate::{
-	adapters::{AssetAmount, Settlement},
+	oif::common::{AssetAmount, Settlement},
 	orders::OrderResult,
 };
 
@@ -79,12 +79,14 @@ pub struct OrdersResponse {
 impl OrdersResponse {
 	/// Create response from domain order
 	pub fn from_domain(order: &Order) -> OrderResult<Self> {
+		// Convert OIF OrderStatus to domain OrderStatus for message generation
+		let domain_status = OrderStatus::from(order.status().clone());
 		Ok(Self {
 			order_id: order.order_id.clone(),
-			status: order.status.to_string(),
-			message: Self::generate_status_message(&order.status),
+			status: domain_status.to_string(),
+			message: Self::generate_status_message(&domain_status),
 			timestamp: Utc::now().timestamp(),
-			quote_id: order.quote_id.clone(),
+			quote_id: order.oif_quote_id().cloned(),
 		})
 	}
 
@@ -96,6 +98,9 @@ impl OrdersResponse {
 			OrderStatus::Settled => "Order settled".to_string(),
 			OrderStatus::Finalized => "Order finalized".to_string(),
 			OrderStatus::Failed => "Order execution failed".to_string(),
+			OrderStatus::Executing => "Order is executing".to_string(),
+			OrderStatus::Settling => "Order is settling".to_string(),
+			OrderStatus::Refunded => "Order has been refunded".to_string(),
 		}
 	}
 }
@@ -109,6 +114,9 @@ impl std::fmt::Display for OrderStatus {
 			OrderStatus::Settled => write!(f, "settled"),
 			OrderStatus::Finalized => write!(f, "finalized"),
 			OrderStatus::Failed => write!(f, "failed"),
+			OrderStatus::Executing => write!(f, "executing"),
+			OrderStatus::Settling => write!(f, "settling"),
+			OrderStatus::Refunded => write!(f, "refunded"),
 		}
 	}
 }
@@ -129,14 +137,14 @@ impl TryFrom<&Order> for OrderResponse {
 	fn try_from(order: &Order) -> Result<Self, Self::Error> {
 		Ok(OrderResponse {
 			order_id: order.order_id.clone(),
-			status: order.status.clone(),
-			quote_id: order.quote_id.clone(),
-			created_at: order.created_at,
-			updated_at: order.updated_at,
-			input_amount: order.input_amount.clone(),
-			output_amount: order.output_amount.clone(),
-			settlement: order.settlement.clone(),
-			fill_transaction: order.fill_transaction.clone(),
+			status: OrderStatus::from(order.status().clone()),
+			quote_id: order.oif_quote_id().cloned(),
+			created_at: order.created_at(),
+			updated_at: order.updated_at(),
+			input_amount: order.input_amount().clone(),
+			output_amount: order.output_amount().clone(),
+			settlement: order.settlement().clone(),
+			fill_transaction: order.fill_transaction().cloned(),
 		})
 	}
 }

@@ -3,7 +3,7 @@
 use crate::constants::limits::{
 	MAX_GLOBAL_TIMEOUT_MS, MAX_PRIORITY_THRESHOLD, MAX_SOLVER_TIMEOUT_MS, MIN_SOLVER_TIMEOUT_MS,
 };
-use crate::{models::InteropAddress, AvailableInput, QuotePreference, RequestedOutput};
+use crate::oif::OifGetQuoteRequestLatest;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "openapi")]
 #[allow(unused_imports)]
@@ -194,16 +194,8 @@ impl SolverOptions {
 })))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct QuoteRequest {
-	/// User making the request in ERC-7930 interoperable format
-	pub user: InteropAddress,
-	/// Available inputs (order significant if preference is 'input-priority')
-	pub available_inputs: Vec<AvailableInput>,
-	/// Requested outputs
-	pub requested_outputs: Vec<RequestedOutput>,
-	/// Minimum quote validity duration in seconds
-	pub min_valid_until: Option<u64>,
-	/// User preference for optimization
-	pub preference: Option<QuotePreference>,
+	#[serde(flatten)]
+	pub quote_request: OifGetQuoteRequestLatest,
 	/// Solver options
 	pub solver_options: Option<SolverOptions>,
 	/// Optional metadata for custom adapter use
@@ -231,71 +223,12 @@ impl QuoteRequest {
 	/// This ensures the request is well-formed and contains valid addresses, amounts, and configuration
 	/// before processing, preventing invalid requests from reaching the solver network.
 	pub fn validate(&self) -> QuoteValidationResult<()> {
-		// Validate we have at least one input and one output
-		if self.available_inputs.is_empty() {
-			return Err(QuoteValidationError::MissingRequiredField {
-				field: "availableInputs".to_string(),
-			});
-		}
-
-		if self.requested_outputs.is_empty() {
-			return Err(QuoteValidationError::MissingRequiredField {
-				field: "requestedOutputs".to_string(),
-			});
-		}
-
-		// Validate user address
-		self.user
+		// First validate the OIF GetQuoteRequest portion
+		self.quote_request
 			.validate()
 			.map_err(|e| QuoteValidationError::InvalidTokenAddress {
-				field: format!("user: {}", e),
+				field: format!("OIF validation failed: {}", e),
 			})?;
-
-		// Validate all available inputs
-		for (i, input) in self.available_inputs.iter().enumerate() {
-			input
-				.user
-				.validate()
-				.map_err(|e| QuoteValidationError::InvalidTokenAddress {
-					field: format!("availableInputs[{}].user: {}", i, e),
-				})?;
-			input
-				.asset
-				.validate()
-				.map_err(|e| QuoteValidationError::InvalidTokenAddress {
-					field: format!("availableInputs[{}].asset: {}", i, e),
-				})?;
-
-			if input.amount.is_zero() {
-				return Err(QuoteValidationError::InvalidAmount {
-					field: format!("availableInputs[{}].amount", i),
-					reason: "Amount must be greater than zero".to_string(),
-				});
-			}
-		}
-
-		// Validate all requested outputs
-		for (i, output) in self.requested_outputs.iter().enumerate() {
-			output
-				.receiver
-				.validate()
-				.map_err(|e| QuoteValidationError::InvalidTokenAddress {
-					field: format!("requestedOutputs[{}].receiver: {}", i, e),
-				})?;
-			output
-				.asset
-				.validate()
-				.map_err(|e| QuoteValidationError::InvalidTokenAddress {
-					field: format!("requestedOutputs[{}].asset: {}", i, e),
-				})?;
-
-			if output.amount.is_zero() {
-				return Err(QuoteValidationError::InvalidAmount {
-					field: format!("requestedOutputs[{}].amount", i),
-					reason: "Amount must be greater than zero".to_string(),
-				});
-			}
-		}
 
 		// Validate solver options if provided
 		if let Some(options) = &self.solver_options {
@@ -306,45 +239,32 @@ impl QuoteRequest {
 	}
 }
 
+impl TryFrom<&QuoteRequest> for crate::oif::OifGetQuoteRequest {
+	type Error = QuoteValidationError;
+
+	/// Convert from QuoteRequest to OifGetQuoteRequest using proper error handling
+	///
+	/// This conversion validates the request and extracts the OIF-compliant request
+	/// that adapters expect, providing better error handling than cloning.
+	fn try_from(request: &QuoteRequest) -> Result<Self, Self::Error> {
+		// Validate the request first
+		request.validate()?;
+
+		// Wrap the inner v0 request in the version-agnostic wrapper
+		Ok(crate::oif::OifGetQuoteRequest::new(
+			request.quote_request.clone(),
+		))
+	}
+}
+
 #[cfg(test)]
 mod tests {
-	use crate::U256;
-
 	use super::*;
+	use crate::test_utils::TestQuoteRequests;
+	use crate::InteropAddress;
 
 	fn create_valid_erc7930_request() -> QuoteRequest {
-		QuoteRequest {
-			user: InteropAddress::from_text("eip155:1:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
-				.unwrap(),
-			available_inputs: vec![AvailableInput {
-				user: InteropAddress::from_text(
-					"eip155:1:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-				)
-				.unwrap(),
-				asset: InteropAddress::from_text(
-					"eip155:1:0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0",
-				)
-				.unwrap(),
-				amount: U256::new("1000000000000000000".to_string()), // 1 ETH in wei
-				lock: None,
-			}],
-			requested_outputs: vec![RequestedOutput {
-				receiver: InteropAddress::from_text(
-					"eip155:1:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-				)
-				.unwrap(),
-				asset: InteropAddress::from_text(
-					"eip155:1:0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
-				)
-				.unwrap(),
-				amount: U256::new("2500000000".to_string()), // 2500 USDC
-				calldata: None,
-			}],
-			min_valid_until: Some(300), // 5 minutes
-			preference: Some(QuotePreference::Price),
-			solver_options: None,
-			metadata: None,
-		}
+		TestQuoteRequests::minimal_valid()
 	}
 
 	#[test]
@@ -355,22 +275,19 @@ mod tests {
 
 	#[test]
 	fn test_erc7930_empty_inputs() {
-		let mut request = create_valid_erc7930_request();
-		request.available_inputs.clear();
+		let request = TestQuoteRequests::empty_inputs();
 		assert!(request.validate().is_err());
 	}
 
 	#[test]
 	fn test_erc7930_empty_outputs() {
-		let mut request = create_valid_erc7930_request();
-		request.requested_outputs.clear();
+		let request = TestQuoteRequests::empty_outputs();
 		assert!(request.validate().is_err());
 	}
 
 	#[test]
 	fn test_erc7930_zero_amount() {
-		let mut request = create_valid_erc7930_request();
-		request.available_inputs[0].amount = U256::new("0".to_string());
+		let request = TestQuoteRequests::zero_amount_input();
 		assert!(request.validate().is_err());
 	}
 
