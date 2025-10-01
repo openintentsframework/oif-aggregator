@@ -30,7 +30,7 @@ async fn create_test_router_with_mock_adapters() -> Result<Router, Box<dyn std::
 		"test-secret-for-e2e-tests-12345678901234567890",
 	);
 
-	let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
+	let mock_adapter = crate::mocks::adapters::create_mock_adapter();
 	let mock_solver = oif_aggregator::mocks::mock_solver();
 
 	let mut settings = oif_config::Settings::default();

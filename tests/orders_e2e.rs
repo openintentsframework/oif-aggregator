@@ -184,7 +184,6 @@ async fn test_orders_quote_not_found() {
 
 	// Debug output to see what happens
 	let status = resp.status();
-	let body = resp.text().await.unwrap();
 
 	// With modified quote ID, should return 500 error due to integrity verification failure
 	// (integrity verification happens first and detects the tampering)

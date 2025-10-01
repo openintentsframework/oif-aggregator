@@ -5,19 +5,13 @@
 
 mod mocks;
 
-// Re-export commonly used items
-use crate::mocks::api_fixtures::{assert_metadata_present_and_valid, ApiFixtures};
-use crate::mocks::TestServer;
-use reqwest::Client;
-use serde_json::json;
-use std::time::Instant;
-
 #[cfg(test)]
 mod solver_options_e2e {
 
 	// Re-export commonly used items
 	use crate::mocks::api_fixtures::{assert_metadata_present_and_valid, ApiFixtures};
 	use crate::mocks::TestServer;
+	use oif_types::adapters::traits::SolverAdapter;
 	use reqwest::Client;
 	use serde_json::json;
 	use std::time::Instant;
@@ -1047,11 +1041,11 @@ mod solver_options_e2e {
 		// Find our adapters by their IDs
 		let fast_adapter = adapters
 			.iter()
-			.find(|a| a.adapter.adapter_id == "timing-fast")
+			.find(|a| a.adapter_info().adapter_id == "timing-fast")
 			.unwrap();
 		let slow_adapter = adapters
 			.iter()
-			.find(|a| a.adapter.adapter_id == "timing-slow")
+			.find(|a| a.adapter_info().adapter_id == "timing-slow")
 			.unwrap();
 
 		// Test: Include only fast-solver - should only call fast adapter
@@ -1177,15 +1171,15 @@ mod solver_options_e2e {
 
 		let fast_adapter = adapters
 			.iter()
-			.find(|a| a.adapter.adapter_id == "timing-fast")
+			.find(|a| a.adapter_info().adapter_id == "timing-fast")
 			.unwrap();
 		let slow_adapter = adapters
 			.iter()
-			.find(|a| a.adapter.adapter_id == "timing-slow")
+			.find(|a| a.adapter_info().adapter_id == "timing-slow")
 			.unwrap();
 		let timeout_adapter = adapters
 			.iter()
-			.find(|a| a.adapter.adapter_id == "timing-timeout")
+			.find(|a| a.adapter_info().adapter_id == "timing-timeout")
 			.unwrap();
 
 		// Test: Exclude timeout and failing solvers - should only call fast and slow
@@ -1312,11 +1306,11 @@ mod solver_options_e2e {
 
 		let fast_adapter = adapters
 			.iter()
-			.find(|a| a.adapter.adapter_id == "timing-fast")
+			.find(|a| a.adapter_info().adapter_id == "timing-fast")
 			.unwrap();
 		let slow_adapter = adapters
 			.iter()
-			.find(|a| a.adapter.adapter_id == "timing-slow")
+			.find(|a| a.adapter_info().adapter_id == "timing-slow")
 			.unwrap();
 
 		// Test: Short solver timeout (500ms) should allow fast but timeout slow
@@ -1429,7 +1423,7 @@ mod solver_options_e2e {
 
 		let fast_adapter = adapters
 			.iter()
-			.find(|a| a.adapter.adapter_id == "timing-fast")
+			.find(|a| a.adapter_info().adapter_id == "timing-fast")
 			.unwrap();
 
 		// Test: Include all but set minQuotes to 1 - should terminate early when fast responds
@@ -1541,7 +1535,7 @@ mod solver_options_e2e {
 
 		let _timeout_adapter = adapters
 			.iter()
-			.find(|a| a.adapter.adapter_id == "timing-timeout")
+			.find(|a| a.adapter_info().adapter_id == "timing-timeout")
 			.unwrap();
 
 		// Test: Short global timeout should cut off before very slow solvers respond
@@ -1641,15 +1635,15 @@ mod solver_options_e2e {
 
 		let fast_adapter = adapters
 			.iter()
-			.find(|a| a.adapter.adapter_id == "timing-fast")
+			.find(|a| a.adapter_info().adapter_id == "timing-fast")
 			.unwrap();
 		let slow_adapter = adapters
 			.iter()
-			.find(|a| a.adapter.adapter_id == "timing-slow")
+			.find(|a| a.adapter_info().adapter_id == "timing-slow")
 			.unwrap();
 		let failing_adapter = adapters
 			.iter()
-			.find(|a| a.adapter.adapter_id == "timing-failing")
+			.find(|a| a.adapter_info().adapter_id == "timing-failing")
 			.unwrap();
 
 		// Test: Complex scenario with multiple solver types
@@ -1802,11 +1796,11 @@ mod solver_options_e2e {
 
 		let fast_adapter = adapters
 			.iter()
-			.find(|a| a.adapter.adapter_id == "timing-fast")
+			.find(|a| a.adapter_info().adapter_id == "timing-fast")
 			.unwrap();
 		let slow_adapter = adapters
 			.iter()
-			.find(|a| a.adapter.adapter_id == "timing-slow")
+			.find(|a| a.adapter_info().adapter_id == "timing-slow")
 			.unwrap();
 
 		// Test multiple scenarios and verify timing behavior

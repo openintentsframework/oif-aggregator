@@ -2,6 +2,8 @@
 
 use oif_aggregator::AggregatorBuilder;
 
+mod mocks;
+
 #[tokio::test]
 async fn test_aggregator_builder_default() {
 	// Set required environment variable for tests
@@ -25,7 +27,7 @@ async fn test_aggregator_builder_with_mock_adapter() {
 		"test-secret-for-e2e-tests-12345678901234567890",
 	);
 
-	let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
+	let mock_adapter = crate::mocks::adapters::create_mock_adapter();
 	let mock_solver = oif_aggregator::mocks::mock_solver();
 
 	let result = AggregatorBuilder::default()
@@ -48,8 +50,8 @@ async fn test_aggregator_builder_with_mock_adapter() {
 
 #[tokio::test]
 async fn test_aggregator_builder_duplicate_adapter() {
-	let mock_adapter1 = oif_aggregator::mocks::MockDemoAdapter::new();
-	let mock_adapter2 = oif_aggregator::mocks::MockDemoAdapter::new(); // Same ID
+	let mock_adapter1 = crate::mocks::adapters::create_mock_adapter();
+	let mock_adapter2 = crate::mocks::adapters::create_mock_adapter(); // Same ID
 
 	// Should panic when trying to register duplicate adapter
 	let result = std::panic::catch_unwind(|| {
@@ -70,8 +72,9 @@ async fn test_aggregator_builder_multiple_adapters() {
 		"test-secret-for-e2e-tests-12345678901234567890",
 	);
 
-	let demo_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
-	let test_adapter = oif_aggregator::mocks::MockTestAdapter::new();
+	let demo_adapter = crate::mocks::adapters::create_mock_adapter();
+	let test_adapter =
+		crate::mocks::adapters::create_mock_adapter_with_config("mock-test-v1".to_string());
 
 	let demo_solver = oif_aggregator::mocks::mock_solver();
 	let mut test_solver = oif_aggregator::mocks::mock_solver();

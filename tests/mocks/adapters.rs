@@ -3,633 +3,248 @@
 //! This module provides simple, working mock adapters that can be used
 //! in examples and tests without complex dependencies.
 
+#![allow(dead_code)]
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use oif_types::adapters::models::SubmitOrderResponse;
 use oif_types::chrono::Utc;
 
-use oif_types::adapters::{
-	models::{
-		AdapterQuote, AssetAmount, AvailableInput, GetOrderResponse, GetQuoteRequest,
-		GetQuoteResponse, OrderResponse, OrderStatus, QuoteDetails, QuoteOrder, RequestedOutput,
-		Settlement, SettlementType, SignatureType, SolMandateOutput, StandardOrder,
-		SubmitOrderRequest,
+use oif_types::adapters::{traits::SolverAdapter, AdapterResult, AdapterValidationError};
+use oif_types::oif::{
+	common::{
+		AssetAmount, Input, OrderStatus, Output, PostOrderResponseStatus, Settlement,
+		SettlementType, SignatureType,
 	},
-	traits::SolverAdapter,
-	AdapterResult, AdapterValidationError,
+	v0::{
+		GetOrderResponse, GetQuoteResponse, Order, OrderPayload,
+		PostOrderResponse as SubmitOrderResponse, Quote,
+	},
 };
 use oif_types::serde_json::json;
 use oif_types::{models::AssetRoute, InteropAddress, SolverRuntimeConfig, U256};
 
-/// Simple mock adapter for examples and testing
+/// Mock adapter that combines testing features
+///
+/// This adapter provides:
+/// - Call tracking for testing
+/// - Configurable response delays for timeout testing
+/// - Failure simulation for circuit breaker testing
+/// - Asset route support for compatibility testing
+/// - OIF v0 compatibility
 #[derive(Debug, Clone)]
-pub struct MockDemoAdapter {
+pub struct MockAdapter {
 	pub adapter: oif_types::Adapter,
+	call_tracker: Arc<AtomicUsize>,
+	pub should_fail: bool,
+	pub response_delay_ms: u64,
+	pub asset_mode: AssetMode,
 }
 
-impl MockDemoAdapter {
-	/// Create a new mock demo adapter
+/// How the adapter should report its supported assets
+#[derive(Debug, Clone, PartialEq)]
+pub enum AssetMode {
+	/// Report specific asset routes
+	Routes,
+	/// Report empty asset list
+	Empty,
+	/// Report assets
+	Assets,
+}
+
+impl MockAdapter {
+	/// Create a new unified mock adapter with default settings
 	pub fn new() -> Self {
+		Self::with_config("unified-mock".to_string(), false, 0, AssetMode::Routes)
+	}
+
+	/// Create a mock adapter with custom configuration
+	pub fn with_config(
+		id: String,
+		should_fail: bool,
+		response_delay_ms: u64,
+		asset_mode: AssetMode,
+	) -> Self {
 		Self {
 			adapter: oif_types::Adapter {
-				adapter_id: "mock-demo-v1".to_string(),
-				name: "Mock Demo Adapter".to_string(),
-				description: Some("Mock Demo Adapter".to_string()),
+				adapter_id: id.clone(),
+				name: format!("{} Adapter", id),
+				description: Some(format!("Unified mock adapter: {}", id)),
 				version: "1.0.0".to_string(),
 				configuration: HashMap::new(),
 			},
+			call_tracker: Arc::new(AtomicUsize::new(0)),
+			should_fail,
+			response_delay_ms,
+			asset_mode,
 		}
 	}
 
-	/// Create a mock adapter with custom ID and name
-	#[allow(dead_code)]
-	pub fn with_config(id: String, name: String) -> Self {
-		Self {
-			adapter: oif_types::Adapter {
-				adapter_id: id,
-				name: name.clone(),
-				description: Some(name.clone()),
-				version: "1.0.0".to_string(),
-				configuration: HashMap::new(),
-			},
-		}
+	/// Create a fast-responding adapter (100ms delay)
+	pub fn fast(id: &str) -> Self {
+		Self::with_config(format!("fast-{}", id), false, 100, AssetMode::Routes)
+	}
+
+	/// Create a slow-responding adapter (1500ms delay)
+	pub fn slow(id: &str) -> Self {
+		Self::with_config(format!("slow-{}", id), false, 1500, AssetMode::Routes)
+	}
+
+	/// Create a timeout adapter (5000ms delay)
+	pub fn timeout(id: &str) -> Self {
+		Self::with_config(format!("timeout-{}", id), false, 5000, AssetMode::Routes)
+	}
+
+	/// Create a failing adapter
+	pub fn failing(id: &str) -> Self {
+		Self::with_config(format!("failing-{}", id), true, 100, AssetMode::Routes)
+	}
+
+	/// Create a success adapter (no delay, no failure)
+	pub fn success(id: &str) -> Self {
+		Self::with_config(format!("success-{}", id), false, 0, AssetMode::Routes)
+	}
+
+	/// Get the number of times this adapter has been called
+	pub fn call_count(&self) -> usize {
+		self.call_tracker.load(Ordering::Relaxed)
+	}
+
+	/// Reset the call counter
+	pub fn reset_calls(&self) {
+		self.call_tracker.store(0, Ordering::Relaxed);
 	}
 }
 
-impl Default for MockDemoAdapter {
+impl Default for MockAdapter {
 	fn default() -> Self {
 		Self::new()
 	}
 }
 
 #[async_trait]
-impl SolverAdapter for MockDemoAdapter {
+impl SolverAdapter for MockAdapter {
 	fn adapter_info(&self) -> &oif_types::Adapter {
 		&self.adapter
 	}
 
 	async fn get_quotes(
 		&self,
-		request: &GetQuoteRequest,
+		request: &oif_types::OifGetQuoteRequest,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetQuoteResponse> {
-		// Create mock quote based on request
-		let quote_id = format!("mock-quote-{}", Utc::now().timestamp());
+	) -> AdapterResult<oif_types::OifGetQuoteResponse> {
+		// Track the call
+		self.call_tracker.fetch_add(1, Ordering::Relaxed);
 
-		// Use the input from request or provide defaults
-		let available_input = request
-			.available_inputs
-			.first()
-			.cloned()
-			.unwrap_or_else(|| AvailableInput {
-				user: InteropAddress::from_chain_and_address(
-					1,
-					"0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03",
-				)
-				.unwrap(),
-				asset: InteropAddress::from_chain_and_address(
-					1,
-					"0x0000000000000000000000000000000000000000",
-				)
-				.unwrap(),
-				amount: U256::new("1000000000000000000".to_string()),
-				lock: None,
-			});
+		// Simulate processing delay
+		if self.response_delay_ms > 0 {
+			tokio::time::sleep(Duration::from_millis(self.response_delay_ms)).await;
+		}
 
-		// Use the output from request or provide defaults
-		let requested_output = request
-			.requested_outputs
-			.first()
-			.cloned()
-			.unwrap_or_else(|| RequestedOutput {
-				asset: InteropAddress::from_chain_and_address(
-					1,
-					"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
-				)
-				.unwrap(),
-				amount: U256::new("1000000".to_string()),
-				receiver: InteropAddress::from_chain_and_address(
-					1,
-					"0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03",
-				)
-				.unwrap(),
-				calldata: None,
-			});
+		// Check if this adapter should fail
+		if self.should_fail {
+			return Err(AdapterValidationError::InvalidConfiguration {
+				reason: format!("Adapter {} configured to fail", self.adapter.adapter_id),
+			}
+			.into());
+		}
 
-		let quote = AdapterQuote {
-			quote_id: quote_id.clone(),
-			orders: vec![QuoteOrder {
-				signature_type: SignatureType::Eip712,
-				domain: available_input.user.clone(),
-				primary_type: "Order".to_string(),
-				message: json!({
-					"orderType": "swap",
-					"inputAsset": available_input.asset.to_hex(),
-					"outputAsset": requested_output.asset.to_hex(),
-					"mockProvider": self.adapter.name
-				}),
-			}],
-			details: QuoteDetails {
-				available_inputs: vec![available_input],
-				requested_outputs: vec![requested_output],
+		// Get inputs and outputs from the request
+		let inputs = &request.intent().inputs;
+		let outputs = &request.intent().outputs;
+
+		let available_input = inputs.first().cloned().unwrap_or_else(|| Input {
+			user: InteropAddress::from_chain_and_address(
+				1,
+				"0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03",
+			)
+			.unwrap(),
+			asset: InteropAddress::from_chain_and_address(
+				1,
+				"0x0000000000000000000000000000000000000000",
+			)
+			.unwrap(),
+			amount: Some(U256::new("1000000000000000000".to_string())),
+			lock: None,
+		});
+
+		let requested_output = outputs.first().cloned().unwrap_or_else(|| Output {
+			asset: InteropAddress::from_chain_and_address(
+				1,
+				"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
+			)
+			.unwrap(),
+			amount: Some(U256::new("1000000".to_string())),
+			receiver: InteropAddress::from_chain_and_address(
+				1,
+				"0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03",
+			)
+			.unwrap(),
+			calldata: None,
+		});
+
+		let quote = Quote {
+			quote_id: Some(format!(
+				"{}-quote-{}",
+				self.adapter.adapter_id,
+				Utc::now().timestamp()
+			)),
+			order: Order::OifEscrowV0 {
+				payload: OrderPayload {
+					signature_type: SignatureType::Eip712,
+					domain: json!({ "name": "MockAdapter", "version": "1", "chainId": 1 }),
+					primary_type: "Order".to_string(),
+					message: json!({
+						"orderType": "swap",
+						"inputAsset": available_input.asset.to_hex(),
+						"outputAsset": requested_output.asset.to_hex(),
+						"adapter": self.adapter.name
+					}),
+					types: HashMap::new(),
+				},
 			},
 			valid_until: Some(Utc::now().timestamp() as u64 + 300),
 			eta: Some(30),
-			provider: format!("{} Provider", self.adapter.name),
-			metadata: None,
-			cost: None,
+			provider: Some(format!("{} Provider", self.adapter.name)),
+			failure_handling: None,
+			partial_fill: false,
+			preview: oif_types::oif::common::QuotePreview {
+				inputs: vec![available_input],
+				outputs: vec![requested_output],
+			},
+			metadata: Some(json!({
+				"adapter_id": self.adapter.adapter_id,
+				"response_delay_ms": self.response_delay_ms,
+			})),
 		};
 
-		Ok(GetQuoteResponse {
+		Ok(oif_types::OifGetQuoteResponse::V0(GetQuoteResponse {
 			quotes: vec![quote],
-		})
+		}))
 	}
 
 	async fn submit_order(
 		&self,
-		_request: &SubmitOrderRequest,
+		_request: &oif_types::OifPostOrderRequest,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<SubmitOrderResponse> {
-		let order_id = format!("mock-order-{}", Utc::now().timestamp());
-
-		Ok(SubmitOrderResponse {
-			status: "success".to_string(),
-			order_id: Some(order_id.clone()),
-			message: Some("Order submitted successfully".to_string()),
-			order: StandardOrder {
-				expires: Utc::now().timestamp() as u64 + 300,
-				fill_deadline: Utc::now().timestamp() as u64 + 300,
-				input_oracle: "0x0000000000000000000000000000000000000000".to_string(),
-				inputs: vec![vec![
-					"0x0000000000000000000000000000000000000000".to_string(),
-					"0x0000000000000000000000000000000000000000".to_string(),
-				]],
-				nonce: "0x0000000000000000000000000000000000000000".to_string(),
-				origin_chain_id: "1".to_string(),
-				outputs: vec![SolMandateOutput {
-					amount: "1000000000000000000".to_string(),
-					call: "0x".to_string(),
-					chain_id: "1".to_string(),
-					context: "0x".to_string(),
-					oracle: "0x0000000000000000000000000000000000000000".to_string(),
-					recipient: "0x0000000000000000000000000000000000000000".to_string(),
-					settler: "0x0000000000000000000000000000000000000000".to_string(),
-					token: "0x0000000000000000000000000000000000000000".to_string(),
-				}],
-				user: "0x0000000000000000000000000000000000000000".to_string(),
-			},
-		})
-	}
-
-	async fn get_order_details(
-		&self,
-		order_id: &str,
-		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetOrderResponse> {
-		Ok(GetOrderResponse {
-			order: OrderResponse {
-				id: order_id.to_string(),
-				quote_id: Some("mock-quote-123".to_string()),
-				status: OrderStatus::Finalized,
-				created_at: Utc::now().timestamp() as u64 - 60,
-				updated_at: Utc::now().timestamp() as u64,
-				input_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0x0000000000000000000000000000000000000000",
-					)
-					.unwrap(),
-					amount: U256::new("1000000000000000000".to_string()),
-				},
-				output_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
-					)
-					.unwrap(),
-					amount: U256::new("1000000".to_string()),
-				},
-				settlement: Settlement {
-					settlement_type: SettlementType::Escrow,
-					data: json!({"escrow_address": "0x1234567890123456789012345678901234567890"}),
-				},
-				fill_transaction: None,
-			},
-		})
-	}
-
-	async fn get_supported_assets(
-		&self,
-		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<oif_types::adapters::SupportedAssetsData> {
-		// Mock cross-chain routes for testing
-		use oif_types::models::InteropAddress;
-
-		let eth_mainnet =
-			InteropAddress::from_chain_and_address(1, "0x0000000000000000000000000000000000000000")
-				.unwrap();
-		let usdc_optimism = InteropAddress::from_chain_and_address(
-			10,
-			"0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
-		)
-		.unwrap();
-
-		Ok(oif_types::adapters::SupportedAssetsData::Routes(vec![
-			AssetRoute::with_symbols(
-				eth_mainnet.clone(),
-				"ETH".to_string(),
-				usdc_optimism.clone(),
-				"USDC".to_string(),
-			),
-			AssetRoute::with_symbols(
-				usdc_optimism,
-				"USDC".to_string(),
-				eth_mainnet,
-				"ETH".to_string(),
-			),
-		]))
-	}
-
-	async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> {
-		Ok(true)
-	}
-}
-
-/// Simple test adapter that can be configured to succeed or fail
-#[derive(Debug, Clone)]
-pub struct MockTestAdapter {
-	pub should_fail: bool,
-	pub adapter: oif_types::Adapter,
-}
-
-impl MockTestAdapter {
-	pub fn new() -> Self {
-		Self {
-			should_fail: false,
-			adapter: oif_types::Adapter {
-				adapter_id: "mock-test-v1".to_string(),
-				name: "Mock Test Adapter".to_string(),
-				description: Some("Mock Test Adapter".to_string()),
-				version: "1.0.0".to_string(),
-				configuration: HashMap::new(),
-			},
-		}
-	}
-
-	#[allow(dead_code)]
-	pub fn with_failure() -> Self {
-		Self {
-			should_fail: true,
-			adapter: oif_types::Adapter {
-				adapter_id: "mock-test-v1".to_string(),
-				name: "Mock Test Adapter".to_string(),
-				description: Some("Mock Test Adapter".to_string()),
-				version: "1.0.0".to_string(),
-				configuration: HashMap::new(),
-			},
-		}
-	}
-}
-
-impl Default for MockTestAdapter {
-	fn default() -> Self {
-		Self::new()
-	}
-}
-
-#[async_trait]
-impl SolverAdapter for MockTestAdapter {
-	fn adapter_info(&self) -> &oif_types::Adapter {
-		&self.adapter
-	}
-
-	async fn get_quotes(
-		&self,
-		_request: &GetQuoteRequest,
-		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetQuoteResponse> {
-		if self.should_fail {
-			return Err(oif_types::AdapterError::from(
-				AdapterValidationError::InvalidConfiguration {
-					reason: "Mock adapter configured to fail".to_string(),
-				},
-			));
-		}
-
-		Ok(GetQuoteResponse { quotes: vec![] })
-	}
-
-	async fn submit_order(
-		&self,
-		_request: &SubmitOrderRequest,
-		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<SubmitOrderResponse> {
-		if self.should_fail {
-			return Err(oif_types::AdapterError::from(
-				AdapterValidationError::InvalidConfiguration {
-					reason: "Mock adapter configured to fail".to_string(),
-				},
-			));
-		}
-
-		let order_id = format!("test-order-{}", Utc::now().timestamp());
-		Ok(SubmitOrderResponse {
-			status: "success".to_string(),
-			order_id: Some(order_id.clone()),
-			message: Some("Order submitted successfully".to_string()),
-			order: StandardOrder {
-				expires: Utc::now().timestamp() as u64 + 300,
-				fill_deadline: Utc::now().timestamp() as u64 + 300,
-				input_oracle: "0x0000000000000000000000000000000000000000".to_string(),
-				inputs: vec![vec![
-					"0x0000000000000000000000000000000000000000".to_string(),
-					"0x0000000000000000000000000000000000000000".to_string(),
-				]],
-				nonce: "0x0000000000000000000000000000000000000000".to_string(),
-				origin_chain_id: "1".to_string(),
-				outputs: vec![SolMandateOutput {
-					amount: "1000000000000000000".to_string(),
-					call: "0x".to_string(),
-					chain_id: "1".to_string(),
-					context: "0x".to_string(),
-					oracle: "0x0000000000000000000000000000000000000000".to_string(),
-					recipient: "0x0000000000000000000000000000000000000000".to_string(),
-					settler: "0x0000000000000000000000000000000000000000".to_string(),
-					token: "0x0000000000000000000000000000000000000000".to_string(),
-				}],
-				user: "0x0000000000000000000000000000000000000000".to_string(),
-			},
-		})
-	}
-
-	async fn get_order_details(
-		&self,
-		order_id: &str,
-		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetOrderResponse> {
-		if self.should_fail {
-			return Err(oif_types::AdapterError::from(
-				AdapterValidationError::InvalidConfiguration {
-					reason: "Mock adapter configured to fail".to_string(),
-				},
-			));
-		}
-
-		Ok(GetOrderResponse {
-			order: OrderResponse {
-				id: order_id.to_string(),
-				quote_id: None,
-				status: OrderStatus::Finalized,
-				created_at: Utc::now().timestamp() as u64,
-				updated_at: Utc::now().timestamp() as u64,
-				input_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0x0000000000000000000000000000000000000000",
-					)
-					.unwrap(),
-					amount: U256::new("0".to_string()),
-				},
-				output_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0x0000000000000000000000000000000000000000",
-					)
-					.unwrap(),
-					amount: U256::new("0".to_string()),
-				},
-				settlement: Settlement {
-					settlement_type: SettlementType::Escrow,
-					data: json!({}),
-				},
-				fill_transaction: None,
-			},
-		})
-	}
-
-	async fn get_supported_assets(
-		&self,
-		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<oif_types::adapters::SupportedAssetsData> {
-		if self.should_fail {
-			return Err(oif_types::AdapterError::from(
-				AdapterValidationError::InvalidConfiguration {
-					reason: "Mock adapter configured to fail".to_string(),
-				},
-			));
-		}
-		Ok(oif_types::adapters::SupportedAssetsData::Routes(vec![]))
-	}
-
-	async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> {
-		Ok(!self.should_fail)
-	}
-}
-
-/// Call tracking for verifying which adapters were actually called
-#[derive(Debug, Clone)]
-pub struct CallTracker {
-	pub calls: Arc<AtomicUsize>,
-	#[allow(dead_code)]
-	pub id: String,
-}
-
-impl CallTracker {
-	pub fn new(id: String) -> Self {
-		Self {
-			calls: Arc::new(AtomicUsize::new(0)),
-			id,
-		}
-	}
-
-	pub fn record_call(&self) {
-		self.calls.fetch_add(1, Ordering::SeqCst);
-	}
-
-	pub fn call_count(&self) -> usize {
-		self.calls.load(Ordering::SeqCst)
-	}
-}
-
-/// Mock adapter that responds after a configurable delay
-/// Useful for testing timeout behavior and solver selection strategies
-#[derive(Debug, Clone)]
-pub struct TimingControlledAdapter {
-	pub adapter: oif_types::Adapter,
-	pub response_delay_ms: u64,
-	pub should_fail: bool,
-	pub tracker: CallTracker,
-}
-
-impl TimingControlledAdapter {
-	/// Create a fast-responding adapter (responds in ~100ms)
-	pub fn fast(id: &str) -> Self {
-		Self::new(id, 100, false)
-	}
-
-	/// Create a slow-responding adapter (responds in ~1500ms)
-	pub fn slow(id: &str) -> Self {
-		Self::new(id, 1500, false)
-	}
-
-	/// Create a very slow adapter that will timeout (responds in ~5000ms)
-	pub fn timeout(id: &str) -> Self {
-		Self::new(id, 5000, false)
-	}
-
-	/// Create an adapter that always fails
-	pub fn failing(id: &str) -> Self {
-		Self::new(id, 100, true)
-	}
-
-	/// Create a custom adapter with specific timing
-	pub fn new(id: &str, response_delay_ms: u64, should_fail: bool) -> Self {
-		let adapter_id = format!("timing-{}", id);
-		let name = format!("Timing Controlled Adapter {}", id);
-
-		Self {
-			adapter: oif_types::Adapter {
-				adapter_id: adapter_id.clone(),
-				name: name.clone(),
-				description: Some(format!(
-					"Timing controlled adapter with {}ms delay",
-					response_delay_ms
-				)),
-				version: "1.0.0".to_string(),
-				configuration: HashMap::new(),
-			},
-			response_delay_ms,
-			should_fail,
-			tracker: CallTracker::new(adapter_id),
-		}
-	}
-
-	#[allow(dead_code)]
-	pub fn call_count(&self) -> usize {
-		self.tracker.call_count()
-	}
-}
-
-#[async_trait]
-impl SolverAdapter for TimingControlledAdapter {
-	fn adapter_info(&self) -> &oif_types::Adapter {
-		&self.adapter
-	}
-
-	async fn get_quotes(
-		&self,
-		request: &GetQuoteRequest,
-		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetQuoteResponse> {
-		// Record that this adapter was called
-		self.tracker.record_call();
+	) -> AdapterResult<oif_types::OifPostOrderResponse> {
+		// Track the call
+		self.call_tracker.fetch_add(1, Ordering::Relaxed);
 
 		// Simulate processing delay
-		tokio::time::sleep(Duration::from_millis(self.response_delay_ms)).await;
-
-		if self.should_fail {
-			return Err(oif_types::AdapterError::from(
-				AdapterValidationError::InvalidConfiguration {
-					reason: format!("Adapter {} configured to fail", self.adapter.adapter_id),
-				},
-			));
+		if self.response_delay_ms > 0 {
+			tokio::time::sleep(Duration::from_millis(self.response_delay_ms)).await;
 		}
 
-		// Create a realistic quote response
-		let quote_id = format!(
-			"{}-quote-{}",
-			self.adapter.adapter_id,
-			Utc::now().timestamp()
-		);
-
-		let available_input = request
-			.available_inputs
-			.first()
-			.cloned()
-			.unwrap_or_else(|| AvailableInput {
-				user: InteropAddress::from_chain_and_address(
-					1,
-					"0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03",
-				)
-				.unwrap(),
-				asset: InteropAddress::from_chain_and_address(
-					1,
-					"0x0000000000000000000000000000000000000000",
-				)
-				.unwrap(),
-				amount: U256::new("1000000000000000000".to_string()),
-				lock: None,
-			});
-
-		let requested_output = request
-			.requested_outputs
-			.first()
-			.cloned()
-			.unwrap_or_else(|| RequestedOutput {
-				asset: InteropAddress::from_chain_and_address(
-					1,
-					"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
-				)
-				.unwrap(),
-				amount: U256::new("1000000".to_string()),
-				receiver: InteropAddress::from_chain_and_address(
-					1,
-					"0x742d35Cc6634C0532925a3b8D2a27F79c5a85b03",
-				)
-				.unwrap(),
-				calldata: None,
-			});
-
-		let quote = AdapterQuote {
-			quote_id,
-			orders: vec![QuoteOrder {
-				signature_type: SignatureType::Eip712,
-				domain: InteropAddress::from_chain_and_address(
-					1,
-					"0x1234567890123456789012345678901234567890",
-				)
-				.unwrap(),
-				primary_type: "Order".to_string(),
-				message: oif_types::serde_json::json!({
-					"orderType": "swap",
-					"adapter": self.adapter.adapter_id,
-					"delay_ms": self.response_delay_ms
-				}),
-			}],
-			details: QuoteDetails {
-				available_inputs: vec![available_input],
-				requested_outputs: vec![requested_output],
-			},
-			valid_until: Some(Utc::now().timestamp() as u64 + 300),
-			eta: Some(self.response_delay_ms / 10), // ETA in seconds
-			provider: format!("{} Provider", self.adapter.name),
-			metadata: None,
-			cost: None,
-		};
-
-		Ok(GetQuoteResponse {
-			quotes: vec![quote],
-		})
-	}
-
-	async fn submit_order(
-		&self,
-		_request: &SubmitOrderRequest,
-		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<SubmitOrderResponse> {
-		// Don't record submit_order calls - only track get_quotes for solver filtering tests
-		tokio::time::sleep(Duration::from_millis(self.response_delay_ms)).await;
-
+		// Check if this adapter should fail
 		if self.should_fail {
-			return Err(oif_types::AdapterError::from(
-				AdapterValidationError::InvalidConfiguration {
-					reason: format!("Adapter {} configured to fail", self.adapter.adapter_id),
-				},
-			));
+			return Err(AdapterValidationError::InvalidConfiguration {
+				reason: format!("Adapter {} configured to fail", self.adapter.adapter_id),
+			}
+			.into());
 		}
 
 		let order_id = format!(
@@ -637,98 +252,195 @@ impl SolverAdapter for TimingControlledAdapter {
 			self.adapter.adapter_id,
 			Utc::now().timestamp()
 		);
-		Ok(SubmitOrderResponse {
-			status: "success".to_string(),
-			order_id: Some(order_id.clone()),
+
+		Ok(oif_types::OifPostOrderResponse::V0(SubmitOrderResponse {
+			status: PostOrderResponseStatus::Received,
+			order_id: Some(order_id),
 			message: Some("Order submitted successfully".to_string()),
-			order: StandardOrder {
-				expires: Utc::now().timestamp() as u64 + 300,
-				fill_deadline: Utc::now().timestamp() as u64 + 300,
-				input_oracle: "0x0000000000000000000000000000000000000000".to_string(),
-				inputs: vec![vec![
-					"0x0000000000000000000000000000000000000000".to_string(),
-					"0x0000000000000000000000000000000000000000".to_string(),
-				]],
-				nonce: "0x0000000000000000000000000000000000000000".to_string(),
-				origin_chain_id: "1".to_string(),
-				outputs: vec![SolMandateOutput {
-					amount: "1000000000000000000".to_string(),
-					call: "0x".to_string(),
-					chain_id: "1".to_string(),
-					context: "0x".to_string(),
-					oracle: "0x0000000000000000000000000000000000000000".to_string(),
-					recipient: "0x0000000000000000000000000000000000000000".to_string(),
-					settler: "0x0000000000000000000000000000000000000000".to_string(),
-					token: "0x0000000000000000000000000000000000000000".to_string(),
-				}],
-				user: "0x0000000000000000000000000000000000000000".to_string(),
-			},
-		})
+			order: None,
+			metadata: Some(json!({
+				"adapter_id": self.adapter.adapter_id,
+				"response_delay_ms": self.response_delay_ms,
+			})),
+		}))
 	}
 
 	async fn get_order_details(
 		&self,
 		order_id: &str,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetOrderResponse> {
-		// Don't record get_order_details calls - only track get_quotes for solver filtering tests
-		tokio::time::sleep(Duration::from_millis(self.response_delay_ms)).await;
+	) -> AdapterResult<oif_types::OifGetOrderResponse> {
+		// Track the call
+		self.call_tracker.fetch_add(1, Ordering::Relaxed);
 
-		if self.should_fail {
-			return Err(oif_types::AdapterError::from(
-				AdapterValidationError::InvalidConfiguration {
-					reason: format!("Adapter {} configured to fail", self.adapter.adapter_id),
-				},
-			));
+		// Simulate processing delay
+		if self.response_delay_ms > 0 {
+			tokio::time::sleep(Duration::from_millis(self.response_delay_ms)).await;
 		}
 
-		Ok(GetOrderResponse {
-			order: OrderResponse {
-				id: order_id.to_string(),
-				quote_id: None,
-				status: OrderStatus::Finalized,
-				created_at: Utc::now().timestamp() as u64,
-				updated_at: Utc::now().timestamp() as u64,
-				input_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0x0000000000000000000000000000000000000000",
-					)
-					.unwrap(),
-					amount: U256::new("1000000000000000000".to_string()),
-				},
-				output_amount: AssetAmount {
-					asset: InteropAddress::from_chain_and_address(
-						1,
-						"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
-					)
-					.unwrap(),
-					amount: U256::new("1000000".to_string()),
-				},
-				settlement: Settlement {
-					settlement_type: SettlementType::Escrow,
-					data: oif_types::serde_json::json!({}),
-				},
-				fill_transaction: None,
+		// Check if this adapter should fail
+		if self.should_fail {
+			return Err(AdapterValidationError::InvalidConfiguration {
+				reason: format!("Adapter {} configured to fail", self.adapter.adapter_id),
+			}
+			.into());
+		}
+
+		Ok(oif_types::OifGetOrderResponse::V0(GetOrderResponse {
+			id: order_id.to_string(),
+			quote_id: Some("mock-quote-123".to_string()),
+			status: OrderStatus::Finalized,
+			created_at: Utc::now().timestamp() as u64 - 60,
+			updated_at: Utc::now().timestamp() as u64,
+			input_amounts: vec![AssetAmount {
+				asset: InteropAddress::from_chain_and_address(
+					1,
+					"0x0000000000000000000000000000000000000000",
+				)
+				.unwrap(),
+				amount: Some(U256::new("1000000000000000000".to_string())),
+			}],
+			output_amounts: vec![AssetAmount {
+				asset: InteropAddress::from_chain_and_address(
+					1,
+					"0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
+				)
+				.unwrap(),
+				amount: Some(U256::new("1000000".to_string())),
+			}],
+			settlement: Settlement {
+				settlement_type: SettlementType::Escrow,
+				data: json!({"escrow_address": "0x1234567890123456789012345678901234567890"}),
 			},
-		})
-	}
-
-	async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> {
-		// Don't record health_check calls - only track get_quotes for solver filtering tests
-		tokio::time::sleep(Duration::from_millis(self.response_delay_ms / 10)).await;
-
-		if self.should_fail {
-			return Ok(false);
-		}
-
-		Ok(true)
+			fill_transaction: None,
+		}))
 	}
 
 	async fn get_supported_assets(
 		&self,
 		_config: &SolverRuntimeConfig,
 	) -> AdapterResult<oif_types::adapters::SupportedAssetsData> {
-		Ok(oif_types::adapters::SupportedAssetsData::Routes(vec![]))
+		match self.asset_mode {
+			AssetMode::Routes => {
+				Ok(oif_types::adapters::SupportedAssetsData::Routes(vec![
+					AssetRoute::with_symbols(
+						InteropAddress::from_text(
+							"eip155:1:0x0000000000000000000000000000000000000000",
+						)
+						.unwrap(), // ETH on Ethereum
+						"ETH".to_string(),
+						InteropAddress::from_text(
+							"eip155:1:0xA0b86a33E6417a77C9A0C65f8E69b8B6e2B0C4A0",
+						)
+						.unwrap(), // USDC on Ethereum
+						"USDC".to_string(),
+					),
+					AssetRoute::with_symbols(
+						InteropAddress::from_text(
+							"eip155:1:0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+						)
+						.unwrap(), // WETH on Ethereum
+						"WETH".to_string(),
+						InteropAddress::from_text(
+							"eip155:1:0xA0b86a33E6417a77C9A0C65f8E69b8B6e2B0C4A0",
+						)
+						.unwrap(), // USDC on Ethereum
+						"USDC".to_string(),
+					),
+					AssetRoute::with_symbols(
+						InteropAddress::from_text(
+							"eip155:1:0xA0b86a33E6417a77C9A0C65f8E69b8B6e2B0C4A0",
+						)
+						.unwrap(), // USDC on Ethereum
+						"USDC".to_string(),
+						InteropAddress::from_text(
+							"eip155:1:0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+						)
+						.unwrap(), // WETH on Ethereum
+						"WETH".to_string(),
+					),
+					AssetRoute::with_symbols(
+						InteropAddress::from_text(
+							"eip155:1:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+						)
+						.unwrap(), // USDC on Ethereum
+						"USDC".to_string(),
+						InteropAddress::from_text(
+							"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+						)
+						.unwrap(), // USDC on Optimism
+						"USDC".to_string(),
+					),
+					AssetRoute::with_symbols(
+						InteropAddress::from_text(
+							"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+						)
+						.unwrap(), // USDC on Optimism
+						"USDC".to_string(),
+						InteropAddress::from_text(
+							"eip155:1:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+						)
+						.unwrap(), // USDC on Ethereum
+						"USDC".to_string(),
+					),
+				]))
+			},
+			AssetMode::Empty => Ok(oif_types::adapters::SupportedAssetsData::Routes(vec![])),
+			AssetMode::Assets => {
+				// Legacy mode - return empty for now
+				Ok(oif_types::adapters::SupportedAssetsData::Routes(vec![]))
+			},
+		}
 	}
+
+	async fn health_check(&self, _config: &SolverRuntimeConfig) -> AdapterResult<bool> {
+		// Simulate a quick health check delay
+		if self.response_delay_ms > 0 {
+			tokio::time::sleep(Duration::from_millis(self.response_delay_ms / 10)).await;
+		}
+		Ok(!self.should_fail)
+	}
+}
+
+// Convenience functions for creating MockAdapter instances
+// These provide the same API as the old wrapper adapters but create MockAdapter directly
+
+/// Create a simple mock adapter for basic testing
+pub fn create_mock_adapter() -> MockAdapter {
+	MockAdapter::with_config("mock-demo-v1".to_string(), false, 0, AssetMode::Routes)
+}
+
+/// Create a mock adapter with custom configuration
+pub fn create_mock_adapter_with_config(id: String) -> MockAdapter {
+	MockAdapter::with_config(id, false, 0, AssetMode::Routes)
+}
+
+/// Create a failing adapter for testing failure scenarios
+pub fn create_failing_adapter(id: String) -> MockAdapter {
+	MockAdapter::with_config(id, true, 0, AssetMode::Routes)
+}
+
+/// Create a success adapter for testing success scenarios
+pub fn create_success_adapter(id: String) -> MockAdapter {
+	MockAdapter::with_config(id, false, 0, AssetMode::Routes)
+}
+
+/// Create a fast-responding adapter (100ms delay)
+pub fn create_fast_adapter(id: &str) -> MockAdapter {
+	MockAdapter::with_config(format!("timing-{}", id), false, 100, AssetMode::Routes)
+}
+
+/// Create a slow-responding adapter (1500ms delay)
+pub fn create_slow_adapter(id: &str) -> MockAdapter {
+	MockAdapter::with_config(format!("timing-{}", id), false, 1500, AssetMode::Routes)
+}
+
+/// Create a timeout adapter (5000ms delay)
+pub fn create_timeout_adapter(id: &str) -> MockAdapter {
+	MockAdapter::with_config(format!("timing-{}", id), false, 5000, AssetMode::Routes)
+}
+
+/// Create a failing adapter with timing
+pub fn create_failing_timing_adapter(id: &str) -> MockAdapter {
+	MockAdapter::with_config(format!("timing-{}", id), true, 100, AssetMode::Routes)
 }

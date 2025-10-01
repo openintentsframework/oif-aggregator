@@ -1,4 +1,5 @@
 //! API request/response fixtures for e2e and integration tests
+#![allow(dead_code)]
 
 use oif_aggregator::{api::routes::AppState, AggregatorBuilder};
 use oif_types::{
@@ -131,7 +132,7 @@ impl ApiFixtures {
 		// Use the integrity secret for testing
 		std::env::set_var("INTEGRITY_SECRET", INTEGRITY_SECRET);
 
-		let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
+		let mock_adapter = crate::mocks::adapters::create_mock_adapter();
 		let mock_solver = oif_aggregator::mocks::mock_solver();
 
 		let (_, state) = AggregatorBuilder::default()

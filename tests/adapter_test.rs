@@ -32,7 +32,7 @@ async fn test_aggregator_builder_with_mock_adapter() {
 	// Set required environment variable for tests
 	std::env::set_var("INTEGRITY_SECRET", INTEGRITY_SECRET);
 
-	let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
+	let mock_adapter = crate::mocks::adapters::create_mock_adapter();
 	let mock_solver = oif_aggregator::mocks::mock_solver();
 
 	let result = AggregatorBuilder::default()
@@ -134,7 +134,7 @@ async fn test_quote_aggregation_with_mock() {
 	// Set required environment variable for tests
 	std::env::set_var("INTEGRITY_SECRET", INTEGRITY_SECRET);
 
-	let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
+	let mock_adapter = crate::mocks::adapters::create_mock_adapter();
 	let mock_solver = oif_aggregator::mocks::mock_solver();
 
 	let builder_result = AggregatorBuilder::default()
@@ -169,7 +169,7 @@ async fn test_health_check_with_solver_service() {
 	// Set required environment variable for tests
 	std::env::set_var("INTEGRITY_SECRET", INTEGRITY_SECRET);
 
-	let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
+	let mock_adapter = crate::mocks::adapters::create_mock_adapter();
 	let mock_solver = oif_aggregator::mocks::mock_solver();
 
 	let builder_result = AggregatorBuilder::default()
@@ -192,8 +192,8 @@ async fn test_health_check_with_solver_service() {
 
 #[tokio::test]
 async fn test_adapter_registry_duplicate_prevention() {
-	let mock_adapter1 = oif_aggregator::mocks::MockDemoAdapter::new();
-	let mock_adapter2 = oif_aggregator::mocks::MockDemoAdapter::new(); // Same ID
+	let mock_adapter1 = crate::mocks::adapters::create_mock_adapter();
+	let mock_adapter2 = crate::mocks::adapters::create_mock_adapter(); // Same ID
 
 	// Should panic when trying to register duplicate adapter
 	let result = std::panic::catch_unwind(|| {

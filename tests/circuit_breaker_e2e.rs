@@ -13,6 +13,8 @@ use tokio::time::sleep;
 mod mocks;
 use mocks::{api_fixtures::ApiFixtures, configs::CircuitBreakerConfigs, test_server::TestServer};
 
+use crate::mocks::adapters::create_mock_adapter_with_config;
+
 /// Test circuit breaker blocks requests after consecutive failures
 #[tokio::test]
 async fn test_circuit_breaker_opens_on_consecutive_failures() {
@@ -21,15 +23,11 @@ async fn test_circuit_breaker_opens_on_consecutive_failures() {
 		vec![
 			(
 				"failing-solver".to_string(),
-				mocks::adapters::MockTestAdapter::with_failure_config(
-					"failing-adapter".to_string(),
-				),
+				mocks::adapters::create_failing_adapter("failing-adapter".to_string()),
 			),
 			(
 				"working-solver".to_string(),
-				mocks::adapters::MockTestAdapter::with_success_config(
-					"working-adapter".to_string(),
-				),
+				mocks::adapters::create_success_adapter("working-adapter".to_string()),
 			),
 		],
 	)
@@ -102,11 +100,11 @@ async fn test_circuit_breaker_opens_on_success_rate() {
 		vec![
 			(
 				"working-solver".to_string(),
-				mocks::adapters::MockDemoAdapter::with_config("working-adapter".to_string()),
+				create_mock_adapter_with_config("working-adapter".to_string()),
 			),
 			(
 				"slow-solver".to_string(),
-				mocks::adapters::MockDemoAdapter::with_config("slow-adapter".to_string()), // This will timeout and be recorded as failure
+				create_mock_adapter_with_config("slow-adapter".to_string()), // This will timeout and be recorded as failure
 			),
 		],
 	)
@@ -167,7 +165,7 @@ async fn test_circuit_breaker_recovery_timeout() {
 		),
 		vec![(
 			"test-solver".to_string(),
-			mocks::adapters::MockDemoAdapter::new(),
+			mocks::adapters::create_mock_adapter(),
 		)],
 	)
 	.await
@@ -212,7 +210,7 @@ async fn test_circuit_breaker_recovery() {
 		vec![
 			(
 				"recovering-solver".to_string(),
-				mocks::adapters::MockDemoAdapter::new(),
+				mocks::adapters::create_mock_adapter(),
 			), // Initially healthy
 		],
 	)
@@ -256,15 +254,15 @@ async fn test_circuit_breaker_mixed_solver_states() {
 		vec![
 			(
 				"healthy-solver".to_string(),
-				mocks::adapters::MockDemoAdapter::with_config("healthy-adapter".to_string()),
+				create_mock_adapter_with_config("healthy-adapter".to_string()),
 			),
 			(
 				"failing-solver".to_string(),
-				mocks::adapters::MockDemoAdapter::with_config("failing-adapter".to_string()),
+				create_mock_adapter_with_config("failing-adapter".to_string()),
 			),
 			(
 				"slow-solver".to_string(),
-				mocks::adapters::MockDemoAdapter::with_config("slow-adapter".to_string()),
+				create_mock_adapter_with_config("slow-adapter".to_string()),
 			),
 		],
 	)
@@ -315,7 +313,7 @@ async fn test_circuit_breaker_health_endpoint() {
 		CircuitBreakerConfigs::standard(),
 		vec![(
 			"test-solver".to_string(),
-			mocks::adapters::MockDemoAdapter::new(),
+			mocks::adapters::create_mock_adapter(),
 		)],
 	)
 	.await
@@ -349,7 +347,7 @@ async fn test_circuit_breaker_order_flow() {
 		CircuitBreakerConfigs::standard(),
 		vec![(
 			"order-solver".to_string(),
-			mocks::adapters::MockDemoAdapter::new(),
+			mocks::adapters::create_mock_adapter(),
 		)],
 	)
 	.await
