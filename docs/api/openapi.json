@@ -971,6 +971,16 @@
           "metadata": {
             "description": "Adapter-specific metadata that can store order data, sponsor info, and other custom data\nThis allows flexibility for different adapters to include the specific information they need"
           },
+          "originSubmission": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OriginSubmission"
+              }
+            ]
+          },
           "quoteResponse": {
             "$ref": "#/components/schemas/QuoteResponse",
             "description": "Quote data"
@@ -985,6 +995,13 @@
           "metadata": {
             "order": "0xfedcba0987654321...",
             "sponsor": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
+          },
+          "originSubmission": {
+            "mode": "user",
+            "schemes": [
+              "erc4337",
+              "permit2"
+            ]
           },
           "quoteResponse": {
             "eta": 30,

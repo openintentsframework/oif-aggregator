@@ -7,7 +7,7 @@ use serde_json::json;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
-use crate::QuoteResponse;
+use crate::{OriginSubmission, QuoteResponse};
 
 /// API request body for submitting orders - flexible design for multi-adapter support
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -60,6 +60,10 @@ use crate::QuoteResponse;
         "metadata": {"aggregator": "metadata"}
     },
     "signature": "0x1234567890abcdef...",
+    "originSubmission": {
+        "mode": "user",
+        "schemes": ["erc4337", "permit2"]
+    },
     "metadata": {
         "order": "0xfedcba0987654321...",
         "sponsor": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
@@ -72,6 +76,9 @@ pub struct OrderRequest {
 
 	/// User's signature for authorization
 	pub signature: String,
+
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub origin_submission: Option<OriginSubmission>,
 
 	/// Adapter-specific metadata that can store order data, sponsor info, and other custom data
 	/// This allows flexibility for different adapters to include the specific information they need
@@ -106,7 +113,7 @@ impl TryFrom<&OrderRequest> for crate::oif::OifPostOrderRequest {
 			order: request.quote_response.order.clone(),
 			signature: request.signature.clone(),
 			quote_id: Some(request.quote_response.quote_id.clone()),
-			origin_submission: None, // Not provided in OrderRequest
+			origin_submission: request.origin_submission.clone(),
 			metadata: request.metadata.clone(),
 		};
 
