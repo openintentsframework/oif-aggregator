@@ -264,8 +264,8 @@ impl TryFrom<&QuoteRequest> for crate::oif::OifGetQuoteRequest {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::test_utils::TestQuoteRequests;
-	use crate::InteropAddress;
+	use crate::test_utils::{QuoteRequestBuilder, TestQuoteRequests};
+	use crate::{InteropAddress, SwapType};
 
 	fn create_valid_erc7930_request() -> QuoteRequest {
 		TestQuoteRequests::minimal_valid()
@@ -285,7 +285,12 @@ mod tests {
 
 	#[test]
 	fn test_erc7930_empty_outputs() {
-		let request = TestQuoteRequests::empty_outputs();
+		let request = QuoteRequestBuilder::new()
+		.add_simple_input(1, "0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0", "1000000000")
+		.outputs(vec![])
+		.swap_type(SwapType::ExactOutput) // Empty outputs
+		.build();
+
 		assert!(request.validate().is_err());
 	}
 

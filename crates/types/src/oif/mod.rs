@@ -316,7 +316,7 @@ impl OifGetOrderResponse {
 
 	pub fn as_latest(&self) -> &crate::oif::OifGetOrderResponseLatest {
 		match self {
-			Self::V0(response) => &response,
+			Self::V0(response) => response,
 		}
 	}
 }
@@ -404,7 +404,7 @@ impl OifPostOrderRequest {
 
 	pub fn as_latest(&self) -> &crate::oif::OifPostOrderRequestLatest {
 		match self {
-			Self::V0(request) => &request,
+			Self::V0(request) => request,
 		}
 	}
 }
@@ -483,7 +483,7 @@ impl OifGetQuoteRequest {
 
 	pub fn as_latest(&self) -> &crate::oif::OifGetQuoteRequestLatest {
 		match self {
-			Self::V0(request) => &request,
+			Self::V0(request) => request,
 		}
 	}
 

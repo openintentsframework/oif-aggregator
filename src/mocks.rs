@@ -452,25 +452,34 @@ pub fn mock_quote_request() -> (Value, InteropAddress, InteropAddress, InteropAd
 
 	let quote_request = json!({
 		"user": user_addr.to_hex(),
-		"availableInputs": [
-			{
-				"user": user_addr.to_hex(),
-				"asset": eth_addr.to_hex(), // ETH
-				"amount": "1000000000000000000", // 1 ETH
-				"lock": null
-			}
-		],
-		"requestedOutputs": [
-			{
-				"asset": usdc_addr.to_hex(), // USDC
-				"amount": "1000000", // 1 USDC
-				"receiver": user_addr.to_hex(),
-				"calldata": null
-			}
-		],
-		"minValidUntil": 300,
-		"preference": null,
-		"solverOptions": null
+		"intent": {
+			"intentType": "oif-swap",
+			"inputs": [
+				{
+					"user": user_addr.to_hex(),
+					"asset": eth_addr.to_hex(), // ETH
+					"amount": "1000000000000000000", // 1 ETH
+					"lock": null
+				}
+			],
+			"outputs": [
+				{
+					"asset": usdc_addr.to_hex(), // USDC
+					"amount": "1000000", // 1 USDC
+					"receiver": user_addr.to_hex(),
+					"calldata": null
+				}
+			],
+			"swapType": "exact-input",
+			"minValidUntil": 300,
+			"preference": "speed",
+			"partialFill": false
+		},
+		"supportedTypes": ["oif-escrow-v0"],
+		"solverOptions": {
+			"timeout": 4000,
+			"solverTimeout": 2000
+		}
 	});
 
 	(quote_request, user_addr, eth_addr, usdc_addr)

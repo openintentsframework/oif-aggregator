@@ -76,13 +76,25 @@ impl GetQuoteRequest {
 	///
 	/// This ensures the request is well-formed before processing.
 	pub fn validate(&self) -> Result<(), String> {
-		// Validate we have at least one input and one output
-		if self.intent.inputs.is_empty() {
-			return Err("inputs cannot be empty".to_string());
+		// Validate intent type
+		if self.intent.intent_type != IntentType::OifSwap {
+			return Err("intent type must be oif-swap".to_string());
 		}
 
-		if self.intent.outputs.is_empty() {
-			return Err("outputs cannot be empty".to_string());
+		// Validate swap type
+		let swap_type = self
+			.intent
+			.swap_type
+			.as_ref()
+			.unwrap_or(&SwapType::ExactInput);
+
+		// Validate we have at least one input and one output
+		if swap_type == &SwapType::ExactInput && self.intent.inputs.is_empty() {
+			return Err("inputs cannot be empty for exact-input".to_string());
+		}
+
+		if swap_type == &SwapType::ExactOutput && self.intent.outputs.is_empty() {
+			return Err("outputs cannot be empty for exact-output".to_string());
 		}
 
 		// Validate user address
@@ -100,6 +112,13 @@ impl GetQuoteRequest {
 				.asset
 				.validate()
 				.map_err(|e| format!("inputs[{}].asset invalid: {}", i, e))?;
+
+			if swap_type != &SwapType::ExactInput && input.amount.is_none() {
+				return Err(format!(
+					"inputs[{}].amount must be specified for exact-input",
+					i
+				));
+			}
 
 			// For exact-input, amount must be specified and > 0
 			// For exact-output, amount is optional but if provided must be > 0
@@ -120,6 +139,13 @@ impl GetQuoteRequest {
 				.asset
 				.validate()
 				.map_err(|e| format!("outputs[{}].asset invalid: {}", i, e))?;
+
+			if swap_type == &SwapType::ExactOutput && output.amount.is_none() {
+				return Err(format!(
+					"outputs[{}].amount must be specified for exact-output",
+					i
+				));
+			}
 
 			// For exact-output, amount must be specified and > 0
 			// For exact-input, amount is optional but if provided must be > 0

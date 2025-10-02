@@ -78,11 +78,10 @@ use async_trait::async_trait;
 use oif_types::{
     adapters::{
         traits::SolverAdapter,
-        models::{SubmitOrderRequest, SubmitOrderResponse},
-        GetOrderResponse, SolverRuntimeConfig, AdapterResult,
+        SolverRuntimeConfig, AdapterResult,
     },
     models::{Asset, Network},
-    Adapter, GetQuoteRequest, GetQuoteResponse,
+    Adapter, OifGetQuoteRequest, OifGetQuoteResponse, OifPostOrderRequest, OifPostOrderResponse, OifGetOrderResponse,
 };
 
 #[derive(Debug)]
@@ -119,23 +118,23 @@ impl SolverAdapter for MyCustomAdapter {
 
     async fn get_quotes(
         &self,
-        request: &GetQuoteRequest,
+        request: &OifGetQuoteRequest,
         config: &SolverRuntimeConfig,
-    ) -> AdapterResult<GetQuoteResponse> {
-        // 1. Convert GetQuoteRequest to your solver's model
+    ) -> AdapterResult<OifGetQuoteResponse> {
+        // 1. Convert OifGetQuoteRequest to your solver's model
         // 2. Fetch quotes from solver endpoint  
-        // 3. Convert solver response to GetQuoteResponse format
+        // 3. Convert solver response to OifGetQuoteResponse format
         todo!("Implement quote fetching logic")
     }
 
     async fn submit_order(
         &self,
-        order: &SubmitOrderRequest,
+        order: &OifPostOrderRequest,
         config: &SolverRuntimeConfig,
-    ) -> AdapterResult<SubmitOrderResponse> {
-        // 1. Convert SubmitOrderRequest to your solver's model
+    ) -> AdapterResult<OifPostOrderResponse> {
+        // 1. Convert OifPostOrderRequest to your solver's model
         // 2. Submit order to solver endpoint
-        // 3. Convert solver response to SubmitOrderResponse format
+        // 3. Convert solver response to OifPostOrderResponse format
         todo!("Implement order submission logic")
     }
 
@@ -149,9 +148,9 @@ impl SolverAdapter for MyCustomAdapter {
         &self,
         order_id: &str,
         config: &SolverRuntimeConfig,
-    ) -> AdapterResult<GetOrderResponse> {
+    ) -> AdapterResult<OifGetOrderResponse> {
         // 1. Fetch order status from solver endpoint using order_id
-        // 2. Convert solver response to GetOrderResponse format
+        // 2. Convert solver response to OifGetOrderResponse format
         todo!("Implement order details fetching logic")
     }
 
@@ -259,9 +258,9 @@ The `adapter_metadata` field allows you to pass custom JSON configuration to you
 impl SolverAdapter for MyCustomAdapter {
     async fn get_quotes(
         &self,
-        request: &GetQuoteRequest,
+        request: &OifGetQuoteRequest,
         config: &SolverRuntimeConfig,
-    ) -> AdapterResult<GetQuoteResponse> {
+    ) -> AdapterResult<OifGetQuoteResponse> {
         // Access optional adapter metadata
         if let Some(metadata) = &config.adapter_metadata {
             // Parse your custom configuration

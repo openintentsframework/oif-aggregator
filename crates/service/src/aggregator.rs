@@ -2211,7 +2211,7 @@ mod tests {
 						lock: None,
 					}],
 					outputs: vec![], // Empty outputs - should fail validation
-					swap_type: None,
+					swap_type: Some(SwapType::ExactOutput),
 					min_valid_until: None,
 					preference: None,
 					origin_submission: None,

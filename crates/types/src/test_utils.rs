@@ -31,25 +31,9 @@ pub struct QuoteRequestBuilder {
 	metadata: Option<serde_json::Value>,
 }
 
-#[cfg(test)]
 impl Default for QuoteRequestBuilder {
 	fn default() -> Self {
-		Self {
-			user: InteropAddress::from_text("eip155:1:0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266")
-				.expect("Valid test address"),
-			intent_type: IntentType::OifSwap,
-			inputs: vec![],
-			outputs: vec![],
-			swap_type: Some(SwapType::ExactInput),
-			min_valid_until: Some(300), // 5 minutes
-			preference: Some(OifQuotePreference::Price),
-			origin_submission: None,
-			failure_handling: None,
-			partial_fill: None,
-			supported_types: vec!["oif-escrow-v0".to_string()],
-			solver_options: None,
-			metadata: None,
-		}
+		Self::new()
 	}
 }
 
@@ -354,7 +338,11 @@ mod tests {
 		let empty_inputs = TestQuoteRequests::empty_inputs();
 		assert!(empty_inputs.validate().is_err());
 
-		let empty_outputs = TestQuoteRequests::empty_outputs();
+		let empty_outputs = QuoteRequestBuilder::new()
+		.add_simple_input(1, "0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0", "1000000000")
+		.outputs(vec![])
+		.swap_type(SwapType::ExactOutput) // Empty outputs
+		.build();
 		assert!(empty_outputs.validate().is_err());
 
 		let zero_amount = TestQuoteRequests::zero_amount_input();

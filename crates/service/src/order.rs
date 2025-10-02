@@ -160,7 +160,6 @@ impl OrderServiceTrait for OrderService {
 
 		let order_id = order_response
 			.order_id()
-			.clone()
 			.ok_or(OrderServiceError::Validation(
 				"Order ID is required".to_string(),
 			))?;
@@ -279,9 +278,7 @@ impl OrderServiceTrait for OrderService {
 		};
 
 		// 2. If order is already in final state, return as-is
-		if Self::is_final_status(&oif_types::OrderStatus::from(
-			current_order.status().clone(),
-		)) {
+		if Self::is_final_status(&current_order.status().clone()) {
 			tracing::debug!(
 				target: TRACING_TARGET,
 				order_id = %order_id,

@@ -12,28 +12,37 @@ The OIF Aggregator collects quotes from multiple DeFi solvers and presents them 
 
 Request quotes from multiple solvers.
 
-#### Request Format (ERC-7930 Standard)
+#### Request Format (OIF v0 Standard)
 
 ```json
 {
   "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8",
-  "availableInputs": [
-    {
-      "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8",
-      "asset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
-      "amount": "1000000000000000000"
-    }
-  ],
-  "requestedOutputs": [
-    {
-      "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
-      "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
-      "amount": "1000000000000000000"
-    }
-  ],
-  "preference": "speed",
-  "minValidUntil": 600,
-  "solverOptions": {}
+  "intent": {
+    "intentType": "oif-swap",
+    "inputs": [
+      {
+        "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8",
+        "asset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+        "amount": "1000000000000000000"
+      }
+    ],
+    "outputs": [
+      {
+        "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+        "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
+        "amount": "1000000000000000000"
+      }
+    ],
+    "swapType": "exact-input",
+    "minValidUntil": 600,
+    "preference": "speed",
+    "partialFill": false
+  },
+  "supportedTypes": ["oif-escrow-v0"],
+  "solverOptions": {
+    "timeout": 4000,
+    "solverTimeout": 2000
+  }
 }
 ```
 
@@ -42,18 +51,23 @@ Request quotes from multiple solvers.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `user` | `string` | ✅ | User's wallet address in ERC-7930 format |
-| `availableInputs` | `array` | ✅ | Available input tokens with amounts |
-| `availableInputs[].user` | `string` | ✅ | Token holder address (ERC-7930 format) |
-| `availableInputs[].asset` | `string` | ✅ | Token contract address (ERC-7930 format) |
-| `availableInputs[].amount` | `string` | ✅ | Token amount in smallest unit (wei/satoshi) |
-| `availableInputs[].lock` | `object` | ❌ | Optional lock parameters |
-| `requestedOutputs` | `array` | ✅ | Desired output tokens |
-| `requestedOutputs[].receiver` | `string` | ✅ | Recipient address (ERC-7930 format) |
-| `requestedOutputs[].asset` | `string` | ✅ | Token contract address (ERC-7930 format) |
-| `requestedOutputs[].amount` | `string` | ✅ | Minimum expected amount |
-| `requestedOutputs[].calldata` | `string` | ❌ | Optional calldata for execution |
-| `minValidUntil` | `number` | ❌ | Minimum quote validity duration in seconds |
-| `preference` | `string` | ❌ | Optimization preference: `"price"`, `"speed"` |
+| `intent` | `object` | ✅ | The intent object containing swap details |
+| `intent.intentType` | `string` | ✅ | Type of intent - currently only "oif-swap" is supported |
+| `intent.inputs` | `array` | ✅ | Available input tokens with amounts |
+| `intent.inputs[].user` | `string` | ✅ | Token holder address (ERC-7930 format) |
+| `intent.inputs[].asset` | `string` | ✅ | Token contract address (ERC-7930 format) |
+| `intent.inputs[].amount` | `string` | ✅ | Token amount in smallest unit (wei/satoshi) |
+| `intent.inputs[].lock` | `object` | ❌ | Optional lock parameters |
+| `intent.outputs` | `array` | ✅ | Desired output tokens |
+| `intent.outputs[].receiver` | `string` | ✅ | Recipient address (ERC-7930 format) |
+| `intent.outputs[].asset` | `string` | ✅ | Token contract address (ERC-7930 format) |
+| `intent.outputs[].amount` | `string` | ✅ | Minimum expected amount |
+| `intent.outputs[].calldata` | `string` | ❌ | Optional calldata for execution |
+| `intent.swapType` | `string` | ❌ | Swap type: "exact-input" or "exact-output" |
+| `intent.minValidUntil` | `number` | ❌ | Minimum quote validity duration in seconds |
+| `intent.preference` | `string` | ❌ | Optimization preference: "price", "speed" |
+| `intent.partialFill` | `boolean` | ❌ | Whether the integrator supports partial fills |
+| `supportedTypes` | `array` | ✅ | Order types supported by the provider |
 | `solverOptions` | `object` | ❌ | Advanced solver selection and timeout options |
 
 ### Solver Options Configuration
@@ -160,76 +174,50 @@ The system enforces these validation rules for solver options:
         {
             "quoteId": "6a22e92f-3e5d-4f05-ab5f-007b01e58b21",
             "solverId": "example-solver",
-            "orders": [
-                {
+            "order": {
+                "type": "oif-escrow-v0",
+                "payload": {
                     "signatureType": "eip712",
-                    "domain": "0x01000002147a69000000000022d473030f116ddee9f6b43ac78ba3",
-                    "primaryType": "PermitBatchWitnessTransferFrom",
+                    "domain": {
+                        "name": "TestOrder",
+                        "version": "1",
+                        "chainId": 1,
+                        "verifyingContract": "0x1234567890123456789012345678901234567890"
+                    },
+                    "primaryType": "Order",
                     "message": {
-                        "digest": "0xdfbfeb9aed6340d513ef52f716cef5b50b677118d364c8448bff1c9ea9fd0b14",
-                        "eip712": {
-                            "deadline": "1756457492",
-                            "digest": "0xdfbfeb9aed6340d513ef52f716cef5b50b677118d364c8448bff1c9ea9fd0b14",
-                            "nonce": "1756457192541",
-                            "permitted": [
-                                {
-                                    "amount": "1000000000000000000",
-                                    "token": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
-                                }
-                            ],
-                            "signing": {
-                                "domain": {
-                                    "chainId": 31337,
-                                    "name": "Permit2",
-                                    "verifyingContract": "0x000000000022d473030f116ddee9f6b43ac78ba3"
-                                },
-                                "noPrefix": true,
-                                "primaryType": "PermitBatchWitnessTransferFrom",
-                                "scheme": "eip-712"
-                            },
-                            "spender": "0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0",
-                            "witness": {
-                                "expires": 1756457492,
-                                "inputOracle": "0xdc64a140aa3e981100a9beca4e685f962f0cf6c9",
-                                "outputs": [
-                                    {
-                                        "amount": "1000000000000000000",
-                                        "call": "0x",
-                                        "chainId": 31338,
-                                        "context": "0x",
-                                        "oracle": "0x0000000000000000000000000000000000000000000000000000000000000000",
-                                        "recipient": "0x0000000000000000000000003c44cdddb6a900fa2b585dd299e03d12fa4293bc",
-                                        "settler": "0x000000000000000000000000cf7ed3acca5a467e9e704c703e8d87f634fb0fc9",
-                                        "token": "0x0000000000000000000000005fbdb2315678afecb367f032d93f642f64180aa3"
-                                    }
-                                ]
-                            }
-                        }
-                    }
+                        "orderType": "swap",
+                        "adapter": "example-solver",
+                        "mockProvider": "TestMockAdapter"
+                    },
+                    "types": {}
                 }
-            ],
-            "details": {
-                "requestedOutputs": [
-                    {
-                        "receiver": "0x01000002147a6a3c44cdddb6a900fa2b585dd299e03d12fa4293bc",
-                        "asset": "0x01000002147a6a5fbdb2315678afecb367f032d93f642f64180aa3",
-                        "amount": "1000000000000000000",
-                        "calldata": null
-                    }
-                ],
-                "availableInputs": [
+            },
+            "validUntil": 1756457492,
+            "eta": 144,
+            "provider": "oif-solver",
+            "failureHandling": null,
+            "partialFill": false,
+            "preview": {
+                "inputs": [
                     {
                         "user": "0x01000002147a6970997970c51812dc3a010c7d01b50e0d17dc79c8",
                         "asset": "0x01000002147a695fbdb2315678afecb367f032d93f642f64180aa3",
                         "amount": "1000000000000000000",
                         "lock": null
                     }
+                ],
+                "outputs": [
+                    {
+                        "receiver": "0x01000002147a6a3c44cdddb6a900fa2b585dd299e03d12fa4293bc",
+                        "asset": "0x01000002147a6a5fbdb2315678afecb367f032d93f642f64180aa3",
+                        "amount": "1000000000000000000",
+                        "calldata": null
+                    }
                 ]
             },
-            "validUntil": 1756457492,
-            "eta": 144,
-            "provider": "oif-solver",
-            "integrityChecksum": "46674de706ecfa7467fbf24ec5ade684cb438313b7914c0071ab4c6af859d44b"
+            "integrityChecksum": "46674de706ecfa7467fbf24ec5ade684cb438313b7914c0071ab4c6af859d44b",
+            "metadata": null
         }
     ],
     "totalQuotes": 1,

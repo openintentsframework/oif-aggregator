@@ -103,7 +103,7 @@ impl OrderStorage for MemoryStore {
 			.iter()
 			.filter_map(|entry| {
 				let order = entry.value();
-				if oif_types::OrderStatus::from(order.status().clone()) == status {
+				if order.status().clone() == status {
 					Some(order.clone())
 				} else {
 					None

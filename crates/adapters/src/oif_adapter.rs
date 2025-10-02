@@ -841,7 +841,7 @@ impl SolverAdapter for OifAdapter {
 			return Err(AdapterError::InvalidResponse {
 				reason: format!(
 					"OIF order endpoint returned status '{}' with no order_id",
-					order_response.status.to_string()
+					order_response.status
 				),
 			});
 		}

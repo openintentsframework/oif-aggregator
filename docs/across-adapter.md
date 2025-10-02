@@ -40,9 +40,14 @@ The Across Adapter supports extensive customization through the `metadata.reques
 
 ```json
 {
-  "user": "",
-  "available_inputs": [...],
-  "requested_outputs": [...],
+  "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8",
+  "intent": {
+    "intentType": "oif-swap",
+    "inputs": [...],
+    "outputs": [...],
+    "swapType": "exact-input"
+  },
+  "supportedTypes": ["oif-escrow-v0"],
   "metadata": {
     "requestParams": {
       "tradeType": "exactInput",
