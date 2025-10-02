@@ -8,7 +8,7 @@ use oif_types::oif::common::QuotePreview;
 use oif_types::oif::v0::Quote;
 use oif_types::{
 	Adapter, Asset, AssetRoute, GetQuoteResponse, OifGetQuoteRequest, OifGetQuoteResponse,
-	SolverRuntimeConfig,
+	SolverRuntimeConfig, SwapType,
 };
 use oif_types::{AdapterError, AdapterResult, SolverAdapter, SupportedAssetsData};
 use reqwest::{
@@ -627,7 +627,6 @@ impl AcrossAdapter {
 	/// {
 	///   "metadata": {
 	///     "requestParams": {
-	///       "tradeType": "exactInput",
 	///       "slippage": "0.005",
 	///       "skipOriginTxEstimation": true,
 	///       "appFee": "0.001",
@@ -647,6 +646,7 @@ impl AcrossAdapter {
 		output_chain_id: u64,
 		depositor: &str,
 		recipient: &str,
+		trade_type: &str,
 	) -> AdapterResult<Vec<(&'static str, String)>> {
 		// Start with required parameters
 		let mut params = vec![
@@ -657,6 +657,7 @@ impl AcrossAdapter {
 			("destinationChainId", output_chain_id.to_string()),
 			("depositor", depositor.to_string()),
 			("recipient", recipient.to_string()),
+			("tradeType", trade_type.to_string()),
 		];
 
 		// Extract optional parameters from metadata.requestParams
@@ -667,10 +668,6 @@ impl AcrossAdapter {
 				match serde_json::from_value::<AcrossQueryParams>(request_params.clone()) {
 					Ok(query_params) => {
 						debug!("Successfully parsed query_params: {:?}", query_params);
-						// Add optional parameters if they exist
-						if let Some(trade_type) = query_params.trade_type {
-							params.push(("tradeType", trade_type));
-						}
 
 						if let Some(integrator_id) = query_params.integrator_id {
 							params.push(("integratorId", integrator_id));
@@ -743,11 +740,22 @@ impl AcrossAdapter {
 			.clone()
 			.unwrap_or_else(|| format!("across-quote-{}", uuid::Uuid::new_v4()));
 
-		// Use OIF inputs/outputs directly from the request
-		let inputs = request.inputs();
-		let outputs = request.outputs();
+		// Create new inputs and outputs with correct amounts from Across response
+		let mut inputs = request.inputs().to_vec();
+		let mut outputs = request.outputs().to_vec();
 
-		// The new API doesn't provide a timestamp, so we don't set valid_until
+		// Update the first input with the actual input amount from Across
+		if let Some(first_input) = inputs.get_mut(0) {
+			first_input.amount = Some(oif_types::U256::new(across_swap.input_amount.clone()));
+		}
+
+		// Update the first output with the actual output amount from Across
+		if let Some(first_output) = outputs.get_mut(0) {
+			first_output.amount = Some(oif_types::U256::new(
+				across_swap.expected_output_amount.clone(),
+			));
+		}
+
 		let valid_until = None;
 
 		let metadata = serde_json::json!({
@@ -756,13 +764,10 @@ impl AcrossAdapter {
 
 		Ok(Quote {
 			quote_id: Some(quote_id),
-			preview: QuotePreview {
-				inputs: inputs.to_vec(),
-				outputs: outputs.to_vec(),
-			},
+			preview: QuotePreview { inputs, outputs },
 			order: oif_types::oif::v0::Order::Across {
 				payload: serde_json::json!({
-					"across_swap": across_swap,
+					"across_swap": across_swap.swap_tx.clone(),
 				}),
 			},
 			valid_until,
@@ -854,6 +859,17 @@ impl SolverAdapter for AcrossAdapter {
 				reason: "Input amount is required but not provided".to_string(),
 			})?;
 
+		let swap_type = request
+			.intent()
+			.clone()
+			.swap_type
+			.unwrap_or(SwapType::ExactInput);
+
+		let trade_type = match swap_type {
+			SwapType::ExactInput => "exactInput",
+			SwapType::ExactOutput => "exactOutput",
+		};
+
 		let query_params = self.build_query_params(
 			request,
 			&amount.to_string(),
@@ -863,6 +879,7 @@ impl SolverAdapter for AcrossAdapter {
 			output_chain_id,
 			depositor.as_str(),
 			recipient.as_str(),
+			trade_type,
 		)?;
 
 		// Make the quote request (remove Content-Type header for GET request)
@@ -1760,7 +1777,6 @@ mod tests {
 	fn test_across_query_params_deserialization() {
 		// Test JSON with mixed types (numbers and strings)
 		let json_data = serde_json::json!({
-			"tradeType": "minOutput",
 			"slippage": 5,        // Number
 			"appFee": 2.5,        // Float
 			"integratorId": "test-id",
@@ -1771,7 +1787,6 @@ mod tests {
 		let params: AcrossQueryParams =
 			serde_json::from_value(json_data).expect("Failed to deserialize mixed types");
 
-		assert_eq!(params.trade_type, Some("minOutput".to_string()));
 		assert_eq!(params.slippage, Some("5.0".to_string())); // Integer converted to decimal string
 		assert_eq!(params.app_fee, Some("2.5".to_string())); // Float converted to string
 		assert_eq!(params.integrator_id, Some("test-id".to_string()));
@@ -1781,7 +1796,6 @@ mod tests {
 
 		// Test with string values
 		let json_string_data = serde_json::json!({
-			"tradeType": "exactInput",
 			"slippage": "0.005",  // String
 			"appFee": "1.0",      // String
 		});
@@ -1789,29 +1803,13 @@ mod tests {
 		let params_string: AcrossQueryParams =
 			serde_json::from_value(json_string_data).expect("Failed to deserialize string types");
 
-		assert_eq!(params_string.trade_type, Some("exactInput".to_string()));
 		assert_eq!(params_string.slippage, Some("0.005".to_string()));
 		assert_eq!(params_string.app_fee, Some("1.0".to_string()));
 
 		println!("✅ Successfully parsed string parameters");
 
-		// Test with null/missing values
-		let json_minimal = serde_json::json!({
-			"tradeType": "exactOutput"
-		});
-
-		let params_minimal: AcrossQueryParams =
-			serde_json::from_value(json_minimal).expect("Failed to deserialize minimal data");
-
-		assert_eq!(params_minimal.trade_type, Some("exactOutput".to_string()));
-		assert_eq!(params_minimal.slippage, None);
-		assert_eq!(params_minimal.app_fee, None);
-
-		println!("✅ Successfully parsed minimal parameters with null values");
-
 		// Test with the user's exact payload
 		let user_payload = serde_json::json!({
-			"tradeType": "minOutput",
 			"integratorId": "0xdede",
 			"strictTradeType": true
 		});
@@ -1819,7 +1817,6 @@ mod tests {
 		let params_user: AcrossQueryParams =
 			serde_json::from_value(user_payload).expect("Failed to deserialize user payload");
 
-		assert_eq!(params_user.trade_type, Some("minOutput".to_string()));
 		assert_eq!(params_user.integrator_id, Some("0xdede".to_string()));
 		assert_eq!(params_user.strict_trade_type, Some(true));
 		assert_eq!(params_user.slippage, None); // Missing field should be None

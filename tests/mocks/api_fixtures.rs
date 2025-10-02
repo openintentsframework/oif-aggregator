@@ -109,7 +109,10 @@ impl ApiFixtures {
 			"provider": "Example Solver v1.0",
 			"partialFill": false,
 			"integrityChecksum": "hmac-sha256:a1b2c3d4e5f6789012345678901234567890123456789012345678901234567890",
-			"oifMetadata": {
+			"metadata": {
+				"test": "additional context"
+			},
+			"preview": {
 				"inputs": [{
 					"user": user_addr.to_hex(),
 					"asset": eth_addr.to_hex(),
@@ -120,9 +123,6 @@ impl ApiFixtures {
 					"amount": TestConstants::TWO_THOUSAND_USDC,
 					"receiver": user_addr.to_hex()
 				}]
-			},
-			"metadata": {
-				"test": "additional context"
 			}
 		})
 	}

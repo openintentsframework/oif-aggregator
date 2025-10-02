@@ -26,7 +26,7 @@ pub type QuoteValidationResult<T> = Result<T, QuoteValidationError>;
 /// Core Quote domain model using composition over duplication
 ///
 /// This represents a quote in the domain layer with business logic.
-/// It wraps the OIF specification quote with aggregator-specific metadata.
+/// It wraps the OIF specification quote
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct Quote {
@@ -39,9 +39,6 @@ pub struct Quote {
 	/// HMAC-SHA256 integrity checksum for quote verification
 	/// This ensures the quote originated from the aggregator service
 	pub integrity_checksum: String,
-	/// Aggregator-specific metadata (separate from OIF metadata)
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub metadata: Option<serde_json::Value>,
 }
 
 // ================================
@@ -85,7 +82,6 @@ impl Quote {
 			solver_id,
 			quote,
 			integrity_checksum,
-			metadata: None,
 		}
 	}
 
@@ -142,11 +138,6 @@ impl Quote {
 	pub fn failure_handling(&self) -> Option<&crate::oif::common::FailureHandlingMode> {
 		self.quote.failure_handling()
 	}
-
-	/// Get the OIF metadata
-	pub fn oif_metadata(&self) -> Option<&serde_json::Value> {
-		self.quote.metadata()
-	}
 }
 
 impl TryFrom<(crate::oif::OifQuoteLatest, String)> for Quote {
@@ -170,7 +161,6 @@ impl TryFrom<(crate::oif::OifQuoteLatest, String)> for Quote {
 			solver_id,
 			quote: OifQuote::new(oif_quote), // Wrap version-specific quote in version-agnostic wrapper
 			integrity_checksum: String::new(), // Will be set by aggregator service
-			metadata: None,
 		})
 	}
 }

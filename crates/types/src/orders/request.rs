@@ -57,7 +57,6 @@ use crate::QuoteResponse;
             ]
         },
         "integrityChecksum": "hmac-sha256:a1b2c3d4e5f6...",
-        "oifMetadata": {"provider": "data"},
         "metadata": {"aggregator": "metadata"}
     },
     "signature": "0x1234567890abcdef...",

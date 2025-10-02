@@ -87,7 +87,6 @@ pub struct AggregationMetadata {
         ]
     },
     "integrityChecksum": "hmac-sha256:a1b2c3d4e5f6...",
-    "oifMetadata": {"provider": "data"},
     "metadata": {"aggregator": "metadata"}
 })))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -112,12 +111,11 @@ pub struct QuoteResponse {
 	pub failure_handling: Option<crate::oif::common::FailureHandlingMode>,
 	/// Whether the quote supports partial fill (from OIF)
 	pub partial_fill: bool,
+	/// quote preview (from OIF)
+	pub preview: crate::oif::common::QuotePreview,
 	/// HMAC-SHA256 integrity checksum for quote verification (aggregator-specific)
 	pub integrity_checksum: String,
 	/// Metadata from the OIF quote (provider-specific)
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub oif_metadata: Option<serde_json::Value>,
-	/// Aggregator-specific metadata for additional context and execution details
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub metadata: Option<serde_json::Value>,
 }
@@ -171,7 +169,6 @@ pub struct QuoteResponse {
                 ]
             },
             "integrityChecksum": "hmac-sha256:a1b2c3d4e5f6...",
-            "oifMetadata": {"provider": "data"},
             "metadata": {"aggregator": "metadata"}
         }
     ],
@@ -257,14 +254,14 @@ impl TryFrom<Quote> for QuoteResponse {
 			quote_id: quote.quote_id,
 			solver_id: quote.solver_id,
 			order: quote.quote.order().clone(),
+			preview: quote.quote.preview().clone(),
 			valid_until: quote.quote.valid_until(),
 			eta: quote.quote.eta(),
 			provider: quote.quote.provider().cloned(),
 			failure_handling: quote.quote.failure_handling().cloned(),
 			partial_fill: quote.quote.partial_fill(),
 			integrity_checksum: quote.integrity_checksum,
-			oif_metadata: quote.quote.metadata().cloned(),
-			metadata: quote.metadata,
+			metadata: quote.quote.metadata().cloned(),
 		})
 	}
 }
@@ -283,11 +280,8 @@ impl TryFrom<QuoteResponse> for Quote {
 			provider: response.provider,
 			failure_handling: response.failure_handling,
 			partial_fill: response.partial_fill,
-			metadata: response.oif_metadata,
-			preview: crate::oif::common::QuotePreview {
-				inputs: vec![],  // Default empty inputs for backward compatibility
-				outputs: vec![], // Default empty outputs for backward compatibility
-			},
+			metadata: response.metadata,
+			preview: response.preview,
 		};
 
 		Ok(Quote {
@@ -295,7 +289,6 @@ impl TryFrom<QuoteResponse> for Quote {
 			solver_id: response.solver_id,
 			quote: crate::oif::OifQuote::new(oif_quote),
 			integrity_checksum: response.integrity_checksum,
-			metadata: response.metadata,
 		})
 	}
 }

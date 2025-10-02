@@ -145,9 +145,6 @@ pub enum LockKind {
 	Rhinestone,
 }
 
-/// Alias for backward compatibility
-pub type Lock = AssetLockReference;
-
 /// Intent type identifier
 ///
 /// Core intent types that are stable across OIF versions.

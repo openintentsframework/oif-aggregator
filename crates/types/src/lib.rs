@@ -47,9 +47,9 @@ pub use models::{
 
 // Re-export common OIF models
 pub use oif::common::{
-	AssetAmount, AssetLockReference, AuthScheme, FailureHandlingMode, Input, IntentType, Lock,
-	LockKind, OifVersion, OrderStatus, OriginMode, OriginSubmission, Output, QuotePreference,
-	Settlement, SettlementType, SignatureType, SwapType,
+	AssetAmount, AssetLockReference, AuthScheme, FailureHandlingMode, Input, IntentType, LockKind,
+	OifVersion, OrderStatus, OriginMode, OriginSubmission, Output, QuotePreference, Settlement,
+	SettlementType, SignatureType, SwapType,
 };
 
 // Re-export OIF v0-specific models

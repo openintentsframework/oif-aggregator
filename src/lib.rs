@@ -74,7 +74,6 @@ pub use oif_adapters::{AdapterRegistry, AdapterResult, SolverAdapter};
 // Config
 pub use oif_config::{load_config, log_service_info, log_startup_complete, Settings};
 
-// Module aliases for backward compatibility
 pub mod models {
 	pub use oif_types::*;
 }

@@ -211,11 +211,6 @@ impl InteropAddress {
 		format!("0x{}", hex::encode(&self.address))
 	}
 
-	/// Extract token address (alias for extract_address for backward compatibility)
-	pub fn extract_token_address(&self) -> QuoteValidationResult<String> {
-		Ok(self.extract_address())
-	}
-
 	/// Validate the interoperable address
 	pub fn validate(&self) -> QuoteValidationResult<()> {
 		// Version
