@@ -14,7 +14,7 @@ use utoipa::ToSchema;
 use crate::{InteropAddress, U256};
 
 /// OIF specification version for future compatibility
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Eq, Hash)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub enum OifVersion {
 	V0,
@@ -62,7 +62,7 @@ pub struct Settlement {
 /// Status of an order in the solver system.
 ///
 /// Order lifecycle status that is fundamental across OIF versions.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub enum OrderStatus {
@@ -76,7 +76,6 @@ pub enum OrderStatus {
 	/// Next: When fill confirms, moves to Executed.
 	Executing,
 	/// Order has been executed - fill transaction confirmed.
-	/// Next: Either PostFilled (if post-fill tx needed) or Settled (if no post-fill).
 	Executed,
 	/// Order has been settled and is ready to be claimed.
 	Settled,
@@ -111,7 +110,7 @@ impl fmt::Display for OrderStatus {
 /// Supported signature types
 ///
 /// Core signature mechanisms that remain stable across OIF versions.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub enum SignatureType {
@@ -139,9 +138,7 @@ pub struct AssetLockReference {
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub enum LockKind {
-	#[serde(rename = "the-compact")]
 	TheCompact,
-	#[serde(rename = "rhinestone")]
 	Rhinestone,
 }
 
@@ -184,12 +181,13 @@ pub enum SwapType {
 /// Core origin submission mechanism that is stable across versions.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
+#[serde(rename_all = "camelCase")]
 pub struct OriginSubmission {
 	pub mode: OriginMode,
 	pub schemes: Option<Vec<AuthScheme>>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub enum OriginMode {
@@ -197,7 +195,7 @@ pub enum OriginMode {
 	Protocol,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "kebab-case")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub enum AuthScheme {
@@ -303,7 +301,7 @@ pub struct EIP712TypeProperty {
 pub type EIP712Types = HashMap<String, Vec<EIP712TypeProperty>>;
 
 /// Status enum for order submission responses
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub enum PostOrderResponseStatus {

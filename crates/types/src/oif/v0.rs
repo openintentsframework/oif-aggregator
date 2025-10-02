@@ -209,36 +209,13 @@ pub enum Order {
 	Across { payload: serde_json::Value },
 }
 
-/// OIF Order union type with versioning support
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "type", rename_all = "kebab-case")]
-pub enum OrderTest {
-	#[serde(rename = "oif-escrow-v0")]
-	OifEscrowV0 { payload: OrderPayload },
-	#[serde(rename = "oif-resource-lock-v0")]
-	OifResourceLockV0 { payload: OrderPayload },
-	#[serde(rename = "oif-3009-v0")]
-	Oif3009V0 {
-		payload: OrderPayload,
-		metadata: serde_json::Value,
-	},
-	#[serde(rename = "oif-generic-v0")]
-	OifGenericV0 {
-		payload: serde_json::Value, // More flexible for generic orders
-	},
-	/// TODO Across order type
-	Across { payload: serde_json::Value },
-}
-
 /// Standard order payload structure for most order types
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct OrderPayload {
-	#[serde(rename = "signatureType")]
 	pub signature_type: SignatureType,
 	pub domain: serde_json::Value,
-	#[serde(rename = "primaryType")]
 	pub primary_type: String,
 	pub message: serde_json::Value,
 	pub types: EIP712Types,

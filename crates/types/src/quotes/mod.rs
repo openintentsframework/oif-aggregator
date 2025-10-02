@@ -4,7 +4,6 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
-use uuid;
 use uuid::Uuid;
 
 pub mod errors;

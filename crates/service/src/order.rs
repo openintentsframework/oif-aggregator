@@ -544,6 +544,10 @@ impl OrderService {
 					solver_id = %current_order.solver_id,
 					"Proceeding with order status check despite circuit breaker (emergency override)"
 				);
+
+				return Err(SolverAdapterError::CircuitBreakerOpen(
+					current_order.solver_id.clone(),
+				));
 			}
 		}
 

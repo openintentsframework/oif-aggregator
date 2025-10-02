@@ -20,7 +20,7 @@ use oif_types::{
 		v0::{GetOrderResponse, PostOrderResponse as SubmitOrderResponse},
 	},
 };
-use oif_types::{Asset, InteropAddress, SolverRuntimeConfig, U256};
+use oif_types::{Asset, Input, InteropAddress, Output, SolverRuntimeConfig, U256};
 use oif_types::{
 	OifGetOrderResponse, OifGetQuoteRequest, OifGetQuoteResponse, OifPostOrderRequest,
 	OifPostOrderResponse, Solver,
@@ -117,8 +117,18 @@ impl SolverAdapter for MockDemoAdapter {
 
 		let quote = oif_types::oif::v0::Quote {
 			preview: oif_types::oif::common::QuotePreview {
-				inputs: vec![],
-				outputs: vec![],
+				inputs: vec![Input {
+					asset: available_input.asset.clone(),
+					amount: available_input.amount.clone(),
+					user: available_input.user.clone(),
+					lock: available_input.lock.clone(),
+				}],
+				outputs: vec![Output {
+					asset: requested_output.asset.clone(),
+					amount: requested_output.amount.clone(),
+					receiver: requested_output.receiver.clone(),
+					calldata: requested_output.calldata.clone(),
+				}],
 			},
 			quote_id: Some(quote_id.clone()),
 			order: oif_types::oif::v0::Order::OifEscrowV0 {

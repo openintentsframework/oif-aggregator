@@ -5,7 +5,7 @@ use crate::adapters::AdapterError;
 use crate::Adapter;
 use crate::{
 	models::SupportedAssetsData, OifGetOrderResponse, OifGetQuoteRequest, OifGetQuoteResponse,
-	OifPostOrderResponse,
+	OifPostOrderRequest, OifPostOrderResponse,
 };
 use async_trait::async_trait;
 use std::fmt::Debug;
@@ -39,7 +39,7 @@ pub trait SolverAdapter: Send + Sync + Debug {
 	/// Override this method if your adapter supports order submission.
 	async fn submit_order(
 		&self,
-		_order: &crate::OifPostOrderRequest,
+		_order: &OifPostOrderRequest,
 		_config: &SolverRuntimeConfig,
 	) -> AdapterResult<OifPostOrderResponse> {
 		Err(AdapterError::UnsupportedOperation {

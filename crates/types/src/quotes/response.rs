@@ -355,7 +355,7 @@ mod tests {
 	#[test]
 	fn test_quotes_response_creation() {
 		let quote1 = create_test_quote();
-		let quote2 = create_test_quote(); // TODO: Use .with_eta(200) when builder methods are re-implemented
+		let quote2 = create_test_quote();
 
 		let quotes = vec![quote1, quote2];
 		let response = QuotesResponse::from_domain_quotes(quotes).unwrap();

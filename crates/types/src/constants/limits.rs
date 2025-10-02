@@ -110,4 +110,4 @@ pub const DEFAULT_CIRCUIT_BREAKER_MAX_RECOVERY_ATTEMPTS: u32 = 10;
 /// Default metrics freshness window in minutes (how recent metrics must be)
 /// Prevents circuit breaker decisions based on stale data - if metrics are older
 /// than this, success rate evaluation is skipped (fail-open approach)
-pub const DEFAULT_CIRCUIT_BREAKER_METRICS_MAX_AGE_MINUTES: u64 = 30;
+pub const DEFAULT_CIRCUIT_BREAKER_METRICS_MAX_AGE_MINUTES: u32 = 30;

@@ -334,7 +334,12 @@ impl TaskExecutor {
 		// Schedule individual metrics job for this task
 		let now = Utc::now();
 		let metrics_job = BackgroundJob::AggregationMetricsUpdate {
-			aggregation_id: format!("task-{}-{}", solver.solver_id, now.timestamp()),
+			aggregation_id: format!(
+				"task-{}-{}-{}",
+				solver.solver_id,
+				now.timestamp(),
+				now.timestamp_subsec_nanos()
+			),
 			solver_metrics: vec![(solver.solver_id.clone(), metrics_data)],
 			aggregation_timestamp: now,
 		};

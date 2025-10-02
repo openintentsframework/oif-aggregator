@@ -10,6 +10,7 @@
 //! - **Predictable behavior**: Straightforward logic that's easy to test and debug
 
 use async_trait::async_trait;
+use futures::stream::{self, StreamExt};
 use oif_config::AggregationConfig;
 use oif_types::constants::limits::{DEFAULT_PRIORITY_THRESHOLD, DEFAULT_SAMPLE_SIZE};
 use oif_types::quotes::request::{SolverOptions, SolverSelection};
@@ -395,10 +396,22 @@ impl SolverFilterTrait for SolverFilterService {
 			solver_compatibility.len()
 		);
 
-		// Step 4: Apply circuit breaker filtering (before selection to ensure correct counts)
+		// Step 4: Apply circuit breaker filtering in parallel using streams (before selection to ensure correct counts)
+		let circuit_breaker_stream = stream::iter(solver_compatibility)
+			.map(|(solver, compatibility)| {
+				let circuit_breaker = self.circuit_breaker.clone();
+				async move {
+					let should_allow = circuit_breaker.should_allow_request(&solver).await;
+					(solver, compatibility, should_allow)
+				}
+			})
+			.buffer_unordered(10); // Process up to 10 circuit breaker checks concurrently
+
+		let circuit_breaker_results: Vec<_> = circuit_breaker_stream.collect().await;
+
 		let mut circuit_filtered_solvers = Vec::new();
-		for (solver, compatibility) in solver_compatibility {
-			if self.circuit_breaker.should_allow_request(&solver).await {
+		for (solver, compatibility, should_allow) in circuit_breaker_results {
+			if should_allow {
 				circuit_filtered_solvers.push((solver, compatibility));
 			} else {
 				debug!(

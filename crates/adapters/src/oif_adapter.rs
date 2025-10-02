@@ -792,13 +792,11 @@ impl SolverAdapter for OifAdapter {
 			self.config.adapter_id, config.solver_id
 		);
 
-		if !order_request.is_v0() {
-			return Err(AdapterError::InvalidResponse {
+		let v0_request = order_request
+			.as_v0()
+			.ok_or_else(|| AdapterError::InvalidResponse {
 				reason: "OIF adapter only supports v0 orders".to_string(),
-			});
-		}
-
-		let v0_request = order_request.as_latest();
+			})?;
 
 		let response = client
 			.post(orders_url)

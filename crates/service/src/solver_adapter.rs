@@ -33,6 +33,8 @@ pub enum SolverAdapterError {
 	AdapterNotFound(String),
 	#[error("storage error: {0}")]
 	Storage(String),
+	#[error("circuit breaker open for solver: {0}")]
+	CircuitBreakerOpen(String),
 }
 
 impl SolverAdapterError {

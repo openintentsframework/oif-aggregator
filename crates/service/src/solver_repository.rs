@@ -225,8 +225,6 @@ impl SolverServiceTrait for SolverService {
 	}
 
 	async fn get_stats(&self) -> Result<SolverStats, SolverServiceError> {
-		use std::collections::HashMap;
-
 		let total = self
 			.storage
 			.count_solvers()

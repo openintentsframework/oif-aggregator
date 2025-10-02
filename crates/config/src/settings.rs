@@ -473,7 +473,7 @@ pub struct CircuitBreakerSettings {
 	///
 	/// Must be > 0. Default: 30 minutes (allows for temporary metric collection gaps)
 	#[serde(default = "default_circuit_breaker_metrics_max_age")]
-	pub metrics_max_age_minutes: u64,
+	pub metrics_max_age_minutes: u32,
 
 	/// Service error rate threshold below which the circuit opens (0.0 - 1.0)
 	///
@@ -546,7 +546,7 @@ fn default_circuit_breaker_persistent_failure_action() -> PersistentFailureActio
 	PersistentFailureAction::ExtendTimeout
 }
 
-fn default_circuit_breaker_metrics_max_age() -> u64 {
+fn default_circuit_breaker_metrics_max_age() -> u32 {
 	DEFAULT_CIRCUIT_BREAKER_METRICS_MAX_AGE_MINUTES
 }
 
