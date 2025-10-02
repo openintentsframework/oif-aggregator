@@ -5,7 +5,6 @@
 
 mod mocks;
 
-#[cfg(test)]
 mod solver_options_e2e {
 
 	// Re-export commonly used items
@@ -25,7 +24,7 @@ mod solver_options_e2e {
 
 		// Test request WITHOUT solver_options - should use defaults
 		let mut request = ApiFixtures::valid_quote_request();
-		// Remove solverOptions to test true defaults
+		// Remove solverOptions to test default values
 		request.as_object_mut().unwrap().remove("solverOptions");
 
 		let resp = client
