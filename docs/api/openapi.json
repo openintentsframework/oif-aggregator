@@ -453,6 +453,51 @@
           "symbol": "USDC"
         }
       },
+      "AssetResponse": {
+        "type": "object",
+        "description": "Asset response format for API with separate address and chain ID fields",
+        "required": [
+          "address",
+          "chainId",
+          "symbol",
+          "name",
+          "decimals"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "Token contract address"
+          },
+          "chainId": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Chain ID where the token exists",
+            "minimum": 0
+          },
+          "decimals": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Number of decimal places",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable token name (e.g., \"USD Coin\", \"Ethereum\")"
+          },
+          "symbol": {
+            "type": "string",
+            "description": "Token symbol (e.g., \"USDC\", \"ETH\", \"WBTC\")"
+          }
+        },
+        "additionalProperties": false,
+        "example": {
+          "address": "0xA0b86a33E6441E7C81F7C93451777f5F4dE78e86",
+          "chainId": 1,
+          "decimals": 6,
+          "name": "USD Coin",
+          "symbol": "USDC"
+        }
+      },
       "AssetRouteResponse": {
         "type": "object",
         "description": "API response format for asset routes with separate chain ID and address fields\n\nThis provides a more readable format for API consumers compared to the\ninternal InteropAddress format used in the domain model.",
