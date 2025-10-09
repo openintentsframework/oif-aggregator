@@ -763,7 +763,7 @@ impl SolverAdapter for OifAdapter {
 			body.len()
 		);
 
-		// Parse the response body manually since we already consumed it
+		// Parse the response body
 		let quote_response: GetQuoteResponse =
 			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
 				reason: format!("Failed to parse OIF quote response: {}", e),
@@ -819,10 +819,6 @@ impl SolverAdapter for OifAdapter {
 
 		// Get response body as text first so we can print it
 		let body = response.text().await.unwrap_or_default();
-		debug!(
-			"OIF order endpoint responded successfully with {} bytes",
-			body.len()
-		);
 
 		// Parse the response body manually since we already consumed it
 		let order_response: PostOrderResponse =
@@ -933,7 +929,7 @@ impl SolverAdapter for OifAdapter {
 		let body = response.text().await.unwrap_or_default();
 		debug!(
 			"OIF get order endpoint responded successfully with {} bytes",
-			body.len()
+			body
 		);
 
 		// Parse the response body manually since we already consumed it

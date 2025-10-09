@@ -63,11 +63,50 @@ impl crate::IntegrityPayload for Quote {
 }
 
 impl Quote {
-	/// Convert quote order to a canonical string for integrity verification
+	/// Convert quote details to a canonical string for integrity verification
+	///
+	/// Uses only the critical fields that define the quote's economic terms:
+	/// - Order type (which settlement mechanism)
+	/// - Preview inputs/outputs (exact amounts, assets, parties)
+	/// - Failure handling and partial fill settings
+	///
+	/// This avoids serialization issues with complex nested EIP712 structures
+	/// while still protecting the quote's essential terms.
 	fn details_to_string(&self) -> String {
-		// For OIF spec, we serialize the order information for integrity
-		serde_json::to_string(self.quote.order())
-			.unwrap_or_else(|_| "order_serialization_failed".to_string())
+		// Extract order type string
+		let order_type = self.order_type_string();
+
+		// Serialize preview (inputs/outputs) - these are the critical economic terms
+		let preview_str = match serde_json::to_string(self.quote.preview()) {
+			Ok(s) => s,
+			Err(_) => return "preview_serialization_failed".to_string(),
+		};
+
+		// Include failure handling and partial fill as they affect execution
+		let failure_handling = self
+			.quote
+			.failure_handling()
+			.map(|fh| format!("{:?}", fh))
+			.unwrap_or_else(|| "none".to_string());
+
+		format!(
+			"order_type:{};preview:{};failure_handling:{};partial_fill:{}",
+			order_type,
+			preview_str,
+			failure_handling,
+			self.quote.partial_fill()
+		)
+	}
+
+	/// Get a string representation of the order type
+	fn order_type_string(&self) -> &str {
+		match self.quote.order() {
+			crate::oif::v0::Order::OifEscrowV0 { .. } => "oif-escrow-v0",
+			crate::oif::v0::Order::OifResourceLockV0 { .. } => "oif-resource-lock-v0",
+			crate::oif::v0::Order::Oif3009V0 { .. } => "oif-3009-v0",
+			crate::oif::v0::Order::OifGenericV0 { .. } => "oif-generic-v0",
+			crate::oif::v0::Order::Across { .. } => "across",
+		}
 	}
 }
 

@@ -97,7 +97,9 @@ pub trait SolverAdapterTrait: Send + Sync {
 		request: &OifPostOrderRequest,
 	) -> Result<OifPostOrderResponse, SolverAdapterError>;
 
-	/// Get order details from this solver (automatically collects metrics if JobScheduler available)
+	/// Get order details from this solver
+	///
+	/// Note: Does NOT collect metrics. 404 errors for expired orders are expected behavior.
 	async fn get_order_details(
 		&self,
 		order_id: &str,
@@ -395,19 +397,19 @@ impl SolverAdapterTrait for SolverAdapterService {
 		.await
 	}
 
-	/// Get order details from this solver (automatically collects metrics if JobScheduler available)
+	/// Get order details from this solver
+	///
+	/// Note: This method does NOT collect metrics or affect the circuit breaker.
+	/// 404 errors are expected for expired/deleted orders and should not penalize solver health.
 	async fn get_order_details(
 		&self,
 		order_id: &str,
 	) -> Result<OifGetOrderResponse, SolverAdapterError> {
-		self.execute_with_metrics("get_order_details", || async {
-			let adapter = self.get_adapter();
-			adapter
-				.get_order_details(order_id, &self.config)
-				.await
-				.map_err(|e| SolverAdapterError::Adapter(e.to_string()))
-		})
-		.await
+		let adapter = self.get_adapter();
+		adapter
+			.get_order_details(order_id, &self.config)
+			.await
+			.map_err(|e| SolverAdapterError::Adapter(e.to_string()))
 	}
 
 	/// Perform health check on this solver (automatically collects metrics if JobScheduler available)

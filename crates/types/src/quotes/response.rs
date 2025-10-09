@@ -111,7 +111,7 @@ pub struct QuoteResponse {
 	pub failure_handling: Option<crate::oif::common::FailureHandlingMode>,
 	/// Whether the quote supports partial fill (from OIF)
 	pub partial_fill: bool,
-	/// quote preview (from OIF)
+	/// Quote preview (from OIF)
 	pub preview: crate::oif::common::QuotePreview,
 	/// HMAC-SHA256 integrity checksum for quote verification (aggregator-specific)
 	pub integrity_checksum: String,

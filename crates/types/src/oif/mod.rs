@@ -601,7 +601,7 @@ impl OifPostOrderResponse {
 	/// Get the order (version-agnostic)
 	/// Returns the order in the latest supported format
 	/// Use order_v0() or order_v1() for version-specific access
-	pub fn order(&self) -> Option<&crate::oif::OifOrderLatest> {
+	pub fn order(&self) -> Option<&serde_json::Value> {
 		match self {
 			Self::V0(response) => response.order.as_ref(),
 		}

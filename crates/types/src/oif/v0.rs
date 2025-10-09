@@ -252,6 +252,7 @@ pub struct Quote {
 	/// Whether the quote supports partial fill
 	pub partial_fill: bool,
 
+	/// Preview showing exact input/output amounts
 	pub preview: QuotePreview,
 
 	/// Metadata for the order, never required, potentially contains provider specific data
@@ -299,7 +300,7 @@ pub struct PostOrderResponse {
 	pub message: Option<String>,
 
 	#[serde(skip_serializing_if = "Option::is_none")]
-	pub order: Option<Order>,
+	pub order: Option<serde_json::Value>,
 
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub metadata: Option<serde_json::Value>,
