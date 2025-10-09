@@ -71,7 +71,9 @@ fn test_order_creation() {
 	let custom_order = MockEntities::order_with_amounts("2000000000000000000", "3000000");
 	assert_eq!(
 		custom_order
-			.input_amount()
+			.input_amounts()
+			.first()
+			.unwrap()
 			.amount
 			.as_ref()
 			.unwrap()
@@ -80,7 +82,9 @@ fn test_order_creation() {
 	);
 	assert_eq!(
 		custom_order
-			.output_amount()
+			.output_amounts()
+			.first()
+			.unwrap()
 			.amount
 			.as_ref()
 			.unwrap()

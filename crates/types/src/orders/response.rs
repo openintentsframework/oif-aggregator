@@ -36,10 +36,10 @@ pub struct OrderResponse {
 	pub updated_at: DateTime<Utc>,
 
 	/// Input amount
-	pub input_amount: AssetAmount,
+	pub input_amounts: Vec<AssetAmount>,
 
 	/// Output amount
-	pub output_amount: AssetAmount,
+	pub output_amounts: Vec<AssetAmount>,
 
 	/// Settlement information
 	pub settlement: Settlement,
@@ -141,8 +141,8 @@ impl TryFrom<&Order> for OrderResponse {
 			quote_id: order.oif_quote_id().cloned(),
 			created_at: order.created_at(),
 			updated_at: order.updated_at(),
-			input_amount: order.input_amount().clone(),
-			output_amount: order.output_amount().clone(),
+			input_amounts: order.input_amounts().to_vec(),
+			output_amounts: order.output_amounts().to_vec(),
 			settlement: order.settlement().clone(),
 			fill_transaction: order.fill_transaction().cloned(),
 		})

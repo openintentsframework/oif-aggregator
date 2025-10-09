@@ -75,20 +75,18 @@ impl Order {
 		self.order.quote_id()
 	}
 
-	/// Get input amount from embedded OIF order
-	pub fn input_amount(&self) -> &AssetAmount {
-		self.order
-			.input_amounts()
-			.first()
-			.expect("Order should have at least one input amount")
+	/// Get all input amounts from embedded OIF order
+	///
+	/// Returns a slice of all input amounts. OIF supports multiple inputs.
+	pub fn input_amounts(&self) -> &[AssetAmount] {
+		self.order.input_amounts()
 	}
 
-	/// Get output amount from embedded OIF order
-	pub fn output_amount(&self) -> &AssetAmount {
-		self.order
-			.output_amounts()
-			.first()
-			.expect("Order should have at least one output amount")
+	/// Get all output amounts from embedded OIF order
+	///
+	/// Returns a slice of all output amounts. OIF supports multiple outputs.
+	pub fn output_amounts(&self) -> &[AssetAmount] {
+		self.order.output_amounts()
 	}
 
 	/// Get settlement information from embedded OIF order

@@ -1062,8 +1062,8 @@
           "status",
           "createdAt",
           "updatedAt",
-          "inputAmount",
-          "outputAmount",
+          "inputAmounts",
+          "outputAmounts",
           "settlement"
         ],
         "properties": {
@@ -1075,16 +1075,22 @@
           "fillTransaction": {
             "description": "Fill transaction information"
           },
-          "inputAmount": {
-            "$ref": "#/components/schemas/AssetAmount",
+          "inputAmounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetAmount"
+            },
             "description": "Input amount"
           },
           "orderId": {
             "type": "string",
             "description": "The order ID"
           },
-          "outputAmount": {
-            "$ref": "#/components/schemas/AssetAmount",
+          "outputAmounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetAmount"
+            },
             "description": "Output amount"
           },
           "quoteId": {

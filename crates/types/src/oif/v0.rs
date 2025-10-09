@@ -113,7 +113,7 @@ impl GetQuoteRequest {
 				.validate()
 				.map_err(|e| format!("inputs[{}].asset invalid: {}", i, e))?;
 
-			if swap_type != &SwapType::ExactInput && input.amount.is_none() {
+			if swap_type == &SwapType::ExactInput && input.amount.is_none() {
 				return Err(format!(
 					"inputs[{}].amount must be specified for exact-input",
 					i

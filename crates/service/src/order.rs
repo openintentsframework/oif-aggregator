@@ -293,7 +293,6 @@ impl OrderServiceTrait for OrderService {
 			order_id = %order_id,
 			current_status = ?current_order.status(),
 			solver_id = %current_order.solver_id,
-			has_empty_amounts = %(current_order.input_amount().asset.is_empty() || current_order.output_amount().asset.is_empty()),
 			"Order needs refresh, fetching details from solver"
 		);
 
@@ -404,8 +403,16 @@ impl OrderServiceTrait for OrderService {
 			&& current_order.fill_transaction().is_none();
 
 		// Check various change conditions
-		let is_first_fetch = current_order.input_amount().asset.is_empty()
-			|| current_order.output_amount().asset.is_empty();
+		let is_first_fetch = current_order
+			.input_amounts()
+			.first()
+			.map(|amt| amt.asset.is_empty())
+			.unwrap_or(true)
+			|| current_order
+				.output_amounts()
+				.first()
+				.map(|amt| amt.asset.is_empty())
+				.unwrap_or(true);
 		let timestamp_changed = updated_order.oif_updated_at() != current_order.oif_updated_at();
 
 		// Always update if this is the first fetch (empty asset names) or if anything changed
