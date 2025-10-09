@@ -334,7 +334,28 @@ impl OrderServiceTrait for OrderService {
 				response
 			},
 			Err(e) => {
-				// Log the error but don't fail - return current order from storage
+				// Check if the error indicates the order was removed by solver (expired/failed)
+				if let Some(status_code) = e.status_code() {
+					if matches!(status_code, 400 | 404 | 410) {
+						tracing::warn!(
+							target: TRACING_TARGET,
+							order_id = %order_id,
+							solver_id = %current_order.solver_id,
+							status_code = %status_code,
+							"Order not found on solver (likely expired/removed), marking as failed"
+						);
+
+						// Mark order as failed and update storage
+						return self
+							.mark_order_as_failed(
+								&mut current_order,
+								"Order removed from solver (expired or failed)",
+							)
+							.await;
+					}
+				}
+
+				// For other errors, log and return current order from storage
 				tracing::warn!(
 					target: TRACING_TARGET,
 					order_id = %order_id,
@@ -510,6 +531,47 @@ impl OrderService {
 			status,
 			oif_types::OrderStatus::Finalized | oif_types::OrderStatus::Failed
 		)
+	}
+
+	/// Mark an order as failed and update storage
+	///
+	/// This is used when the solver indicates the order no longer exists (404/410)
+	/// which typically means it expired or was removed after failure.
+	async fn mark_order_as_failed(
+		&self,
+		order: &mut Order,
+		reason: &str,
+	) -> Result<Option<Order>, OrderServiceError> {
+		tracing::info!(
+			target: TRACING_TARGET,
+			order_id = %order.order_id,
+			previous_status = ?order.status(),
+			reason = %reason,
+			"Marking order as failed"
+		);
+
+		// Update the order status to Failed
+		// The order's OIF response already has the status, we just need to update it
+		match &mut order.order {
+			oif_types::OifGetOrderResponse::V0(ref mut response) => {
+				response.status = oif_types::OrderStatus::Failed;
+				response.updated_at = chrono::Utc::now().timestamp() as u64;
+			},
+		}
+
+		// Save updated order to storage
+		self.storage
+			.update_order(order.clone())
+			.await
+			.map_err(|e| OrderServiceError::Storage(e.to_string()))?;
+
+		tracing::info!(
+			target: TRACING_TARGET,
+			order_id = %order.order_id,
+			"Order successfully marked as failed and updated in storage"
+		);
+
+		Ok(Some(order.clone()))
 	}
 
 	/// Get order details with circuit breaker protection and emergency override
