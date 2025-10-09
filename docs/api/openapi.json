@@ -1328,7 +1328,7 @@
           },
           "preview": {
             "$ref": "#/components/schemas/QuotePreview",
-            "description": "quote preview (from OIF)"
+            "description": "Quote preview (from OIF)"
           },
           "provider": {
             "type": [
