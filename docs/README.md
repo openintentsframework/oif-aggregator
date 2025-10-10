@@ -8,6 +8,7 @@ Welcome to the comprehensive documentation for the **Open Intent Framework (OIF)
 - **[Quick Start Guide](quick-start.md)** - Step-by-step setup with working examples
 - **[Configuration Guide](configuration.md)** - Complete configuration reference
 - **[API Documentation](api/)** - Interactive API reference with Swagger UI
+- **[Testing UI](../demo/)** - Modern React-based UI for visual testing and exploration
 
 ### 🏗️ **Understanding the System**
 - **[Quotes & Aggregation Guide](quotes-and-aggregation.md)** - How quote aggregation works
@@ -55,6 +56,13 @@ docs/
 - API testing with real requests
 - Programmatic usage examples
 - Troubleshooting common setup issues
+
+### **[Testing UI](../demo/)**
+- Modern React + TypeScript interface for aggregator testing
+- Visual quote comparison and solver exploration
+- Order submission with EIP-712 signing support
+- Real-time health monitoring and solver status
+- Light/dark themes and responsive design
 
 ### **[Configuration Guide](configuration.md)**
 - Environment variables and their usage
