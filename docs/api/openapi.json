@@ -369,15 +369,21 @@
       },
       "AssetAmount": {
         "type": "object",
-        "description": "Asset amount representation using ERC-7930 interoperable address format.",
+        "description": "Asset amount representation using ERC-7930 interoperable address format.\n\nThis is a fundamental model used across all OIF versions.",
         "required": [
-          "asset",
-          "amount"
+          "asset"
         ],
         "properties": {
           "amount": {
-            "$ref": "#/components/schemas/U256",
-            "description": "Amount as a big integer"
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/U256",
+                "description": "Amount as a big integer"
+              }
+            ]
           },
           "asset": {
             "$ref": "#/components/schemas/InteropAddress",
@@ -385,6 +391,22 @@
           }
         },
         "additionalProperties": false
+      },
+      "AssetLockReference": {
+        "type": "object",
+        "description": "Reference to a lock in a locking system\nCorresponds to AssetLockReference in the OIF spec\n\nCore locking mechanism that is stable across versions.",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/LockKind",
+            "description": "Lock type identifier"
+          },
+          "params": {
+            "description": "Lock-specific parameters"
+          }
+        }
       },
       "AssetResponse": {
         "type": "object",
@@ -494,40 +516,14 @@
           "originTokenSymbol": "WETH"
         }
       },
-      "AvailableInput": {
-        "type": "object",
-        "description": "Available input with lock information and user",
-        "required": [
-          "user",
-          "asset",
-          "amount"
-        ],
-        "properties": {
-          "amount": {
-            "$ref": "#/components/schemas/U256",
-            "description": "Amount as a big integer"
-          },
-          "asset": {
-            "$ref": "#/components/schemas/InteropAddress",
-            "description": "Asset address in ERC-7930 interoperable format"
-          },
-          "lock": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/Lock",
-                "description": "Lock information if asset is already locked"
-              }
-            ]
-          },
-          "user": {
-            "$ref": "#/components/schemas/InteropAddress",
-            "description": "User address in ERC-7930 interoperable format"
-          }
-        },
-        "additionalProperties": false
+      "AuthScheme": {
+        "type": "string",
+        "enum": [
+          "erc4337",
+          "permit2",
+          "erc20-permit",
+          "eip3009"
+        ]
       },
       "ErrorResponse": {
         "type": "object",
@@ -548,6 +544,69 @@
             "type": "integer",
             "format": "int64"
           }
+        }
+      },
+      "FailureHandlingMode": {
+        "type": "string",
+        "description": "Failure handling policy\nDefines how to handle transaction failures or partial fills\n\nCore failure handling that remains stable across OIF versions.",
+        "enum": [
+          "refund-automatic",
+          "refund-claim",
+          "needs-new-signature"
+        ]
+      },
+      "GetQuoteRequest": {
+        "type": "object",
+        "description": "Request for generating quotes\nRequest payload for obtaining swap quotes from providers. Contains all necessary\ninformation for providers to calculate and return executable quotes.",
+        "required": [
+          "user",
+          "intent",
+          "supportedTypes"
+        ],
+        "properties": {
+          "intent": {
+            "$ref": "#/components/schemas/IntentRequest",
+            "description": "The intent object containing swap details"
+          },
+          "supportedTypes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Order types supported by the provider"
+          },
+          "user": {
+            "$ref": "#/components/schemas/InteropAddress",
+            "description": "User requesting the quote and recipient of refund inputs in case of failures"
+          }
+        },
+        "additionalProperties": false
+      },
+      "HashMap": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "description": "EIP-712 type property\nSingle field definition used inside the EIP-712 `types` map\nExample: { name: \"amount\", type: \"uint256\" }",
+            "required": [
+              "name",
+              "type"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Field name"
+              },
+              "type": {
+                "type": "string",
+                "description": "Solidity/EVM type"
+              }
+            }
+          }
+        },
+        "propertyNames": {
+          "type": "string"
         }
       },
       "HealthResponse": {
@@ -594,6 +653,146 @@
           "version": "0.1.0"
         }
       },
+      "Input": {
+        "type": "object",
+        "description": "Available input from a user\nSpecifies assets that a user is willing to provide as input for a swap or transfer.",
+        "required": [
+          "user",
+          "asset"
+        ],
+        "properties": {
+          "amount": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/U256",
+                "description": "Amount available. For quote requests: exact-input (exact amount) or exact-output (minimum amount/optional)"
+              }
+            ]
+          },
+          "asset": {
+            "$ref": "#/components/schemas/InteropAddress",
+            "description": "Asset address being provided as input"
+          },
+          "lock": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssetLockReference",
+                "description": "Optional lock reference for securing the input assets"
+              }
+            ]
+          },
+          "user": {
+            "$ref": "#/components/schemas/InteropAddress",
+            "description": "User address providing the input assets"
+          }
+        },
+        "additionalProperties": false
+      },
+      "IntentRequest": {
+        "type": "object",
+        "description": "Intent request structure - the nested intent object in GetQuoteRequest",
+        "required": [
+          "intentType",
+          "inputs",
+          "outputs"
+        ],
+        "properties": {
+          "failureHandling": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/FailureHandlingMode"
+            },
+            "description": "Failure handling policies that the integrator supports (array)"
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Input"
+            },
+            "description": "Available inputs (order significant if preference is 'input-priority')"
+          },
+          "intentType": {
+            "$ref": "#/components/schemas/IntentType",
+            "description": "Type of intent - currently only \"oif-swap\" is supported"
+          },
+          "metadata": {
+            "description": "Metadata for the order, never required, potentially contains provider specific data"
+          },
+          "minValidUntil": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Minimum validity timestamp in seconds",
+            "minimum": 0
+          },
+          "originSubmission": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OriginSubmission",
+                "description": "Explicit preference for submission responsibility and acceptable auth schemes"
+              }
+            ]
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Output"
+            },
+            "description": "Requested outputs"
+          },
+          "partialFill": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the integrator supports partial fills"
+          },
+          "preference": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuotePreference",
+                "description": "Quote preference"
+              }
+            ]
+          },
+          "swapType": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SwapType",
+                "description": "Swap type for the quote - determines which amounts are fixed vs quoted"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "IntentType": {
+        "type": "string",
+        "description": "Intent type identifier\n\nCore intent types that are stable across OIF versions.",
+        "enum": [
+          "oif-swap"
+        ]
+      },
       "InteropAddress": {
         "type": "object",
         "description": "ERC-7930 Interoperable Address",
@@ -635,28 +834,131 @@
           }
         }
       },
-      "Lock": {
-        "type": "object",
-        "description": "Lock information for inputs that are already locked",
-        "required": [
-          "kind"
-        ],
-        "properties": {
-          "kind": {
-            "$ref": "#/components/schemas/LockKind",
-            "description": "Type of lock mechanism"
-          },
-          "params": {
-            "description": "Lock-specific parameters"
-          }
-        }
-      },
       "LockKind": {
         "type": "string",
-        "description": "Supported lock mechanisms",
+        "description": "Supported lock mechanisms\n\nCore lock types that remain stable across OIF versions.",
         "enum": [
-          "the-compact"
+          "the-compact",
+          "rhinestone"
         ]
+      },
+      "Order": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "type"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/OrderPayload"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "oif-escrow-v0"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "type"
+            ],
+            "properties": {
+              "payload": {
+                "$ref": "#/components/schemas/OrderPayload"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "oif-resource-lock-v0"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "metadata",
+              "type"
+            ],
+            "properties": {
+              "metadata": {},
+              "payload": {
+                "$ref": "#/components/schemas/OrderPayload"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "oif-3009-v0"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "payload",
+              "type"
+            ],
+            "properties": {
+              "payload": {},
+              "type": {
+                "type": "string",
+                "enum": [
+                  "oif-generic-v0"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "TODO Across order type",
+            "required": [
+              "payload",
+              "type"
+            ],
+            "properties": {
+              "payload": {},
+              "type": {
+                "type": "string",
+                "enum": [
+                  "across"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "OIF Order union type with versioning support"
+      },
+      "OrderPayload": {
+        "type": "object",
+        "description": "Standard order payload structure for most order types",
+        "required": [
+          "signatureType",
+          "domain",
+          "primaryType",
+          "message",
+          "types"
+        ],
+        "properties": {
+          "domain": {},
+          "message": {},
+          "primaryType": {
+            "type": "string"
+          },
+          "signatureType": {
+            "$ref": "#/components/schemas/SignatureType"
+          },
+          "types": {
+            "$ref": "#/components/schemas/HashMap"
+          }
+        }
       },
       "OrderRequest": {
         "type": "object",
@@ -668,6 +970,16 @@
         "properties": {
           "metadata": {
             "description": "Adapter-specific metadata that can store order data, sponsor info, and other custom data\nThis allows flexibility for different adapters to include the specific information they need"
+          },
+          "originSubmission": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OriginSubmission"
+              }
+            ]
           },
           "quoteResponse": {
             "$ref": "#/components/schemas/QuoteResponse",
@@ -684,30 +996,60 @@
             "order": "0xfedcba0987654321...",
             "sponsor": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
           },
+          "originSubmission": {
+            "mode": "user",
+            "schemes": [
+              "erc4337",
+              "permit2"
+            ]
+          },
           "quoteResponse": {
-            "details": {
-              "requestedOutputs": [
+            "eta": 30,
+            "failureHandling": "refund-automatic",
+            "integrityChecksum": "hmac-sha256:a1b2c3d4e5f6...",
+            "metadata": {
+              "aggregator": "metadata"
+            },
+            "order": {
+              "payload": {
+                "domain": {
+                  "chainId": 1,
+                  "name": "TestDomain",
+                  "version": "1"
+                },
+                "message": {
+                  "amount": "1000000000000000000",
+                  "inputAsset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                  "orderType": "swap",
+                  "outputAsset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3"
+                },
+                "primaryType": "Order",
+                "signatureType": "eip712",
+                "types": {}
+              },
+              "type": "oif-escrow-v0"
+            },
+            "partialFill": false,
+            "preview": {
+              "inputs": [
                 {
                   "amount": "1000000000000000000",
+                  "asset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                  "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8"
+                }
+              ],
+              "outputs": [
+                {
+                  "amount": "1000000",
                   "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
                   "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
                 }
               ]
             },
-            "integrityChecksum": "hmac-sha256:a1b2c3d4e5f6...",
-            "orders": [
-              {
-                "domain": "0x01000002147a69000000000022d473030f116ddee9f6b43ac78ba3",
-                "message": {
-                  "digest": "0xdfbfeb9aed6340d513ef52f716cef5b50b677118d364c8448bff1c9ea9fd0b14"
-                },
-                "primaryType": "PermitBatchWitnessTransferFrom",
-                "signatureType": "eip712"
-              }
-            ],
             "provider": "Example Solver v1.0",
             "quoteId": "6a22e92f-3e5d-4f05-ab5f-007b01e58b21",
-            "solverId": "example-solver"
+            "solverId": "example-solver",
+            "validUntil": 1756457492
           },
           "signature": "0x1234567890abcdef..."
         }
@@ -720,8 +1062,8 @@
           "status",
           "createdAt",
           "updatedAt",
-          "inputAmount",
-          "outputAmount",
+          "inputAmounts",
+          "outputAmounts",
           "settlement"
         ],
         "properties": {
@@ -733,16 +1075,22 @@
           "fillTransaction": {
             "description": "Fill transaction information"
           },
-          "inputAmount": {
-            "$ref": "#/components/schemas/AssetAmount",
+          "inputAmounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetAmount"
+            },
             "description": "Input amount"
           },
           "orderId": {
             "type": "string",
             "description": "The order ID"
           },
-          "outputAmount": {
-            "$ref": "#/components/schemas/AssetAmount",
+          "outputAmounts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetAmount"
+            },
             "description": "Output amount"
           },
           "quoteId": {
@@ -774,68 +1122,83 @@
         "enum": [
           "created",
           "pending",
+          "executing",
           "executed",
           "settled",
+          "settling",
           "finalized",
-          "failed"
+          "failed",
+          "refunded"
         ]
       },
-      "QuoteDetails": {
-        "type": "object",
-        "description": "Quote details matching the request structure",
-        "required": [
-          "requestedOutputs",
-          "availableInputs"
-        ],
-        "properties": {
-          "availableInputs": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/AvailableInput"
-            },
-            "description": "Available inputs for this quote"
-          },
-          "requestedOutputs": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/RequestedOutput"
-            },
-            "description": "Requested outputs for this quote"
-          }
-        },
-        "additionalProperties": false
+      "OriginMode": {
+        "type": "string",
+        "enum": [
+          "user",
+          "protocol"
+        ]
       },
-      "QuoteOrder": {
+      "OriginSubmission": {
         "type": "object",
-        "description": "EIP-712 compliant order structure",
+        "description": "Origin submission preference\n\nCore origin submission mechanism that is stable across versions.",
         "required": [
-          "signatureType",
-          "domain",
-          "primaryType",
-          "message"
+          "mode"
         ],
         "properties": {
-          "domain": {
+          "mode": {
+            "$ref": "#/components/schemas/OriginMode"
+          },
+          "schemes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/AuthScheme"
+            }
+          }
+        }
+      },
+      "Output": {
+        "type": "object",
+        "description": "Requested output for a receiver\nSpecifies the desired assets and destination for a swap or transfer.",
+        "required": [
+          "receiver",
+          "asset"
+        ],
+        "properties": {
+          "amount": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/U256",
+                "description": "Amount requested. For quote requests: exact-input (minimum/optional) or exact-output (exact amount)"
+              }
+            ]
+          },
+          "asset": {
             "$ref": "#/components/schemas/InteropAddress",
-            "description": "ERC-7930 interoperable address of the domain"
+            "description": "Asset address to be received as output"
           },
-          "message": {
-            "description": "Message object to be signed and submitted"
+          "calldata": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional calldata describing how the receiver will consume the output"
           },
-          "primaryType": {
-            "type": "string",
-            "description": "Primary type for EIP-712 signing"
-          },
-          "signatureType": {
-            "$ref": "#/components/schemas/SignatureType",
-            "description": "Signature type (eip-712 or erc-3009)"
+          "receiver": {
+            "$ref": "#/components/schemas/InteropAddress",
+            "description": "Receiver address that will receive the output assets"
           }
         },
         "additionalProperties": false
       },
       "QuotePreference": {
         "type": "string",
-        "description": "Quote optimization preferences following UII standard",
+        "description": "Quote optimization preferences following UII standard\n\nCore preferences that remain stable across OIF versions.",
         "enum": [
           "price",
           "speed",
@@ -843,143 +1206,150 @@
           "trustMinimization"
         ]
       },
-      "QuoteRequest": {
+      "QuotePreview": {
         "type": "object",
-        "description": "API request body for /v1/quotes endpoint",
+        "description": "Quote preview for a swap or transfer\nContains the inputs and outputs that represent a quote preview.",
         "required": [
-          "user",
-          "availableInputs",
-          "requestedOutputs"
+          "inputs",
+          "outputs"
         ],
         "properties": {
-          "availableInputs": {
+          "inputs": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/AvailableInput"
+              "$ref": "#/components/schemas/Input"
             },
-            "description": "Available inputs (order significant if preference is 'input-priority')"
+            "description": "Inputs for the preview"
           },
-          "metadata": {
-            "description": "Optional metadata for custom adapter use\nThis allows clients to include adapter-specific information in quote requests"
-          },
-          "minValidUntil": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64",
-            "description": "Minimum quote validity duration in seconds",
-            "minimum": 0
-          },
-          "preference": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/QuotePreference",
-                "description": "User preference for optimization"
-              }
-            ]
-          },
-          "requestedOutputs": {
+          "outputs": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/RequestedOutput"
+              "$ref": "#/components/schemas/Output"
             },
-            "description": "Requested outputs"
-          },
-          "solverOptions": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/SolverOptions",
-                "description": "Solver options"
-              }
-            ]
-          },
-          "user": {
-            "$ref": "#/components/schemas/InteropAddress",
-            "description": "User making the request in ERC-7930 interoperable format"
+            "description": "Outputs for the preview"
           }
         },
-        "additionalProperties": false,
+        "additionalProperties": false
+      },
+      "QuoteRequest": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/GetQuoteRequest"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "metadata": {
+                "description": "Optional metadata for custom adapter use\nThis allows clients to include adapter-specific information in quote requests"
+              },
+              "solverOptions": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/SolverOptions",
+                    "description": "Solver options"
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "description": "API request body for /v1/quotes endpoint",
         "example": {
-          "availableInputs": [
-            {
-              "amount": "1000000000000000000",
-              "asset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
-              "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8"
-            }
-          ],
-          "minValidUntil": 600,
-          "preference": "speed",
-          "requestedOutputs": [
-            {
-              "amount": "1000000000000000000",
-              "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
-              "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
-            }
-          ],
+          "intent": {
+            "inputs": [
+              {
+                "amount": "1000000000000000000",
+                "asset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8"
+              }
+            ],
+            "intentType": "oif-swap",
+            "minValidUntil": 600,
+            "outputs": [
+              {
+                "amount": "1000000",
+                "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
+                "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
+              }
+            ],
+            "partialFill": false,
+            "preference": "speed",
+            "swapType": "exact-input"
+          },
           "solverOptions": {
             "solverTimeout": 2000,
             "timeout": 4000
-          },
-          "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8"
+          }
         }
       },
       "QuoteResponse": {
         "type": "object",
-        "description": "Response format for individual quotes in the API",
+        "description": "Response format for individual quotes in the API - closely matches OIF Quote response",
         "required": [
           "quoteId",
           "solverId",
-          "orders",
-          "details",
-          "provider",
+          "order",
+          "partialFill",
+          "preview",
           "integrityChecksum"
         ],
         "properties": {
-          "details": {
-            "$ref": "#/components/schemas/QuoteDetails",
-            "description": "Quote details matching request structure"
-          },
           "eta": {
             "type": [
               "integer",
               "null"
             ],
             "format": "int64",
-            "description": "Estimated time to completion in seconds",
+            "description": "Estimated time to completion in seconds (from OIF)",
             "minimum": 0
+          },
+          "failureHandling": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/FailureHandlingMode",
+                "description": "Failure handling policy for execution (from OIF)"
+              }
+            ]
           },
           "integrityChecksum": {
             "type": "string",
-            "description": "HMAC-SHA256 integrity checksum for quote verification\nThis ensures the quote originated from the aggregator service"
+            "description": "HMAC-SHA256 integrity checksum for quote verification (aggregator-specific)"
           },
           "metadata": {
-            "description": "Adapter-specific metadata for additional context and execution details\nThis field allows each adapter to include protocol-specific information\nthat consumers might need for order execution or additional context"
+            "description": "Metadata from the OIF quote (provider-specific)"
           },
-          "orders": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/QuoteOrder"
-            },
-            "description": "Array of EIP-712 compliant orders"
+          "order": {
+            "$ref": "#/components/schemas/Order",
+            "description": "Order from OIF specification (uses latest version)"
+          },
+          "partialFill": {
+            "type": "boolean",
+            "description": "Whether the quote supports partial fill (from OIF)"
+          },
+          "preview": {
+            "$ref": "#/components/schemas/QuotePreview",
+            "description": "Quote preview (from OIF)"
           },
           "provider": {
-            "type": "string",
-            "description": "Provider identifier"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Provider identifier (from OIF)"
           },
           "quoteId": {
             "type": "string",
-            "description": "Unique identifier for the quote"
+            "description": "Unique identifier for the quote (always present in aggregator responses)"
           },
           "solverId": {
             "type": "string",
-            "description": "ID of the solver that provided this quote"
+            "description": "ID of the solver that provided this quote (aggregator-specific)"
           },
           "validUntil": {
             "type": [
@@ -987,35 +1357,54 @@
               "null"
             ],
             "format": "int64",
-            "description": "Quote validity timestamp",
+            "description": "Quote validity timestamp (from OIF)",
             "minimum": 0
           }
         },
         "additionalProperties": false,
         "example": {
-          "details": {
-            "requestedOutputs": [
+          "eta": 30,
+          "failureHandling": "refund-automatic",
+          "integrityChecksum": "hmac-sha256:a1b2c3d4e5f6...",
+          "metadata": {
+            "aggregator": "metadata"
+          },
+          "order": {
+            "payload": {
+              "domain": {
+                "chainId": 1,
+                "name": "TestDomain",
+                "version": "1"
+              },
+              "message": {
+                "amount": "1000000000000000000",
+                "inputAsset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                "orderType": "swap",
+                "outputAsset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3"
+              },
+              "primaryType": "Order",
+              "signatureType": "eip712",
+              "types": {}
+            },
+            "type": "oif-escrow-v0"
+          },
+          "partialFill": false,
+          "preview": {
+            "inputs": [
               {
                 "amount": "1000000000000000000",
+                "asset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8"
+              }
+            ],
+            "outputs": [
+              {
+                "amount": "1000000",
                 "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
                 "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
               }
             ]
           },
-          "eta": 30,
-          "integrityChecksum": "hmac-sha256:a1b2c3d4e5f6...",
-          "orders": [
-            {
-              "domain": "0x01000002147a69000000000022d473030f116ddee9f6b43ac78ba3",
-              "message": {
-                "deadline": "1756457492",
-                "digest": "0xdfbfeb9aed6340d513ef52f716cef5b50b677118d364c8448bff1c9ea9fd0b14",
-                "nonce": "1756457192541"
-              },
-              "primaryType": "PermitBatchWitnessTransferFrom",
-              "signatureType": "eip712"
-            }
-          ],
           "provider": "Example Solver v1.0",
           "quoteId": "6a22e92f-3e5d-4f05-ab5f-007b01e58b21",
           "solverId": "example-solver",
@@ -1045,10 +1434,12 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/QuoteResponse"
-            }
+            },
+            "description": "List of quotes"
           },
           "totalQuotes": {
             "type": "integer",
+            "description": "Total number of quotes",
             "minimum": 0
           }
         },
@@ -1069,27 +1460,48 @@
           },
           "quotes": [
             {
-              "details": {
-                "requestedOutputs": [
+              "eta": 30,
+              "failureHandling": "refund-automatic",
+              "integrityChecksum": "hmac-sha256:a1b2c3d4e5f6...",
+              "metadata": {
+                "aggregator": "metadata"
+              },
+              "order": {
+                "payload": {
+                  "domain": {
+                    "chainId": 1,
+                    "name": "TestDomain",
+                    "version": "1"
+                  },
+                  "message": {
+                    "amount": "1000000000000000000",
+                    "inputAsset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                    "orderType": "swap",
+                    "outputAsset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3"
+                  },
+                  "primaryType": "Order",
+                  "signatureType": "eip712",
+                  "types": {}
+                },
+                "type": "oif-escrow-v0"
+              },
+              "partialFill": false,
+              "preview": {
+                "inputs": [
                   {
                     "amount": "1000000000000000000",
+                    "asset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                    "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8"
+                  }
+                ],
+                "outputs": [
+                  {
+                    "amount": "1000000",
                     "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
                     "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
                   }
                 ]
               },
-              "eta": 30,
-              "integrityChecksum": "hmac-sha256:a1b2c3d4e5f6...",
-              "orders": [
-                {
-                  "domain": "0x01000002147a69000000000022d473030f116ddee9f6b43ac78ba3",
-                  "message": {
-                    "digest": "0xdfbfeb9aed6340d513ef52f716cef5b50b677118d364c8448bff1c9ea9fd0b14"
-                  },
-                  "primaryType": "PermitBatchWitnessTransferFrom",
-                  "signatureType": "eip712"
-                }
-              ],
               "provider": "Example Solver v1.0",
               "quoteId": "6a22e92f-3e5d-4f05-ab5f-007b01e58b21",
               "solverId": "example-solver",
@@ -1099,40 +1511,9 @@
           "totalQuotes": 1
         }
       },
-      "RequestedOutput": {
-        "type": "object",
-        "description": "Requested output with receiver and optional calldata",
-        "required": [
-          "receiver",
-          "asset",
-          "amount"
-        ],
-        "properties": {
-          "amount": {
-            "$ref": "#/components/schemas/U256",
-            "description": "Amount as a big integer"
-          },
-          "asset": {
-            "$ref": "#/components/schemas/InteropAddress",
-            "description": "Asset address in ERC-7930 interoperable format"
-          },
-          "calldata": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Optional calldata for the output"
-          },
-          "receiver": {
-            "$ref": "#/components/schemas/InteropAddress",
-            "description": "Receiver address in ERC-7930 interoperable format"
-          }
-        },
-        "additionalProperties": false
-      },
       "Settlement": {
         "type": "object",
-        "description": "Order\nSettlement information for an order",
+        "description": "Settlement information for an order\n\nSettlement structure that remains consistent across OIF versions.",
         "required": [
           "type",
           "data"
@@ -1150,7 +1531,7 @@
       },
       "SettlementType": {
         "type": "string",
-        "description": "Settlement mechanism types",
+        "description": "Settlement mechanism types\n\nCore settlement mechanisms that are stable across OIF versions.",
         "enum": [
           "escrow",
           "resourceLock"
@@ -1158,10 +1539,10 @@
       },
       "SignatureType": {
         "type": "string",
-        "description": "Supported signature types",
+        "description": "Supported signature types\n\nCore signature mechanisms that remain stable across OIF versions.",
         "enum": [
           "eip712",
-          "erc3009"
+          "eip3009"
         ]
       },
       "SolverOptions": {
@@ -1550,6 +1931,14 @@
           }
         ],
         "description": "Supported assets response format for API"
+      },
+      "SwapType": {
+        "type": "string",
+        "description": "Order interpretation for quote requests\n\nCore swap types that remain stable across OIF versions.",
+        "enum": [
+          "exact-input",
+          "exact-output"
+        ]
       },
       "U256": {
         "type": "string",

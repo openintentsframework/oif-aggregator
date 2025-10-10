@@ -10,6 +10,7 @@
 //! - **Predictable behavior**: Straightforward logic that's easy to test and debug
 
 use async_trait::async_trait;
+use futures::stream::{self, StreamExt};
 use oif_config::AggregationConfig;
 use oif_types::constants::limits::{DEFAULT_PRIORITY_THRESHOLD, DEFAULT_SAMPLE_SIZE};
 use oif_types::quotes::request::{SolverOptions, SolverSelection};
@@ -113,16 +114,16 @@ impl CompatibilityAnalyzer {
 	/// For assets mode, solver supports any-to-any within its asset list (including same-chain swaps).
 	/// Verify that all required outputs can be satisfied using available inputs.
 	fn check_asset_compatibility(&self, solver: &Solver, request: &QuoteRequest) -> Compatibility {
-		if request.requested_outputs.is_empty() {
-			debug!("No requested outputs in request");
+		if request.quote_request.intent.outputs.is_empty() {
+			debug!("No outputs in request");
 			return Compatibility::Unknown;
 		}
 
 		// For each requested output, check if ANY available input can reach it via asset support
-		for output in &request.requested_outputs {
+		for output in &request.quote_request.intent.outputs {
 			let mut output_satisfiable = false;
 
-			for input in &request.available_inputs {
+			for input in &request.quote_request.intent.inputs {
 				// For assets mode: check if solver supports the route from input to output asset
 				// The supports_route method handles assets mode correctly by checking both assets individually
 				if solver.supports_route(&input.asset, &output.asset) {
@@ -145,9 +146,9 @@ impl CompatibilityAnalyzer {
 		}
 
 		debug!(
-			"Solver '{}' (assets mode) can satisfy all {} requested outputs",
+			"Solver '{}' (assets mode) can satisfy all {} outputs",
 			solver.solver_id,
-			request.requested_outputs.len()
+			request.quote_request.intent.outputs.len()
 		);
 		Compatibility::Compatible
 	}
@@ -157,16 +158,16 @@ impl CompatibilityAnalyzer {
 	/// For each requested output, verify that at least one available input can reach it.
 	/// This correctly handles multiple inputs as options (OR logic) and multiple outputs as requirements (AND logic).
 	fn check_route_compatibility(&self, solver: &Solver, request: &QuoteRequest) -> Compatibility {
-		if request.requested_outputs.is_empty() {
-			debug!("No requested outputs in request");
+		if request.quote_request.intent.outputs.is_empty() {
+			debug!("No outputs in request");
 			return Compatibility::Unknown;
 		}
 
 		// For each requested output, check if ANY available input can reach it
-		for output in &request.requested_outputs {
+		for output in &request.quote_request.intent.outputs {
 			let mut output_satisfiable = false;
 
-			for input in &request.available_inputs {
+			for input in &request.quote_request.intent.inputs {
 				// In routes mode, check if solver explicitly supports this route
 				// (including same-asset same-chain if explicitly defined)
 				if solver.supports_route(&input.asset, &output.asset) {
@@ -189,9 +190,9 @@ impl CompatibilityAnalyzer {
 		}
 
 		debug!(
-			"Solver '{}' can satisfy all {} requested outputs",
+			"Solver '{}' can satisfy all {} outputs",
 			solver.solver_id,
-			request.requested_outputs.len()
+			request.quote_request.intent.outputs.len()
 		);
 		Compatibility::Compatible
 	}
@@ -395,10 +396,22 @@ impl SolverFilterTrait for SolverFilterService {
 			solver_compatibility.len()
 		);
 
-		// Step 4: Apply circuit breaker filtering (before selection to ensure correct counts)
+		// Step 4: Apply circuit breaker filtering in parallel using streams (before selection to ensure correct counts)
+		let circuit_breaker_stream = stream::iter(solver_compatibility)
+			.map(|(solver, compatibility)| {
+				let circuit_breaker = self.circuit_breaker.clone();
+				async move {
+					let should_allow = circuit_breaker.should_allow_request(&solver).await;
+					(solver, compatibility, should_allow)
+				}
+			})
+			.buffer_unordered(10); // Process up to 10 circuit breaker checks concurrently
+
+		let circuit_breaker_results: Vec<_> = circuit_breaker_stream.collect().await;
+
 		let mut circuit_filtered_solvers = Vec::new();
-		for (solver, compatibility) in solver_compatibility {
-			if self.circuit_breaker.should_allow_request(&solver).await {
+		for (solver, compatibility, should_allow) in circuit_breaker_results {
+			if should_allow {
 				circuit_filtered_solvers.push((solver, compatibility));
 			} else {
 				debug!(
@@ -428,9 +441,9 @@ mod tests {
 	use super::*;
 	use crate::MockCircuitBreakerTrait;
 	use oif_config::AggregationConfig;
+	use oif_types::test_utils::TestQuoteRequests;
 	use oif_types::{
-		quotes::request::SolverOptions, AssetRoute, AvailableInput, InteropAddress, QuoteRequest,
-		RequestedOutput, Solver, U256,
+		quotes::request::SolverOptions, AssetRoute, InteropAddress, QuoteRequest, Solver,
 	};
 	use std::collections::HashMap;
 
@@ -550,40 +563,7 @@ mod tests {
 		input_assets: Vec<(u64, &str)>,
 		output_assets: Vec<(u64, &str)>,
 	) -> QuoteRequest {
-		QuoteRequest {
-			user: InteropAddress::from_text("eip155:1:0x742d35Cc6675C88b1C6e3c0c61b2e9a3D0C3F123")
-				.unwrap(),
-			available_inputs: input_assets
-				.into_iter()
-				.map(|(chain_id, address)| AvailableInput {
-					user: InteropAddress::from_text(
-						"eip155:1:0x742d35Cc6675C88b1C6e3c0c61b2e9a3D0C3F123",
-					)
-					.unwrap(),
-					asset: InteropAddress::from_text(&format!("eip155:{}:{}", chain_id, address))
-						.unwrap(),
-					amount: U256::new("1000000000000000000".to_string()), // 1 ETH in wei
-					lock: None,
-				})
-				.collect(),
-			requested_outputs: output_assets
-				.into_iter()
-				.map(|(chain_id, address)| RequestedOutput {
-					receiver: InteropAddress::from_text(
-						"eip155:1:0x742d35Cc6675C88b1C6e3c0c61b2e9a3D0C3F123",
-					)
-					.unwrap(),
-					asset: InteropAddress::from_text(&format!("eip155:{}:{}", chain_id, address))
-						.unwrap(),
-					amount: U256::new("2500000000".to_string()), // 2500 USDC
-					calldata: None,
-				})
-				.collect(),
-			min_valid_until: None,
-			preference: None,
-			solver_options: None,
-			metadata: None,
-		}
+		TestQuoteRequests::with_assets(input_assets, output_assets)
 	}
 
 	fn default_config() -> AggregationConfig {

@@ -7,7 +7,7 @@ use crate::jobs::scheduler::JobScheduler;
 use crate::jobs::types::{BackgroundJob, JobError, JobResult};
 use crate::order::OrderServiceTrait;
 use oif_storage::Storage;
-use oif_types::OrderStatus;
+use oif_types::orders::OrderStatus;
 
 /// Tracing target for structured logging
 const TRACING_TARGET: &str = "oif_aggregator::order_monitor";
@@ -191,11 +191,11 @@ impl OrderMonitor {
 		};
 
 		// Check if order is already in final status
-		if Self::is_final_status(&current_order.status) {
+		if Self::is_final_status(&OrderStatus::from(current_order.status())) {
 			tracing::debug!(
 				target: TRACING_TARGET,
 				order_id = %order_id,
-				status = ?current_order.status,
+				status = ?current_order.status(),
 				"Order already in final status, stopping monitoring"
 			);
 			return Ok(MonitoringResult::Completed);
@@ -210,22 +210,22 @@ impl OrderMonitor {
 
 		match refresh_result {
 			Ok(Ok(Some(updated_order))) => {
-				if updated_order.status != current_order.status {
+				if updated_order.status() != current_order.status() {
 					tracing::debug!(
 						target: TRACING_TARGET,
 						order_id = %order_id,
-						old_status = ?current_order.status,
-						new_status = ?updated_order.status,
+						old_status = ?current_order.status(),
+						new_status = ?updated_order.status(),
 						"Order status updated"
 					);
 				}
 
 				// Check if the updated order is now in final status
-				if Self::is_final_status(&updated_order.status) {
+				if Self::is_final_status(&OrderStatus::from(updated_order.status())) {
 					tracing::debug!(
 						target: TRACING_TARGET,
 						order_id = %order_id,
-						final_status = ?updated_order.status,
+						final_status = ?updated_order.status(),
 						"Order reached final status, monitoring complete"
 					);
 					Ok(MonitoringResult::Completed)
@@ -234,7 +234,7 @@ impl OrderMonitor {
 					tracing::debug!(
 						target: TRACING_TARGET,
 						order_id = %order_id,
-						current_status = ?updated_order.status,
+						current_status = ?updated_order.status(),
 						"Order still active, continuing monitoring"
 					);
 					Ok(MonitoringResult::ContinueMonitoring {

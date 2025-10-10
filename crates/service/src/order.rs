@@ -6,7 +6,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::Utc;
-use oif_types::adapters::AssetAmount;
+use oif_types::models::InteropAddress;
+use oif_types::oif::common::{AssetAmount, Settlement, SettlementType};
+use oif_types::oif::OifGetOrderResponseLatest;
+use oif_types::OifGetOrderResponse;
 
 /// Tracing target for structured logging
 const TRACING_TARGET: &str = "oif_service::order";
@@ -19,7 +22,6 @@ use crate::solver_adapter::{SolverAdapterError, SolverAdapterService, SolverAdap
 use async_trait::async_trait;
 use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;
-use oif_types::adapters::models::SubmitOrderRequest;
 use oif_types::{IntegrityPayload, Order, OrderRequest, Quote};
 use thiserror::Error;
 
@@ -116,13 +118,9 @@ impl OrderServiceTrait for OrderService {
 			return Err(OrderServiceError::IntegrityVerificationFailed);
 		}
 
-		// 3. Prepare the submit order request
-		let submit_order_request = SubmitOrderRequest::try_from(request.clone()).map_err(|e| {
-			OrderServiceError::Validation(format!(
-				"Failed to convert OrderRequest to SubmitOrderRequest: {}",
-				e
-			))
-		})?;
+		// 3. Prepare the submit order request using TryFrom for better error handling
+		let submit_order_request = oif_types::OifPostOrderRequest::try_from(request)
+			.map_err(|e| OrderServiceError::Validation(format!("Invalid order request: {}", e)))?;
 
 		// 4. Check circuit breaker before submitting order
 		// Get solver info for circuit breaker check
@@ -161,7 +159,7 @@ impl OrderServiceTrait for OrderService {
 		let order_response = solver_adapter.submit_order(&submit_order_request).await?;
 
 		let order_id = order_response
-			.order_id
+			.order_id()
 			.ok_or(OrderServiceError::Validation(
 				"Order ID is required".to_string(),
 			))?;
@@ -172,25 +170,40 @@ impl OrderServiceTrait for OrderService {
 
 		// Use empty amounts for initial order creation - real amounts will be populated
 		// when the order monitoring fetches the complete order details from the solver
-		let input_amount = AssetAmount::default();
-		let output_amount = AssetAmount::default();
+		// Create empty InteropAddress for placeholder amounts
+		let empty_address =
+			InteropAddress::from_chain_and_address(1, "0x0000000000000000000000000000000000000000")
+				.unwrap_or_else(|_| InteropAddress::new(1, [0, 0], vec![1], vec![0; 20]));
+		let input_amount = AssetAmount {
+			asset: empty_address.clone(),
+			amount: None,
+		};
+		let output_amount = AssetAmount {
+			asset: empty_address,
+			amount: None,
+		};
 
-		let order = Order {
-			order_id: order_id.clone(),
+		// Create GetOrderResponse for embedding in Order
+		let order_response = OifGetOrderResponseLatest {
+			id: order_id.clone(),
 			quote_id: Some(quote_domain.quote_id.clone()),
-			solver_id: quote_domain.solver_id.clone(),
-			status: oif_types::OrderStatus::Created, // Initial status
-			created_at: now,
-			updated_at: now,
-			input_amount,
-			output_amount,
-			settlement: oif_types::adapters::Settlement {
-				settlement_type: oif_types::adapters::SettlementType::Escrow,
+			status: oif_types::oif::common::OrderStatus::Created, // Initial status
+			created_at: now.timestamp() as u64,
+			updated_at: now.timestamp() as u64,
+			input_amounts: vec![input_amount],
+			output_amounts: vec![output_amount],
+			settlement: Settlement {
+				settlement_type: SettlementType::Escrow,
 				data: serde_json::json!({}),
 			}, // Default settlement, will be updated by order monitoring
 			fill_transaction: None, // Will be populated by order monitoring
-			quote_details: Some(quote_domain),
 		};
+
+		let order = Order::new(
+			quote_domain.solver_id.clone(),
+			oif_types::oif::OifGetOrderResponse::new(order_response), // Wrap version-specific response in version-agnostic wrapper
+			Some(quote_domain),
+		);
 
 		// 6. Save the order to storage
 		self.storage
@@ -265,11 +278,11 @@ impl OrderServiceTrait for OrderService {
 		};
 
 		// 2. If order is already in final state, return as-is
-		if Self::is_final_status(&current_order.status) {
+		if Self::is_final_status(&current_order.status().clone()) {
 			tracing::debug!(
 				target: TRACING_TARGET,
 				order_id = %order_id,
-				status = ?current_order.status,
+				status = ?current_order.status(),
 				"Order already in final status, skipping refresh"
 			);
 			return Ok(Some(current_order));
@@ -278,9 +291,8 @@ impl OrderServiceTrait for OrderService {
 		tracing::debug!(
 			target: TRACING_TARGET,
 			order_id = %order_id,
-			current_status = ?current_order.status,
+			current_status = ?current_order.status(),
 			solver_id = %current_order.solver_id,
-			has_empty_amounts = %(current_order.input_amount.asset.is_empty() || current_order.output_amount.asset.is_empty()),
 			"Order needs refresh, fetching details from solver"
 		);
 
@@ -321,7 +333,28 @@ impl OrderServiceTrait for OrderService {
 				response
 			},
 			Err(e) => {
-				// Log the error but don't fail - return current order from storage
+				// Check if the error indicates the order was removed by solver (expired/failed)
+				if let Some(status_code) = e.status_code() {
+					if matches!(status_code, 400 | 404 | 410) {
+						tracing::warn!(
+							target: TRACING_TARGET,
+							order_id = %order_id,
+							solver_id = %current_order.solver_id,
+							status_code = %status_code,
+							"Order not found on solver (likely expired/removed), marking as failed"
+						);
+
+						// Mark order as failed and update storage
+						return self
+							.mark_order_as_failed(
+								&mut current_order,
+								"Order removed from solver (expired or failed)",
+							)
+							.await;
+					}
+				}
+
+				// For other errors, log and return current order from storage
 				tracing::warn!(
 					target: TRACING_TARGET,
 					order_id = %order_id,
@@ -346,31 +379,41 @@ impl OrderServiceTrait for OrderService {
 			},
 		};
 
-		let updated_order: Order = Order::try_from((updated_order_response.order, quote_details))
-			.map_err(|e| {
-			tracing::error!(
-				target: TRACING_TARGET,
-				order_id = %order_id,
-				error = %e,
-				"Failed to convert GetOrderResponse to Order"
-			);
-			OrderServiceError::Validation(format!(
-				"Failed to convert GetOrderResponse to Order: {}",
-				e
-			))
-		})?;
+		let updated_order: Order =
+			Order::try_from((updated_order_response.as_latest().clone(), quote_details)).map_err(
+				|e| {
+					tracing::error!(
+						target: TRACING_TARGET,
+						order_id = %order_id,
+						error = %e,
+						"Failed to convert GetOrderResponse to Order"
+					);
+					OrderServiceError::Validation(format!(
+						"Failed to convert GetOrderResponse to Order: {}",
+						e
+					))
+				},
+			)?;
 
 		// 6. Check if anything changed and update storage with complete order details
-		let status_changed = updated_order.status != current_order.status;
+		let status_changed = updated_order.status() != current_order.status();
 
 		// Check if fill transaction was added
-		let fill_transaction_added =
-			updated_order.fill_transaction.is_some() && current_order.fill_transaction.is_none();
+		let fill_transaction_added = updated_order.fill_transaction().is_some()
+			&& current_order.fill_transaction().is_none();
 
 		// Check various change conditions
-		let is_first_fetch = current_order.input_amount.asset.is_empty()
-			|| current_order.output_amount.asset.is_empty();
-		let timestamp_changed = updated_order.updated_at != current_order.updated_at;
+		let is_first_fetch = current_order
+			.input_amounts()
+			.first()
+			.map(|amt| amt.asset.is_empty())
+			.unwrap_or(true)
+			|| current_order
+				.output_amounts()
+				.first()
+				.map(|amt| amt.asset.is_empty())
+				.unwrap_or(true);
+		let timestamp_changed = updated_order.oif_updated_at() != current_order.oif_updated_at();
 
 		// Always update if this is the first fetch (empty asset names) or if anything changed
 		let should_update =
@@ -384,19 +427,15 @@ impl OrderServiceTrait for OrderService {
 			fill_transaction_added = %fill_transaction_added,
 			timestamp_changed = %timestamp_changed,
 			should_update = %should_update,
-			current_status = ?current_order.status,
-			updated_status = ?updated_order.status,
+			current_status = ?current_order.status(),
+			updated_status = ?updated_order.status(),
 			"Evaluated update conditions"
 		);
 
 		if should_update {
 			// Update the order in storage with complete details from solver
-			current_order.status = updated_order.status.clone();
-			current_order.updated_at = updated_order.updated_at;
-			current_order.input_amount = updated_order.input_amount.clone();
-			current_order.output_amount = updated_order.output_amount.clone();
-			current_order.settlement = updated_order.settlement.clone();
-			current_order.fill_transaction = updated_order.fill_transaction.clone();
+			// Replace the entire OIF wrapper with the updated one
+			current_order.order = updated_order.order.clone();
 
 			self.storage
 				.update_order(current_order.clone())
@@ -407,8 +446,8 @@ impl OrderServiceTrait for OrderService {
 				tracing::info!(
 					target: TRACING_TARGET,
 					order_id = %order_id,
-					old_status = ?current_order.status,
-					new_status = ?updated_order.status,
+					old_status = ?current_order.status(),
+					new_status = ?updated_order.status(),
 					is_first_fetch = %is_first_fetch,
 					fill_transaction_added = %fill_transaction_added,
 					"Order status updated"
@@ -417,7 +456,7 @@ impl OrderServiceTrait for OrderService {
 				tracing::info!(
 					target: TRACING_TARGET,
 					order_id = %order_id,
-					status = ?current_order.status,
+					status = ?current_order.status(),
 					is_first_fetch = %is_first_fetch,
 					fill_transaction_added = %fill_transaction_added,
 					"Order updated with complete details from solver"
@@ -427,7 +466,7 @@ impl OrderServiceTrait for OrderService {
 			tracing::debug!(
 				target: TRACING_TARGET,
 				order_id = %order_id,
-				current_status = ?current_order.status,
+				current_status = ?current_order.status(),
 				"No changes detected, skipping storage update"
 			);
 		}
@@ -435,7 +474,7 @@ impl OrderServiceTrait for OrderService {
 		tracing::debug!(
 			target: TRACING_TARGET,
 			order_id = %order_id,
-			final_status = ?current_order.status,
+			final_status = ?current_order.status(),
 			"Order refresh completed successfully"
 		);
 
@@ -462,7 +501,7 @@ impl OrderServiceTrait for OrderService {
 
 			// Filter by age and delete old orders
 			for order in orders {
-				if order.updated_at < cutoff_date {
+				if order.updated_at() < cutoff_date {
 					let deleted = self
 						.storage
 						.delete_order(&order.order_id)
@@ -474,8 +513,8 @@ impl OrderServiceTrait for OrderService {
 						tracing::info!(
 							"Deleted old order {} with status {:?}, last updated: {}",
 							order.order_id,
-							order.status,
-							order.updated_at
+							order.status(),
+							order.updated_at()
 						);
 					}
 				}
@@ -501,13 +540,54 @@ impl OrderService {
 		)
 	}
 
+	/// Mark an order as failed and update storage
+	///
+	/// This is used when the solver indicates the order no longer exists (404/410)
+	/// which typically means it expired or was removed after failure.
+	async fn mark_order_as_failed(
+		&self,
+		order: &mut Order,
+		reason: &str,
+	) -> Result<Option<Order>, OrderServiceError> {
+		tracing::info!(
+			target: TRACING_TARGET,
+			order_id = %order.order_id,
+			previous_status = ?order.status(),
+			reason = %reason,
+			"Marking order as failed"
+		);
+
+		// Update the order status to Failed
+		// The order's OIF response already has the status, we just need to update it
+		match &mut order.order {
+			oif_types::OifGetOrderResponse::V0(ref mut response) => {
+				response.status = oif_types::OrderStatus::Failed;
+				response.updated_at = chrono::Utc::now().timestamp() as u64;
+			},
+		}
+
+		// Save updated order to storage
+		self.storage
+			.update_order(order.clone())
+			.await
+			.map_err(|e| OrderServiceError::Storage(e.to_string()))?;
+
+		tracing::info!(
+			target: TRACING_TARGET,
+			order_id = %order.order_id,
+			"Order successfully marked as failed and updated in storage"
+		);
+
+		Ok(Some(order.clone()))
+	}
+
 	/// Get order details with circuit breaker protection and emergency override
 	async fn get_order_details_with_protection(
 		&self,
 		solver_adapter: &SolverAdapterService,
 		order_id: &str,
 		current_order: &Order,
-	) -> Result<oif_types::adapters::GetOrderResponse, SolverAdapterError> {
+	) -> Result<OifGetOrderResponse, SolverAdapterError> {
 		// Get solver info for circuit breaker check
 		let solver_result = self
 			.storage
@@ -533,6 +613,10 @@ impl OrderService {
 					solver_id = %current_order.solver_id,
 					"Proceeding with order status check despite circuit breaker (emergency override)"
 				);
+
+				return Err(SolverAdapterError::CircuitBreakerOpen(
+					current_order.solver_id.clone(),
+				));
 			}
 		}
 

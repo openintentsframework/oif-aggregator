@@ -19,10 +19,6 @@ pub use circuit_breaker::{CircuitBreakerService, CircuitBreakerTrait};
 
 #[cfg(test)]
 pub use aggregator::{MockAggregatorTrait, MockTaskExecutorTrait};
-#[cfg(test)]
-pub use circuit_breaker::MockCircuitBreakerTrait;
-#[cfg(test)]
-pub use integrity::MockIntegrityTrait;
 pub use integrity::{IntegrityError, IntegrityService, IntegrityTrait};
 pub use oif_types::models::health::SolverStats;
 pub use oif_types::IntegrityPayload;
@@ -41,6 +37,8 @@ pub use solver_filter::{
 #[cfg(test)]
 pub use solver_repository::MockSolverServiceTrait;
 pub use solver_repository::{SolverService, SolverServiceError, SolverServiceTrait};
+#[cfg(test)]
+pub use {circuit_breaker::MockCircuitBreakerTrait, integrity::MockIntegrityTrait};
 
 // Background job processing
 #[cfg(test)]

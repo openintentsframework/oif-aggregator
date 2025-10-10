@@ -75,22 +75,32 @@ fn create_quote_request(
 	format!(
 		r#"{{
   "user": "{}",
-  "availableInputs": [
-    {{
-      "user": "{}",
-      "asset": "{}",
-      "amount": "{}"
-    }}
-  ],
-  "requestedOutputs": [
-    {{
-      "receiver": "{}",
-      "asset": "{}",
-      "amount": "{}"
-    }}
-  ],
-  "preference": "speed",
-  "minValidUntil": {}
+  "intent": {{
+    "intentType": "oif-swap",
+    "inputs": [
+      {{
+        "user": "{}",
+        "asset": "{}",
+        "amount": "{}"
+      }}
+    ],
+    "outputs": [
+      {{
+        "receiver": "{}",
+        "asset": "{}",
+        "amount": "{}"
+      }}
+    ],
+    "swapType": "exact-input",
+    "minValidUntil": {},
+    "preference": "speed",
+    "partialFill": false
+  }},
+  "supportedTypes": ["oif-escrow-v0"],
+  "solverOptions": {{
+    "timeout": 4000,
+    "solverTimeout": 2000
+  }}
 }}"#,
 		user.to_hex(),
 		user.to_hex(),

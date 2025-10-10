@@ -14,13 +14,11 @@ use tower::ServiceExt;
 
 mod mocks;
 
-use mocks::{api_fixtures::ApiFixtures, api_fixtures::AppStateBuilder};
+use mocks::api_fixtures::{ApiFixtures, AppStateBuilder};
 
 /// Create test router with async state builder
 async fn create_test_router() -> Router {
-	let state = AppStateBuilder::minimal()
-		.await
-		.expect("Failed to create app state");
+	let state = AppStateBuilder::minimal().await;
 	oif_aggregator::create_router().with_state(state)
 }
 
@@ -32,7 +30,7 @@ async fn create_test_router_with_mock_adapters() -> Result<Router, Box<dyn std::
 		"test-secret-for-e2e-tests-12345678901234567890",
 	);
 
-	let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
+	let mock_adapter = crate::mocks::adapters::create_mock_adapter();
 	let mock_solver = oif_aggregator::mocks::mock_solver();
 
 	let mut settings = oif_config::Settings::default();
@@ -152,9 +150,9 @@ async fn test_post_quotes_valid_request() {
 			.unwrap();
 		let response_json: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-		// Should have empty quotes array since no solvers are configured
+		// Should have quotes array with at least one quote from the mock solver
 		assert!(response_json["quotes"].is_array());
-		assert_eq!(response_json["totalQuotes"], 0);
+		assert!(response_json["totalQuotes"].as_u64().unwrap() > 0);
 	}
 }
 
@@ -321,8 +319,38 @@ async fn test_order_workflow() {
 		.await
 		.expect("Failed to create test router");
 
-	// Use proper order request with valid integrity checksum
-	let order_request = ApiFixtures::valid_order_request_with_integrity();
+	// First, get a valid quote response to use for the order request
+	let quote_request = ApiFixtures::valid_quote_request();
+
+	let quote_response = app
+		.clone()
+		.oneshot(
+			Request::builder()
+				.method("POST")
+				.uri("/v1/quotes")
+				.header("content-type", "application/json")
+				.body(Body::from(quote_request.to_string()))
+				.unwrap(),
+		)
+		.await
+		.unwrap();
+
+	assert_eq!(quote_response.status(), StatusCode::OK);
+
+	let quote_body = axum::body::to_bytes(quote_response.into_body(), usize::MAX)
+		.await
+		.unwrap();
+	let quote_json: serde_json::Value = serde_json::from_slice(&quote_body).unwrap();
+
+	// Use the actual quote response from the API to create a valid order request
+	let order_request = json!({
+		"quoteResponse": quote_json["quotes"][0],
+		"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12",
+		"metadata": {
+			"order": "0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321",
+			"sponsor": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
+		}
+	});
 
 	let create_response = app
 		.clone()

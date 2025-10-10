@@ -183,7 +183,6 @@ impl MetricsUpdateHandler {
 
 		if metrics_data.was_successful {
 			solver.metrics.record_success(
-				metrics_data.response_time_ms,
 				circuit_breaker_settings.metrics_window_duration_minutes,
 				circuit_breaker_settings.metrics_max_window_age_minutes,
 				circuit_breaker_settings.min_requests_for_rate_check,
@@ -200,11 +199,6 @@ impl MetricsUpdateHandler {
 
 		// Update last seen timestamp
 		solver.mark_seen();
-
-		debug!(
-			"Updated current metrics for solver '{}': {:?}",
-			solver_id, solver.metrics
-		);
 
 		// Save updated solver back to storage
 		storage

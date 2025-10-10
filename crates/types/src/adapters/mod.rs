@@ -3,16 +3,10 @@
 use std::collections::HashMap;
 
 pub mod errors;
-pub mod models;
 pub mod traits;
 
 pub use crate::models::SupportedAssetsData;
 pub use errors::{AdapterError, AdapterFactoryError, AdapterValidationError};
-pub use models::{
-	AdapterQuote, AssetAmount, AvailableInput, GetOrderResponse, GetQuoteRequest, GetQuoteResponse,
-	OrderResponse, OrderStatus, QuoteDetails, QuoteOrder, QuotePreference, RequestedOutput,
-	Settlement, SettlementType, SignatureType,
-};
 pub use traits::SolverAdapter;
 
 /// Result types for adapter operations

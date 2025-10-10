@@ -11,13 +11,14 @@ use std::{str::FromStr, sync::Arc};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use dashmap::DashMap;
-use oif_types::adapters::models::{
-	AvailableInput, QuotePreference, RequestedOutput, SubmitOrderRequest, SubmitOrderResponse,
+use oif_types::oif::{
+	common::PostOrderResponseStatus,
+	v0::{GetOrderResponse, GetQuoteResponse, PostOrderResponse},
 };
-use oif_types::adapters::GetOrderResponse;
-use oif_types::models::InteropAddress;
+
 use oif_types::{
-	Adapter, Asset, GetQuoteRequest, GetQuoteResponse, SecretString, SolverRuntimeConfig,
+	Adapter, Asset, OifGetOrderResponse, OifGetQuoteRequest, OifGetQuoteResponse,
+	OifPostOrderRequest, OifPostOrderResponse, SecretString, SolverRuntimeConfig,
 };
 use oif_types::{AdapterError, AdapterResult, SolverAdapter, SupportedAssetsData};
 use serde::{Deserialize, Serialize};
@@ -31,55 +32,6 @@ use crate::client_cache::ClientCache;
 /// JWT token expiry buffer in minutes - tokens are considered invalid this many minutes before actual expiry
 /// This prevents race conditions where tokens expire between validation and actual use
 pub const JWT_TOKEN_EXPIRY_BUFFER_MINUTES: i64 = 5;
-
-/// Request structure for OIF quote API (external API format)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OifQuoteRequest {
-	/// User making the request in ERC-7930 interoperable format
-	pub user: InteropAddress,
-	/// Available inputs (order significant if preference is 'input-priority')
-	pub available_inputs: Vec<AvailableInput>,
-	/// Requested outputs
-	pub requested_outputs: Vec<RequestedOutput>,
-	/// Minimum quote validity duration in seconds
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub min_valid_until: Option<u64>,
-	/// User preference for optimization
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub preference: Option<QuotePreference>,
-}
-
-/// Request structure for OIF order submission API
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct OifOrderRequest {
-	/// Quote ID from the original quote request
-	pub quote_id: String,
-	/// User's signature for authorization
-	pub signature: String,
-	/// Order data (optional, from metadata)
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub order: Option<String>,
-	/// User's wallet address (optional, from metadata)
-	#[serde(skip_serializing_if = "Option::is_none")]
-	pub sponsor: Option<String>,
-}
-
-impl TryFrom<&GetQuoteRequest> for OifQuoteRequest {
-	type Error = AdapterError;
-
-	fn try_from(request: &GetQuoteRequest) -> Result<Self, Self::Error> {
-		Ok(OifQuoteRequest {
-			user: request.user.clone(),
-			available_inputs: request.available_inputs.clone(),
-			requested_outputs: request.requested_outputs.clone(),
-			min_valid_until: request.min_valid_until,
-			preference: request.preference.clone(),
-			// metadata is intentionally excluded for external API
-		})
-	}
-}
 
 /// OIF tokens response models
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -769,26 +721,29 @@ impl SolverAdapter for OifAdapter {
 
 	async fn get_quotes(
 		&self,
-		request: &GetQuoteRequest,
+		request: &OifGetQuoteRequest,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetQuoteResponse> {
+	) -> AdapterResult<OifGetQuoteResponse> {
 		debug!(
 			"Getting quotes from OIF adapter {} for solver {} with {} inputs and {} outputs",
 			self.config.adapter_id,
 			config.solver_id,
-			request.available_inputs.len(),
-			request.requested_outputs.len()
+			request.inputs().len(),
+			request.outputs().len()
 		);
 
 		let quote_url = self.build_url(&config.endpoint, "quotes")?;
 		let client = self.get_configured_client(config).await?;
 
-		// Convert to OIF-specific request format (automatically excludes metadata)
-		let oif_request = OifQuoteRequest::try_from(request)?;
+		let v0_request = request
+			.as_v0()
+			.ok_or_else(|| AdapterError::InvalidResponse {
+				reason: "OIF adapter only supports v0 quotes".to_string(),
+			})?;
 
 		let response = client
 			.post(quote_url)
-			.json(&oif_request)
+			.json(v0_request)
 			.send()
 			.await
 			.map_err(AdapterError::HttpError)?;
@@ -808,23 +763,25 @@ impl SolverAdapter for OifAdapter {
 			body.len()
 		);
 
-		// Parse the response body manually since we already consumed it
+		// Parse the response body
 		let quote_response: GetQuoteResponse =
 			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
 				reason: format!("Failed to parse OIF quote response: {}", e),
 			})?;
 
-		Ok(quote_response)
+		Ok(OifGetQuoteResponse::new(quote_response))
 	}
 
 	async fn submit_order(
 		&self,
-		order: &SubmitOrderRequest,
+		order_request: &OifPostOrderRequest,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<SubmitOrderResponse> {
+	) -> AdapterResult<OifPostOrderResponse> {
 		debug!(
 			"Submitting order with quote_id {} to OIF adapter {} via solver {}",
-			order.quote_response.quote_id, self.config.adapter_id, config.solver_id
+			order_request.quote_id().unwrap_or(&"".to_string()),
+			self.config.adapter_id,
+			config.solver_id
 		);
 
 		let orders_url = self.build_url(&config.endpoint, "orders")?;
@@ -835,28 +792,15 @@ impl SolverAdapter for OifAdapter {
 			self.config.adapter_id, config.solver_id
 		);
 
-		// Create OIF-specific order request from the generic SubmitOrderRequest
-		let oif_request = OifOrderRequest {
-			quote_id: order.quote_response.quote_id.clone(),
-			signature: order.signature.clone(),
-			// Extract optional fields from metadata
-			order: order
-				.metadata
-				.as_ref()
-				.and_then(|m| m.get("order"))
-				.and_then(|v| v.as_str())
-				.map(|s| s.to_string()),
-			sponsor: order
-				.metadata
-				.as_ref()
-				.and_then(|m| m.get("sponsor"))
-				.and_then(|v| v.as_str())
-				.map(|s| s.to_string()),
-		};
+		let v0_request = order_request
+			.as_v0()
+			.ok_or_else(|| AdapterError::InvalidResponse {
+				reason: "OIF adapter only supports v0 orders".to_string(),
+			})?;
 
 		let response = client
 			.post(orders_url)
-			.json(&oif_request)
+			.json(v0_request)
 			.send()
 			.await
 			.map_err(AdapterError::HttpError)?;
@@ -875,20 +819,18 @@ impl SolverAdapter for OifAdapter {
 
 		// Get response body as text first so we can print it
 		let body = response.text().await.unwrap_or_default();
-		debug!(
-			"OIF order endpoint responded successfully with {} bytes",
-			body.len()
-		);
 
 		// Parse the response body manually since we already consumed it
-		let order_response: SubmitOrderResponse =
+		let order_response: PostOrderResponse =
 			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
 				reason: format!("Failed to parse OIF order response: {}", e),
 			})?;
 
 		// Check if response is invalid: bad status AND no order_id
-		if !matches!(order_response.status.as_str(), "success" | "received")
-			&& order_response.order_id.is_none()
+		if matches!(
+			order_response.status,
+			PostOrderResponseStatus::Error | PostOrderResponseStatus::Rejected
+		) && order_response.order_id.is_none()
 		{
 			return Err(AdapterError::InvalidResponse {
 				reason: format!(
@@ -898,7 +840,7 @@ impl SolverAdapter for OifAdapter {
 			});
 		}
 
-		Ok(order_response)
+		Ok(OifPostOrderResponse::new(order_response))
 	}
 
 	async fn health_check(&self, config: &SolverRuntimeConfig) -> AdapterResult<bool> {
@@ -959,7 +901,7 @@ impl SolverAdapter for OifAdapter {
 		&self,
 		order_id: &str,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetOrderResponse> {
+	) -> AdapterResult<OifGetOrderResponse> {
 		debug!(
 			"Getting order details for {} from {} (solver: {})",
 			order_id, config.endpoint, config.solver_id
@@ -987,7 +929,7 @@ impl SolverAdapter for OifAdapter {
 		let body = response.text().await.unwrap_or_default();
 		debug!(
 			"OIF get order endpoint responded successfully with {} bytes",
-			body.len()
+			body
 		);
 
 		// Parse the response body manually since we already consumed it
@@ -996,7 +938,7 @@ impl SolverAdapter for OifAdapter {
 				reason: format!("Failed to parse OIF get order response: {}", e),
 			})?;
 
-		Ok(order_response)
+		Ok(OifGetOrderResponse::new(order_response))
 	}
 
 	async fn get_supported_assets(

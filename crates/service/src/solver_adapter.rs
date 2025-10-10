@@ -11,9 +11,11 @@ use async_trait::async_trait;
 use chrono::Utc;
 use oif_adapters::AdapterRegistry;
 use oif_storage::Storage;
-use oif_types::adapters::models::{SubmitOrderRequest, SubmitOrderResponse};
-use oif_types::adapters::{GetOrderResponse, GetQuoteResponse};
-use oif_types::{GetQuoteRequest, Solver, SolverAdapter, SolverRuntimeConfig};
+use oif_types::{
+	OifGetOrderResponse, OifGetQuoteRequest, OifGetQuoteResponse, OifPostOrderRequest,
+	OifPostOrderResponse,
+};
+use oif_types::{Solver, SolverAdapter, SolverRuntimeConfig};
 use regex::Regex;
 use thiserror::Error;
 
@@ -31,6 +33,8 @@ pub enum SolverAdapterError {
 	AdapterNotFound(String),
 	#[error("storage error: {0}")]
 	Storage(String),
+	#[error("circuit breaker open for solver: {0}")]
+	CircuitBreakerOpen(String),
 }
 
 impl SolverAdapterError {
@@ -84,20 +88,22 @@ pub trait SolverAdapterTrait: Send + Sync {
 	/// Get quotes from this solver (automatically collects metrics if JobScheduler available)
 	async fn get_quotes(
 		&self,
-		request: &GetQuoteRequest,
-	) -> Result<GetQuoteResponse, SolverAdapterError>;
+		request: &OifGetQuoteRequest,
+	) -> Result<OifGetQuoteResponse, SolverAdapterError>;
 
 	/// Submit an order to this solver (automatically collects metrics if JobScheduler available)
 	async fn submit_order(
 		&self,
-		request: &SubmitOrderRequest,
-	) -> Result<SubmitOrderResponse, SolverAdapterError>;
+		request: &OifPostOrderRequest,
+	) -> Result<OifPostOrderResponse, SolverAdapterError>;
 
-	/// Get order details from this solver (automatically collects metrics if JobScheduler available)
+	/// Get order details from this solver
+	///
+	/// Note: Does NOT collect metrics. 404 errors for expired orders are expected behavior.
 	async fn get_order_details(
 		&self,
 		order_id: &str,
-	) -> Result<GetOrderResponse, SolverAdapterError>;
+	) -> Result<OifGetOrderResponse, SolverAdapterError>;
 
 	/// Perform health check on this solver (automatically collects metrics if JobScheduler available)
 	async fn health_check(&self) -> Result<bool, SolverAdapterError>;
@@ -364,8 +370,8 @@ impl SolverAdapterTrait for SolverAdapterService {
 	/// Get quotes from this solver (automatically collects metrics if JobScheduler available)
 	async fn get_quotes(
 		&self,
-		request: &GetQuoteRequest,
-	) -> Result<GetQuoteResponse, SolverAdapterError> {
+		request: &OifGetQuoteRequest,
+	) -> Result<OifGetQuoteResponse, SolverAdapterError> {
 		self.execute_with_metrics("get_quotes", || async {
 			let adapter = self.get_adapter();
 			adapter
@@ -379,8 +385,8 @@ impl SolverAdapterTrait for SolverAdapterService {
 	/// Submit an order to this solver (automatically collects metrics if JobScheduler available)
 	async fn submit_order(
 		&self,
-		request: &SubmitOrderRequest,
-	) -> Result<SubmitOrderResponse, SolverAdapterError> {
+		request: &OifPostOrderRequest,
+	) -> Result<OifPostOrderResponse, SolverAdapterError> {
 		self.execute_with_metrics("submit_order", || async {
 			let adapter = self.get_adapter();
 			adapter
@@ -391,19 +397,19 @@ impl SolverAdapterTrait for SolverAdapterService {
 		.await
 	}
 
-	/// Get order details from this solver (automatically collects metrics if JobScheduler available)
+	/// Get order details from this solver
+	///
+	/// Note: This method does NOT collect metrics or affect the circuit breaker.
+	/// 404 errors are expected for expired/deleted orders and should not penalize solver health.
 	async fn get_order_details(
 		&self,
 		order_id: &str,
-	) -> Result<GetOrderResponse, SolverAdapterError> {
-		self.execute_with_metrics("get_order_details", || async {
-			let adapter = self.get_adapter();
-			adapter
-				.get_order_details(order_id, &self.config)
-				.await
-				.map_err(|e| SolverAdapterError::Adapter(e.to_string()))
-		})
-		.await
+	) -> Result<OifGetOrderResponse, SolverAdapterError> {
+		let adapter = self.get_adapter();
+		adapter
+			.get_order_details(order_id, &self.config)
+			.await
+			.map_err(|e| SolverAdapterError::Adapter(e.to_string()))
 	}
 
 	/// Perform health check on this solver (automatically collects metrics if JobScheduler available)

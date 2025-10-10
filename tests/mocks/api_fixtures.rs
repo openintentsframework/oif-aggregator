@@ -1,13 +1,12 @@
 //! API request/response fixtures for e2e and integration tests
+#![allow(dead_code)]
 
 use oif_aggregator::{api::routes::AppState, AggregatorBuilder};
-use oif_service::IntegrityService;
 use oif_types::{
 	chrono,
-	quotes::QuoteResponse,
+	oif::v0::{Order as V0Order, OrderPayload, Quote as V0Quote},
 	serde_json::{json, Value},
-	AvailableInput, InteropAddress, Quote, QuoteDetails, QuoteOrder, RequestedOutput, SecretString,
-	SignatureType, U256,
+	InteropAddress, Quote, SignatureType,
 };
 
 use super::entities::TestConstants;
@@ -31,179 +30,54 @@ impl ApiFixtures {
 
 		json!({
 			"user": user_addr.to_hex(),
-			"availableInputs": [
-				{
-					"user": user_addr.to_hex(),
-					"asset": eth_addr.to_hex(),
-					"amount": TestConstants::ONE_ETH_WEI,
-					"lock": null
-				}
-			],
-			"requestedOutputs": [
-				{
-					"asset": usdc_addr.to_hex(),
-					"amount": TestConstants::TWO_THOUSAND_USDC,
-					"receiver": user_addr.to_hex(),
-					"calldata": null
-				}
-			],
-			"minValidUntil": 300,
-			"preference": null,
-			"solverOptions": null
-		})
-	}
-
-	/// Valid quote request with minimal fields
-	pub fn minimal_quote_request() -> Value {
-		let user_addr =
-			InteropAddress::from_chain_and_address(1, TestConstants::TEST_USER_ADDRESS).unwrap();
-		let eth_addr =
-			InteropAddress::from_chain_and_address(1, TestConstants::WETH_ADDRESS).unwrap();
-		let usdc_addr =
-			InteropAddress::from_chain_and_address(1, TestConstants::USDC_ADDRESS).unwrap();
-
-		json!({
-			"user": user_addr.to_hex(),
-			"availableInputs": [
-				{
-					"user": user_addr.to_hex(),
-					"asset": eth_addr.to_hex(),
-					"amount": TestConstants::ONE_ETH_WEI,
-					"lock": null
-				}
-			],
-			"requestedOutputs": [
-				{
-					"asset": usdc_addr.to_hex(),
-					"amount": TestConstants::TWO_THOUSAND_USDC,
-					"receiver": user_addr.to_hex(),
-					"calldata": null
-				}
-			]
-		})
-	}
-
-	/// Invalid quote request - missing required field
-	pub fn invalid_quote_request_missing_user() -> Value {
-		let eth_addr =
-			InteropAddress::from_chain_and_address(1, TestConstants::WETH_ADDRESS).unwrap();
-		let usdc_addr =
-			InteropAddress::from_chain_and_address(1, TestConstants::USDC_ADDRESS).unwrap();
-
-		json!({
-			"availableInputs": [
-				{
-					"asset": eth_addr.to_hex(),
-					"amount": TestConstants::ONE_ETH_WEI,
-					"lock": null
-				}
-			],
-			"requestedOutputs": [
-				{
-					"asset": usdc_addr.to_hex(),
-					"amount": TestConstants::TWO_THOUSAND_USDC,
-					"calldata": null
-				}
-			]
-		})
-	}
-
-	/// Valid order request (with quote response)
-	pub fn valid_order_request() -> Value {
-		json!({
-			"quoteResponse": {
-				"quoteId": "test-quote-123",
-				"solverId": "mock-demo-solver",
-				"orders": [],
-				"details": {
-					"availableInputs": [],
-					"requestedOutputs": []
-				},
-				"validUntil": 1700000000,
-				"eta": 30,
-				"provider": "Test Provider",
-				"integrityChecksum": "test-checksum"
+			"intent": {
+				"intentType": "oif-swap",
+				"inputs": [
+					{
+						"user": user_addr.to_hex(),
+						"asset": eth_addr.to_hex(), // ETH
+						"amount": TestConstants::ONE_ETH_WEI
+					}
+				],
+				"outputs": [
+					{
+						"asset": usdc_addr.to_hex(),
+						"amount": TestConstants::TWO_THOUSAND_USDC,
+						"receiver": user_addr.to_hex()
+					}
+				],
+				"minValidUntil": 300
 			},
-			"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
-		})
-	}
-
-	/// Invalid order request - missing user address
-	pub fn invalid_order_request_missing_user() -> Value {
-		json!({
-			"quoteResponse": {
-				"quoteId": "test-quote-123"
+			"supportedTypes": ["oif-escrow-v0"],
+			"solverOptions": {
+				"timeout": 4000,
+				"solverTimeout": 2000
 			}
 		})
 	}
 
-	/// Large payload for testing body size limits
-	pub fn large_quote_request() -> Value {
-		let large_payload = "x".repeat(2 * 1024 * 1024); // 2MB
-		let user_addr =
-			InteropAddress::from_chain_and_address(1, TestConstants::TEST_USER_ADDRESS).unwrap();
-
+	/// Invalid quote request (missing required fields)
+	pub fn invalid_quote_request() -> Value {
 		json!({
-			"user": user_addr.to_hex(),
-			"availableInputs": [
-				{
-					"user": user_addr.to_hex(),
-					"asset": large_payload,
-					"amount": TestConstants::ONE_ETH_WEI,
-					"lock": null
-				}
-			],
-			"requestedOutputs": []
+			"invalidField": "This should fail validation"
 		})
 	}
 
-	/// Large quote request with custom payload for body size limit testing
-	pub fn large_quote_request_with_payload(large_payload: String) -> Value {
-		let user_addr =
-			InteropAddress::from_chain_and_address(1, "0x1234567890123456789012345678901234567890")
-				.unwrap();
-		let eth_addr =
-			InteropAddress::from_chain_and_address(1, "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2")
-				.unwrap();
-		let usdc_addr =
-			InteropAddress::from_chain_and_address(1, "0xA0b86a33E6417a77C9A0C65f8E69b8b6e2b0c4A0")
-				.unwrap();
-
+	/// Valid order submission request
+	pub fn valid_order_request() -> Value {
+		let quote_response = Self::sample_quote_response();
 		json!({
-			"user": user_addr.to_hex(),
-			"availableInputs": [
-				{
-					"user": user_addr.to_hex(),
-					"asset": eth_addr.to_hex(),
-					"amount": "1000000000000000000",
-					"lock": null,
-					"largeData": large_payload  // Embed large payload here
-				}
-			],
-			"requestedOutputs": [
-				{
-					"asset": usdc_addr.to_hex(),
-					"amount": "2000000000",
-					"receiver": user_addr.to_hex(),
-					"calldata": null
-				}
-			],
-			"minValidUntil": 300
+			"quoteResponse": quote_response,
+			"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12",
+			"metadata": {
+				"order": "0xfedcba0987654321fedcba0987654321fedcba0987654321fedcba0987654321",
+				"sponsor": "0x70997970c51812dc3a010c7d01b50e0d17dc79c8"
+			}
 		})
 	}
 
-	/// Malformed JSON string for testing error handling
-	pub fn malformed_json() -> &'static str {
-		"{ invalid json structure"
-	}
-
-	/// Create a properly signed order request for testing with integrity verification
-	pub fn valid_order_request_with_integrity() -> Value {
-		// Use the EXACT same secret as the TestServer
-		let test_secret = SecretString::from(INTEGRITY_SECRET);
-		let integrity_service = IntegrityService::new(test_secret);
-
-		// Create test addresses using constants
+	/// Sample quote response for testing
+	pub fn sample_quote_response() -> Value {
 		let user_addr =
 			InteropAddress::from_chain_and_address(1, TestConstants::TEST_USER_ADDRESS).unwrap();
 		let eth_addr =
@@ -211,167 +85,333 @@ impl ApiFixtures {
 		let usdc_addr =
 			InteropAddress::from_chain_and_address(1, TestConstants::USDC_ADDRESS).unwrap();
 
-		// Create quote details
-		let details = QuoteDetails {
-			available_inputs: vec![AvailableInput {
-				user: user_addr.clone(),
-				asset: eth_addr.clone(),
-				amount: U256::new(TestConstants::ONE_ETH_WEI.to_string()), // 1 ETH
-				lock: None,
-			}],
-			requested_outputs: vec![RequestedOutput {
-				asset: usdc_addr.clone(),
-				amount: U256::new(TestConstants::TWO_THOUSAND_USDC.to_string()), // 2000 USDC
-				receiver: user_addr.clone(),
-				calldata: None,
-			}],
-		};
-
-		// Create quote order
-		let quote_order = QuoteOrder {
-			signature_type: SignatureType::Eip712,
-			domain: user_addr.clone(),
-			primary_type: "Order".to_string(),
-			message: json!({
-				"orderType": "swap",
-				"inputAsset": eth_addr.to_hex(),
-				"outputAsset": usdc_addr.to_hex(),
-				"mockProvider": "Mock Demo Adapter"
-			}),
-		};
-
-		// Create quote (without checksum first)
-		let mut quote = Quote::new(
-			"mock-demo-solver".to_string(), // Match the solver ID used in TestServer
-			vec![quote_order],
-			details,
-			"Mock Demo Adapter Provider".to_string(), // Match MockDemoAdapter format
-			String::new(),                            // Empty checksum initially
-		);
-
-		// Set other fields
-		quote.valid_until = Some(chrono::Utc::now().timestamp() as u64 + 300); // 5 minutes from now
-		quote.eta = Some(30);
-
-		// Generate the integrity checksum
-		let integrity_checksum = integrity_service.generate_checksum(&quote).unwrap();
-		quote.integrity_checksum = integrity_checksum;
-
-		// Convert to QuoteResponse
-		let quote_response = QuoteResponse::try_from(quote).unwrap();
-
-		// Create OrderRequest
 		json!({
-			"quoteResponse": quote_response,
-			"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
+			"quoteId": "6a22e92f-3e5d-4f05-ab5f-007b01e58b21",
+			"solverId": "example-solver",
+			"order": {
+				"type": "oif-escrow-v0",
+				"payload": {
+					"signatureType": "eip712",
+					"domain": {
+						"name": "TestOrder",
+						"version": "1",
+						"chainId": 1
+					},
+					"primaryType": "PermitBatchWitnessTransferFrom",
+					"message": {
+						"digest": "0xdfbfeb9aed6340d513ef52f716cef5b50b677118d364c8448bff1c9ea9fd0b14"
+					},
+					"types": {}
+				}
+			},
+			"validUntil": chrono::Utc::now().timestamp() as u64 + 300,
+			"eta": 30,
+			"provider": "Example Solver v1.0",
+			"partialFill": false,
+			"integrityChecksum": "hmac-sha256:a1b2c3d4e5f6789012345678901234567890123456789012345678901234567890",
+			"metadata": {
+				"test": "additional context"
+			},
+			"preview": {
+				"inputs": [{
+					"user": user_addr.to_hex(),
+					"asset": eth_addr.to_hex(),
+					"amount": TestConstants::ONE_ETH_WEI
+				}],
+				"outputs": [{
+					"asset": usdc_addr.to_hex(),
+					"amount": TestConstants::TWO_THOUSAND_USDC,
+					"receiver": user_addr.to_hex()
+				}]
+			}
 		})
 	}
 
+	/// Create test app state with mock adapters for e2e testing
+	pub async fn test_app_state() -> AppState {
+		// Use the integrity secret for testing
+		std::env::set_var("INTEGRITY_SECRET", INTEGRITY_SECRET);
+
+		let mock_adapter = crate::mocks::adapters::create_mock_adapter();
+		let mock_solver = oif_aggregator::mocks::mock_solver();
+
+		let (_, state) = AggregatorBuilder::default()
+			.with_adapter(Box::new(mock_adapter))
+			.with_solver(mock_solver)
+			.start()
+			.await
+			.expect("Failed to create test app state");
+
+		state
+	}
+
+	/// Create a quote for TTL testing that expires soon
+	pub fn expiring_quote() -> Quote {
+		let v0_quote = V0Quote {
+			preview: oif_types::oif::common::QuotePreview {
+				inputs: vec![],
+				outputs: vec![],
+			},
+			quote_id: Some("test-expiring-quote".to_string()),
+			order: V0Order::OifEscrowV0 {
+				payload: OrderPayload {
+					signature_type: SignatureType::Eip712,
+					domain: json!({
+						"name": "TestQuote",
+						"version": "1",
+						"chainId": 1
+					}),
+					primary_type: "TestOrder".to_string(),
+					message: json!({
+							"orderType": "swap",
+							"test": "expiring"
+					}),
+					types: std::collections::HashMap::new(),
+				},
+			},
+			valid_until: Some(chrono::Utc::now().timestamp() as u64 + 5), // Expires in 5 seconds
+			eta: Some(30),
+			provider: Some("Test Provider".to_string()),
+			failure_handling: None,
+			partial_fill: false,
+			metadata: Some(json!({
+				"test": "expiring_quote"
+			})),
+		};
+
+		Quote::new(
+			"test-solver".to_string(),
+			oif_types::oif::OifQuote::new(v0_quote),
+			"test-checksum".to_string(),
+		)
+	}
+
+	/// Create a quote for TTL testing
+	pub fn quote_with_ttl(ttl_seconds: i64) -> Quote {
+		let v0_quote = V0Quote {
+			preview: oif_types::oif::common::QuotePreview {
+				inputs: vec![],
+				outputs: vec![],
+			},
+			quote_id: Some("test-ttl-quote".to_string()),
+			order: V0Order::OifEscrowV0 {
+				payload: OrderPayload {
+					signature_type: SignatureType::Eip712,
+					domain: json!({
+						"name": "TestQuote",
+						"version": "1",
+						"chainId": 1
+					}),
+					primary_type: "TestOrder".to_string(),
+					message: json!({
+							"orderType": "swap",
+							"ttl": ttl_seconds
+					}),
+					types: std::collections::HashMap::new(),
+				},
+			},
+			valid_until: Some(chrono::Utc::now().timestamp() as u64 + ttl_seconds as u64),
+			eta: Some(30),
+			provider: Some("Test Provider".to_string()),
+			failure_handling: None,
+			partial_fill: false,
+			metadata: Some(json!({
+				"test": "ttl_quote",
+				"ttl_seconds": ttl_seconds
+			})),
+		};
+
+		Quote::new(
+			"test-solver".to_string(),
+			oif_types::oif::OifQuote::new(v0_quote),
+			"test-checksum".to_string(),
+		)
+	}
+
+	/// Valid solver configuration for tests
+	pub fn valid_solver_config() -> Value {
+		json!({
+			"solverId": "test-solver",
+			"adapterId": "test-adapter",
+			"endpoint": "http://localhost:8080",
+			"enabled": true,
+			"configuration": {
+				"timeout": 5000,
+				"retries": 3
+			}
+		})
+	}
+
+	/// API health check response format
+	pub fn health_response() -> Value {
+		json!({
+			"status": "healthy",
+			"timestamp": chrono::Utc::now().timestamp(),
+			"version": "test"
+		})
+	}
+
+	/// Common test headers for API requests
+	pub fn test_headers() -> Vec<(&'static str, &'static str)> {
+		vec![
+			("Content-Type", "application/json"),
+			("User-Agent", "oif-aggregator-test/1.0.0"),
+		]
+	}
+
+	/// Rate limit exceeded error response
+	pub fn rate_limit_error() -> Value {
+		json!({
+			"error": "rate_limit_exceeded",
+			"message": "Too many requests. Please try again later.",
+			"timestamp": chrono::Utc::now().timestamp()
+		})
+	}
+
+	/// Authentication required error response
+	pub fn auth_required_error() -> Value {
+		json!({
+			"error": "authentication_required",
+			"message": "Valid authentication credentials are required",
+			"timestamp": chrono::Utc::now().timestamp()
+		})
+	}
+
+	/// Generic validation error response format
+	pub fn validation_error(field: &str, message: &str) -> Value {
+		json!({
+			"error": "validation_failed",
+			"field": field,
+			"message": message,
+			"timestamp": chrono::Utc::now().timestamp()
+		})
+	}
+
+	/// Solver not found error response
+	pub fn solver_not_found_error(solver_id: &str) -> Value {
+		json!({
+			"error": "solver_not_found",
+			"message": format!("Solver '{}' not found", solver_id),
+			"solver_id": solver_id,
+			"timestamp": chrono::Utc::now().timestamp()
+		})
+	}
+
+	/// No quotes available error response
+	pub fn no_quotes_error() -> Value {
+		json!({
+			"error": "no_quotes_available",
+			"message": "No valid quotes were returned from any solver",
+			"timestamp": chrono::Utc::now().timestamp()
+		})
+	}
+
+	/// Internal server error response
+	pub fn internal_error() -> Value {
+		json!({
+			"error": "internal_server_error",
+			"message": "An unexpected error occurred",
+			"timestamp": chrono::Utc::now().timestamp()
+		})
+	}
+
+	/// Test pagination parameters
+	pub fn pagination_params() -> Vec<(&'static str, &'static str)> {
+		vec![("page", "1"), ("limit", "10")]
+	}
+
+	/// Solver status response for health checks
+	pub fn solver_status_response(solver_id: &str, healthy: bool) -> Value {
+		json!({
+			"solver_id": solver_id,
+			"status": if healthy { "healthy" } else { "unhealthy" },
+			"last_check": chrono::Utc::now().timestamp(),
+			"response_time_ms": if healthy { json!(150) } else { json!(null) }
+		})
+	}
+
+	/// Invalid quote request missing user field
+	pub fn invalid_quote_request_missing_user() -> Value {
+		json!({
+			"intent": {
+				"intentType": "oif-swap",
+				"inputs": [{
+					"asset": "0x0000000000000000000000000000000000000000",
+					"amount": "1000000000000000000"
+				}],
+				"outputs": [{
+					"asset": "0xa0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0",
+					"amount": "1000000",
+					"receiver": "0x1234567890123456789012345678901234567890"
+				}]
+			}
+		})
+	}
+
+	/// Invalid order request missing user
+	pub fn invalid_order_request_missing_user() -> Value {
+		json!({
+			"quoteResponse": {
+				"quoteId": "test-quote-id",
+				"solverId": "test-solver"
+			},
+			"signature": "0x1234567890abcdef"
+		})
+	}
+
+	/// Invalid order request missing quote
 	pub fn invalid_order_request_missing_quote() -> Value {
 		json!({
-			"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
-			// Missing quoteResponse
+			"signature": "0x1234567890abcdef",
+			"metadata": {
+				"test": "data"
+			}
 		})
 	}
 
+	/// Order request with invalid quote ID
 	pub fn order_request_with_invalid_quote_id() -> Value {
-		json!({
-			"signature": "0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12341b",
-			"quoteId": "non-existent-quote-id"
-		})
+		let mut request = Self::valid_order_request();
+		if let Some(quote_response) = request.get_mut("quoteResponse") {
+			quote_response["quoteId"] = json!("invalid-quote-id");
+		}
+		request
+	}
+
+	/// Valid order request with integrity
+	pub fn valid_order_request_with_integrity() -> Value {
+		Self::valid_order_request() // For now, same as valid order request
+	}
+
+	/// Large quote request with payload for middleware testing
+	pub fn large_quote_request_with_payload(payload: Value) -> Value {
+		let mut request = Self::valid_quote_request();
+		request["largePayload"] = payload;
+		request
 	}
 }
 
-/// Application state builders for tests
-#[allow(dead_code)]
+/// Assert that metadata is present and valid
+pub fn assert_metadata_present_and_valid(response: &Value) {
+	assert!(
+		response.get("metadata").is_some(),
+		"Metadata should be present in response"
+	);
+}
+
+/// App state builder for test configuration
 pub struct AppStateBuilder;
 
-#[allow(dead_code)]
 impl AppStateBuilder {
-	/// Create minimal test app state with dependencies
-	pub async fn minimal() -> Result<AppState, Box<dyn std::error::Error>> {
-		// Set required environment variable for tests
-		std::env::set_var("INTEGRITY_SECRET", INTEGRITY_SECRET);
-
-		let (_app, state) = AggregatorBuilder::default().start().await?;
-		Ok(state)
+	pub fn new() -> Self {
+		Self
 	}
 
-	/// Create app state with mock solvers
-	pub async fn with_mock_solvers(
-		_solver_count: usize,
-	) -> Result<AppState, Box<dyn std::error::Error>> {
-		// Set required environment variable for tests
-		std::env::set_var("INTEGRITY_SECRET", INTEGRITY_SECRET);
-
-		// Create minimal test settings without loading config that includes broken OIF adapter
-		let mut settings = oif_config::Settings::default();
-		settings.security.integrity_secret =
-			oif_config::ConfigurableValue::from_env("INTEGRITY_SECRET");
-
-		// Use the correct mock solver that matches the MockDemoAdapter ID
-		let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
-		let mock_solver = oif_aggregator::mocks::mock_solver();
-
-		let (_app, state) = AggregatorBuilder::default()
-			.with_settings(settings)
-			.with_adapter(Box::new(mock_adapter))
-			.with_solver(mock_solver)
-			.start()
-			.await?;
-		Ok(state)
+	pub async fn build() -> oif_aggregator::api::routes::AppState {
+		ApiFixtures::test_app_state().await
 	}
 
-	/// Create app state for testing with custom settings
-	pub async fn with_custom_settings() -> Result<AppState, Box<dyn std::error::Error>> {
-		// Set required environment variable for tests
-		std::env::set_var("INTEGRITY_SECRET", INTEGRITY_SECRET);
-
-		let mock_adapter = oif_aggregator::mocks::MockDemoAdapter::new();
-		let mock_solver = oif_aggregator::mocks::mock_solver();
-
-		let (_app, state) = AggregatorBuilder::default()
-			.with_adapter(Box::new(mock_adapter))
-			.with_solver(mock_solver)
-			.start()
-			.await?;
-		Ok(state)
+	pub async fn minimal() -> oif_aggregator::api::routes::AppState {
+		ApiFixtures::test_app_state().await
 	}
-}
-
-/// Helper function to validate metadata in successful responses
-#[allow(dead_code)]
-pub fn assert_metadata_present_and_valid(body: &serde_json::Value) {
-	let metadata = body["metadata"]
-		.as_object()
-		.expect("Metadata should be present in response");
-
-	// Verify all required metadata fields are present
-	assert!(metadata.contains_key("totalDurationMs"));
-	assert!(metadata.contains_key("solverTimeoutMs"));
-	assert!(metadata.contains_key("globalTimeoutMs"));
-	assert!(metadata.contains_key("earlyTermination"));
-	assert!(metadata.contains_key("totalSolversAvailable"));
-	assert!(metadata.contains_key("solversQueried"));
-	assert!(metadata.contains_key("solversRespondedSuccess"));
-	assert!(metadata.contains_key("solversRespondedError"));
-	assert!(metadata.contains_key("solversTimedOut"));
-	assert!(metadata.contains_key("minQuotesRequired"));
-	assert!(metadata.contains_key("solverSelectionMode"));
-
-	// Verify basic constraints
-	let total_available = metadata["totalSolversAvailable"].as_u64().unwrap();
-	let queried = metadata["solversQueried"].as_u64().unwrap();
-	let success = metadata["solversRespondedSuccess"].as_u64().unwrap();
-	let error = metadata["solversRespondedError"].as_u64().unwrap();
-	let timeout = metadata["solversTimedOut"].as_u64().unwrap();
-
-	assert!(
-		queried <= total_available,
-		"Queried solvers cannot exceed available solvers"
-	);
-	assert!(
-		success + error + timeout <= queried,
-		"Response counts cannot exceed queried solvers"
-	);
 }

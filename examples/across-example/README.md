@@ -119,24 +119,31 @@ curl -X POST http://localhost:4000/v1/quotes \
   -H "Content-Type: application/json" \
   -d '{
   "user": "0x0100000314aa37dc742d35cc6634c0532925a3b8d38ba2297c33a9d7",
-  "availableInputs": [
-    {
-      "user": "0x0100000314aa37dc742d35cc6634c0532925a3b8d38ba2297c33a9d7",
-      "asset": "0x0100000314aa37dc4200000000000000000000000000000000000006",
-      "amount": "100000000000000"
-    }
-  ],
-  "requestedOutputs": [
-    {
-      "receiver": "0x010000031401f977742d35cc6634c0532925a3b8d38ba2297c33a9d7",
-      "asset": "0x010000031401f97717b8ee96e3bcb3b04b3e8334de4524520c51cab4",
-      "amount": "100000000000000"
-    }
-  ],
-  "minValidUntil": 300,
-  "preference": null,
+  "intent": {
+    "intentType": "oif-swap",
+    "inputs": [
+      {
+        "user": "0x0100000314aa37dc742d35cc6634c0532925a3b8d38ba2297c33a9d7",
+        "asset": "0x0100000314aa37dc4200000000000000000000000000000000000006",
+        "amount": "100000000000000"
+      }
+    ],
+    "outputs": [
+      {
+        "receiver": "0x010000031401f977742d35cc6634c0532925a3b8d38ba2297c33a9d7",
+        "asset": "0x010000031401f97717b8ee96e3bcb3b04b3e8334de4524520c51cab4",
+        "amount": "100000000000000"
+      }
+    ],
+    "swapType": "exact-input",
+    "minValidUntil": 300,
+    "preference": "speed",
+    "partialFill": false
+  },
+  "supportedTypes": ["oif-escrow-v0"],
   "solverOptions": {
-      "timeout": 6000
+      "timeout": 6000,
+      "solverTimeout": 3000
   }
 }'
 ```

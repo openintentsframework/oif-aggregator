@@ -4,9 +4,11 @@
 //! Submission and tracking of orders are not supported by this adapter.
 
 use async_trait::async_trait;
-use oif_types::adapters::AdapterQuote;
+use oif_types::oif::common::QuotePreview;
+use oif_types::oif::v0::Quote;
 use oif_types::{
-	Adapter, Asset, AssetRoute, GetQuoteRequest, GetQuoteResponse, SolverRuntimeConfig,
+	Adapter, Asset, AssetRoute, GetQuoteResponse, OifGetQuoteRequest, OifGetQuoteResponse,
+	SolverRuntimeConfig, SwapType,
 };
 use oif_types::{AdapterError, AdapterResult, SolverAdapter, SupportedAssetsData};
 use reqwest::{
@@ -625,7 +627,6 @@ impl AcrossAdapter {
 	/// {
 	///   "metadata": {
 	///     "requestParams": {
-	///       "tradeType": "exactInput",
 	///       "slippage": "0.005",
 	///       "skipOriginTxEstimation": true,
 	///       "appFee": "0.001",
@@ -637,7 +638,7 @@ impl AcrossAdapter {
 	#[allow(clippy::too_many_arguments)]
 	fn build_query_params(
 		&self,
-		request: &GetQuoteRequest,
+		request: &OifGetQuoteRequest,
 		amount: &str,
 		input_token: &str,
 		output_token: &str,
@@ -645,6 +646,7 @@ impl AcrossAdapter {
 		output_chain_id: u64,
 		depositor: &str,
 		recipient: &str,
+		trade_type: &str,
 	) -> AdapterResult<Vec<(&'static str, String)>> {
 		// Start with required parameters
 		let mut params = vec![
@@ -655,20 +657,17 @@ impl AcrossAdapter {
 			("destinationChainId", output_chain_id.to_string()),
 			("depositor", depositor.to_string()),
 			("recipient", recipient.to_string()),
+			("tradeType", trade_type.to_string()),
 		];
 
 		// Extract optional parameters from metadata.requestParams
-		if let Some(metadata) = &request.metadata {
+		if let Some(metadata) = &request.intent().metadata {
 			debug!("metadata: {:?}", metadata);
 			// Try to parse AcrossQueryParams from metadata.requestParams
 			if let Some(request_params) = metadata.get("requestParams") {
 				match serde_json::from_value::<AcrossQueryParams>(request_params.clone()) {
 					Ok(query_params) => {
 						debug!("Successfully parsed query_params: {:?}", query_params);
-						// Add optional parameters if they exist
-						if let Some(trade_type) = query_params.trade_type {
-							params.push(("tradeType", trade_type));
-						}
 
 						if let Some(integrator_id) = query_params.integrator_id {
 							params.push(("integratorId", integrator_id));
@@ -732,39 +731,51 @@ impl AcrossAdapter {
 	fn convert_across_swap_to_adapter_quote(
 		&self,
 		across_swap: AcrossSwapResponse,
-		request: &GetQuoteRequest,
+		request: &OifGetQuoteRequest,
 		_config: &SolverRuntimeConfig,
-	) -> AdapterResult<AdapterQuote> {
-		use oif_types::adapters::{AdapterQuote, QuoteDetails};
-
+	) -> AdapterResult<Quote> {
 		// Generate unique quote ID (use provided ID if available, otherwise generate one)
 		let quote_id = across_swap
 			.id
 			.clone()
 			.unwrap_or_else(|| format!("across-quote-{}", uuid::Uuid::new_v4()));
 
-		// Create quote details from the request structure
-		let details = QuoteDetails {
-			available_inputs: request.available_inputs.clone(),
-			requested_outputs: request.requested_outputs.clone(),
-		};
+		// Create new inputs and outputs with correct amounts from Across response
+		let mut inputs = request.inputs().to_vec();
+		let mut outputs = request.outputs().to_vec();
 
-		// The new API doesn't provide a timestamp, so we don't set valid_until
+		// Update the first input with the actual input amount from Across
+		if let Some(first_input) = inputs.get_mut(0) {
+			first_input.amount = Some(oif_types::U256::new(across_swap.input_amount.clone()));
+		}
+
+		// Update the first output with the actual output amount from Across
+		if let Some(first_output) = outputs.get_mut(0) {
+			first_output.amount = Some(oif_types::U256::new(
+				across_swap.expected_output_amount.clone(),
+			));
+		}
+
 		let valid_until = None;
 
 		let metadata = serde_json::json!({
 			"across_response": across_swap,
 		});
 
-		Ok(AdapterQuote {
-			orders: vec![], // EIP-712 orders are not supported for Across yet
-			details,
+		Ok(Quote {
+			quote_id: Some(quote_id),
+			preview: QuotePreview { inputs, outputs },
+			order: oif_types::oif::v0::Order::Across {
+				payload: serde_json::json!({
+					"across_swap": across_swap.swap_tx.clone(),
+				}),
+			},
 			valid_until,
 			eta: Some(across_swap.expected_fill_time),
-			quote_id,
-			provider: format!("Across Protocol v{}", self.config.version),
+			provider: Some(format!("Across Protocol v{}", self.config.version)),
+			failure_handling: None,
+			partial_fill: false,
 			metadata: Some(metadata),
-			cost: None,
 		})
 	}
 }
@@ -777,30 +788,36 @@ impl SolverAdapter for AcrossAdapter {
 
 	async fn get_quotes(
 		&self,
-		request: &GetQuoteRequest,
+		request: &OifGetQuoteRequest,
 		config: &SolverRuntimeConfig,
-	) -> AdapterResult<GetQuoteResponse> {
+	) -> AdapterResult<OifGetQuoteResponse> {
 		debug!(
 			"Across adapter getting quotes for {} inputs and {} outputs via solver: {}",
-			request.available_inputs.len(),
-			request.requested_outputs.len(),
+			request.inputs().len(),
+			request.outputs().len(),
 			config.solver_id
 		);
 
+		if !request.is_v0() {
+			return Err(AdapterError::InvalidResponse {
+				reason: "Across adapter only supports v0 quotes".to_string(),
+			});
+		}
+
 		// Validate request - Across adapter currently supports single input/output
-		if request.available_inputs.len() != 1 {
+		if request.inputs().len() != 1 {
 			return Err(AdapterError::InvalidResponse {
 				reason: "Across adapter currently supports only single input".to_string(),
 			});
 		}
-		if request.requested_outputs.len() != 1 {
+		if request.outputs().len() != 1 {
 			return Err(AdapterError::InvalidResponse {
 				reason: "Across adapter currently supports only single output".to_string(),
 			});
 		}
 
-		let input = &request.available_inputs[0];
-		let output = &request.requested_outputs[0];
+		let input = &request.inputs()[0];
+		let output = &request.outputs()[0];
 
 		// Extract chain IDs and addresses from InteropAddress
 		let input_chain_id =
@@ -835,15 +852,34 @@ impl SolverAdapter for AcrossAdapter {
 		let recipient = output.receiver.extract_address();
 
 		// Build query parameters dynamically from metadata
+		let amount = input
+			.amount
+			.as_ref()
+			.ok_or_else(|| AdapterError::InvalidResponse {
+				reason: "Input amount is required but not provided".to_string(),
+			})?;
+
+		let swap_type = request
+			.intent()
+			.clone()
+			.swap_type
+			.unwrap_or(SwapType::ExactInput);
+
+		let trade_type = match swap_type {
+			SwapType::ExactInput => "exactInput",
+			SwapType::ExactOutput => "exactOutput",
+		};
+
 		let query_params = self.build_query_params(
 			request,
-			&input.amount.to_string(),
+			&amount.to_string(),
 			input_token.as_str(),
 			output_token.as_str(),
 			input_chain_id,
 			output_chain_id,
 			depositor.as_str(),
 			recipient.as_str(),
+			trade_type,
 		)?;
 
 		// Make the quote request (remove Content-Type header for GET request)
@@ -894,12 +930,14 @@ impl SolverAdapter for AcrossAdapter {
 
 		debug!(
 			"Across adapter successfully fetched quote {} for solver {}",
-			quote.quote_id, config.solver_id
+			quote.quote_id.as_ref().map_or("unknown", |v| v),
+			config.solver_id
 		);
 
-		Ok(GetQuoteResponse {
+		let response = GetQuoteResponse {
 			quotes: vec![quote],
-		})
+		};
+		Ok(OifGetQuoteResponse::new(response))
 	}
 
 	async fn health_check(&self, config: &SolverRuntimeConfig) -> AdapterResult<bool> {
@@ -1080,6 +1118,10 @@ impl SolverAdapter for AcrossAdapter {
 
 #[cfg(test)]
 mod tests {
+	use oif_types::oif::common::{IntentType, SwapType};
+	use oif_types::oif::v0::IntentRequest;
+	use oif_types::{Input, Output};
+
 	use super::*;
 	use std::time::Duration;
 
@@ -1296,7 +1338,7 @@ mod tests {
 	#[test]
 	fn test_get_quote_request_construction() {
 		use oif_types::models::InteropAddress;
-		use oif_types::{AvailableInput, RequestedOutput, U256};
+		use oif_types::{oif::v0::GetQuoteRequest, U256};
 
 		// Test data from user query:
 		// originChainId=11155420&destinationChainId=129399
@@ -1334,38 +1376,49 @@ mod tests {
 		let amount_u256 = U256::new(amount.to_string());
 
 		// Create the GetQuoteRequest
-		let quote_request = GetQuoteRequest {
+		let v0_quote_request = GetQuoteRequest {
 			user: user_address.clone(),
-			available_inputs: vec![AvailableInput {
-				user: user_address,
-				asset: input_asset,
-				amount: amount_u256.clone(),
-				lock: None,
-			}],
-			requested_outputs: vec![RequestedOutput {
-				receiver: output_receiver,
-				asset: output_asset,
-				amount: amount_u256, // Same amount for simplicity
-				calldata: None,
-			}],
-			min_valid_until: Some(300), // 5 minutes
-			preference: None,
-			metadata: None,
+			intent: IntentRequest {
+				inputs: vec![Input {
+					user: user_address,
+					asset: input_asset,
+					amount: Some(amount_u256.clone()),
+					lock: None,
+				}],
+				outputs: vec![Output {
+					receiver: output_receiver,
+					asset: output_asset,
+					amount: Some(amount_u256), // Same amount for simplicity
+					calldata: None,
+				}],
+				min_valid_until: Some(300), // 5 minutes
+				preference: None,
+				metadata: None,
+				intent_type: IntentType::OifSwap,
+				swap_type: Some(SwapType::ExactInput),
+				origin_submission: None,
+				failure_handling: None,
+				partial_fill: None,
+			},
+			supported_types: vec![],
 		};
 
 		// Serialize to JSON for Postman usage
-		let json_request = serde_json::to_string_pretty(&quote_request)
+		let json_request = serde_json::to_string_pretty(&v0_quote_request)
 			.expect("Failed to serialize GetQuoteRequest to JSON");
+
+		// Wrap in OifGetQuoteRequest for version-agnostic access
+		let quote_request = OifGetQuoteRequest::new(v0_quote_request);
 
 		println!("📋 GetQuoteRequest JSON for Postman:");
 		println!("{}", json_request);
 
 		// Verify the request was constructed correctly
-		assert_eq!(quote_request.available_inputs.len(), 1);
-		assert_eq!(quote_request.requested_outputs.len(), 1);
+		assert_eq!(quote_request.inputs().len(), 1);
+		assert_eq!(quote_request.outputs().len(), 1);
 
-		let input = &quote_request.available_inputs[0];
-		let output = &quote_request.requested_outputs[0];
+		let input = &quote_request.inputs()[0];
+		let output = &quote_request.outputs()[0];
 
 		// Verify extracted chain IDs and addresses
 		assert_eq!(input.asset.extract_chain_id().unwrap(), origin_chain_id);
@@ -1381,8 +1434,8 @@ mod tests {
 			output.asset.extract_address().to_lowercase(),
 			output_token.to_lowercase()
 		);
-		assert_eq!(input.amount.to_string(), amount);
-		assert_eq!(output.amount.to_string(), amount);
+		assert_eq!(input.amount.as_ref().unwrap().to_string(), amount);
+		assert_eq!(output.amount.as_ref().unwrap().to_string(), amount);
 
 		println!("✅ GetQuoteRequest constructed successfully:");
 		println!(
@@ -1724,7 +1777,6 @@ mod tests {
 	fn test_across_query_params_deserialization() {
 		// Test JSON with mixed types (numbers and strings)
 		let json_data = serde_json::json!({
-			"tradeType": "minOutput",
 			"slippage": 5,        // Number
 			"appFee": 2.5,        // Float
 			"integratorId": "test-id",
@@ -1735,7 +1787,6 @@ mod tests {
 		let params: AcrossQueryParams =
 			serde_json::from_value(json_data).expect("Failed to deserialize mixed types");
 
-		assert_eq!(params.trade_type, Some("minOutput".to_string()));
 		assert_eq!(params.slippage, Some("5.0".to_string())); // Integer converted to decimal string
 		assert_eq!(params.app_fee, Some("2.5".to_string())); // Float converted to string
 		assert_eq!(params.integrator_id, Some("test-id".to_string()));
@@ -1745,7 +1796,6 @@ mod tests {
 
 		// Test with string values
 		let json_string_data = serde_json::json!({
-			"tradeType": "exactInput",
 			"slippage": "0.005",  // String
 			"appFee": "1.0",      // String
 		});
@@ -1753,29 +1803,13 @@ mod tests {
 		let params_string: AcrossQueryParams =
 			serde_json::from_value(json_string_data).expect("Failed to deserialize string types");
 
-		assert_eq!(params_string.trade_type, Some("exactInput".to_string()));
 		assert_eq!(params_string.slippage, Some("0.005".to_string()));
 		assert_eq!(params_string.app_fee, Some("1.0".to_string()));
 
 		println!("✅ Successfully parsed string parameters");
 
-		// Test with null/missing values
-		let json_minimal = serde_json::json!({
-			"tradeType": "exactOutput"
-		});
-
-		let params_minimal: AcrossQueryParams =
-			serde_json::from_value(json_minimal).expect("Failed to deserialize minimal data");
-
-		assert_eq!(params_minimal.trade_type, Some("exactOutput".to_string()));
-		assert_eq!(params_minimal.slippage, None);
-		assert_eq!(params_minimal.app_fee, None);
-
-		println!("✅ Successfully parsed minimal parameters with null values");
-
 		// Test with the user's exact payload
 		let user_payload = serde_json::json!({
-			"tradeType": "minOutput",
 			"integratorId": "0xdede",
 			"strictTradeType": true
 		});
@@ -1783,7 +1817,6 @@ mod tests {
 		let params_user: AcrossQueryParams =
 			serde_json::from_value(user_payload).expect("Failed to deserialize user payload");
 
-		assert_eq!(params_user.trade_type, Some("minOutput".to_string()));
 		assert_eq!(params_user.integrator_id, Some("0xdede".to_string()));
 		assert_eq!(params_user.strict_trade_type, Some(true));
 		assert_eq!(params_user.slippage, None); // Missing field should be None

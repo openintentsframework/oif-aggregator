@@ -7,7 +7,10 @@ use oif_aggregator::{api::routes::create_router, AggregatorBuilder};
 use tokio::task::JoinHandle;
 
 use super::{
-	adapters::{MockDemoAdapter, TimingControlledAdapter},
+	adapters::{
+		create_failing_timing_adapter, create_fast_adapter, create_mock_adapter,
+		create_slow_adapter, create_timeout_adapter, MockAdapter,
+	},
 	configs,
 };
 use oif_config::CircuitBreakerSettings;
@@ -37,7 +40,7 @@ impl TestServer {
 		settings.security.integrity_secret =
 			oif_config::ConfigurableValue::from_env("INTEGRITY_SECRET");
 
-		let mock_adapter = MockDemoAdapter::new();
+		let mock_adapter = create_mock_adapter();
 		let mock_solver = oif_aggregator::mocks::mock_solver();
 
 		let (_router, state) = AggregatorBuilder::default()
@@ -129,7 +132,7 @@ impl TestServer {
 	/// Spawn a test server with multiple timing-controlled adapters for sophisticated testing
 	#[allow(dead_code)]
 	pub async fn spawn_with_timing_controlled_adapters(
-	) -> Result<(Self, Vec<TimingControlledAdapter>), Box<dyn std::error::Error>> {
+	) -> Result<(Self, Vec<MockAdapter>), Box<dyn std::error::Error>> {
 		// Set required environment variable for tests
 		std::env::set_var("INTEGRITY_SECRET", super::api_fixtures::INTEGRITY_SECRET);
 
@@ -154,10 +157,10 @@ impl TestServer {
 			oif_config::ConfigurableValue::from_env("INTEGRITY_SECRET");
 
 		// Create multiple adapters with different timing characteristics
-		let fast_adapter = TimingControlledAdapter::fast("fast");
-		let slow_adapter = TimingControlledAdapter::slow("slow");
-		let timeout_adapter = TimingControlledAdapter::timeout("timeout");
-		let failing_adapter = TimingControlledAdapter::failing("failing");
+		let fast_adapter = create_fast_adapter("fast");
+		let slow_adapter = create_slow_adapter("slow");
+		let timeout_adapter = create_timeout_adapter("timeout");
+		let failing_adapter = create_failing_timing_adapter("failing");
 
 		// Create test assets that match test fixtures for compatibility
 		use oif_types::models::Asset;

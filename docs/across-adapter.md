@@ -40,12 +40,16 @@ The Across Adapter supports extensive customization through the `metadata.reques
 
 ```json
 {
-  "user": "",
-  "available_inputs": [...],
-  "requested_outputs": [...],
+  "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8",
+  "intent": {
+    "intentType": "oif-swap",
+    "inputs": [...],
+    "outputs": [...],
+    "swapType": "exact-input"
+  },
+  "supportedTypes": ["oif-escrow-v0"],
   "metadata": {
     "requestParams": {
-      "tradeType": "exactInput",
       "slippage": 1,
       "integratorId": "my-dapp"
     }
@@ -59,7 +63,6 @@ The Across Adapter supports extensive customization through the `metadata.reques
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `tradeType` | `string` | Trade type: `"exactInput"`, `"exactOutput"`, or `"minOutput"` |
 | `integratorId` | `string` | 2-byte hex-string that identifies the integrator. E.g., "0xdead". |
 | `refundAddress` | `string` | Address to receive refunds. |
 | `refundOnOrigin` | `boolean` | Specifies whether refund should be sent on the origin chain. |

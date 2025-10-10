@@ -75,8 +75,8 @@ pub const DEFAULT_CIRCUIT_BREAKER_ENABLED: bool = true;
 pub const DEFAULT_CIRCUIT_BREAKER_FAILURE_THRESHOLD: u32 = 5;
 
 /// Default success rate threshold (below this rate, circuit opens)
-/// 0.3 = 30% success rate required to keep circuit closed
-pub const DEFAULT_CIRCUIT_BREAKER_SUCCESS_RATE_THRESHOLD: f64 = 0.20;
+/// 0.20 = 20% success rate required to keep circuit closed
+pub const DEFAULT_CIRCUIT_BREAKER_SUCCESS_RATE_THRESHOLD: f64 = 0.2;
 
 /// Default minimum requests needed before evaluating success rate
 pub const DEFAULT_CIRCUIT_BREAKER_MIN_REQUESTS_FOR_RATE_CHECK: u64 = 30;
@@ -92,9 +92,9 @@ pub const DEFAULT_CIRCUIT_BREAKER_MAX_TIMEOUT_SECONDS: u64 = 600; // 10 minutes
 /// 15 minutes provides good balance between recent data and statistical significance
 pub const DEFAULT_METRICS_WINDOW_DURATION_MINUTES: u32 = 15;
 
-/// Default service error rate threshold (below this rate, circuit opens)
+/// Default service error rate threshold (above this rate, circuit opens)
 /// 0.2 = 20% service error rate threshold (more lenient than success rate)
-pub const DEFAULT_CIRCUIT_BREAKER_SERVICE_ERROR_THRESHOLD: f64 = 0.20;
+pub const DEFAULT_CIRCUIT_BREAKER_SERVICE_ERROR_THRESHOLD: f64 = 0.2;
 
 /// Default maximum window age in minutes before forcing reset
 /// Even if window has insufficient data, force reset after this duration
@@ -110,4 +110,4 @@ pub const DEFAULT_CIRCUIT_BREAKER_MAX_RECOVERY_ATTEMPTS: u32 = 10;
 /// Default metrics freshness window in minutes (how recent metrics must be)
 /// Prevents circuit breaker decisions based on stale data - if metrics are older
 /// than this, success rate evaluation is skipped (fail-open approach)
-pub const DEFAULT_CIRCUIT_BREAKER_METRICS_MAX_AGE_MINUTES: u64 = 30;
+pub const DEFAULT_CIRCUIT_BREAKER_METRICS_MAX_AGE_MINUTES: u32 = 30;
