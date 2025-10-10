@@ -24,6 +24,8 @@ cargo run
 
 🐳 **Docker Users**: See the **[Docker Guide](docs/docker.md)** for containerized deployment
 
+🎨 **UI Demo**: Check out the **[Testing UI](demo/)** - A modern React-based interface for testing the aggregator with visual quote comparison, order tracking, and solver exploration
+
 ### API Endpoints
 
 Once running, the following endpoints are available:

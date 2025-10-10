@@ -4,7 +4,7 @@ A modern, user-friendly testing interface for the OIF Aggregator API. Built with
 
 ## Features
 
-### 🎯 **Smart Dropdown-Based Quote Form** (New!)
+### 🎯 **Smart Dropdown-Based Quote Form**
 - **Asset Selection**: Choose from available assets via searchable dropdowns
 - **Network Selection**: Select chains with visual indicators
 - **Auto-Discovery**: Automatically fetches solver and asset data from API
@@ -18,7 +18,7 @@ A modern, user-friendly testing interface for the OIF Aggregator API. Built with
 - Detailed quote information (inputs, outputs, metadata)
 - Aggregation statistics display
 
-### 🔍 **Solver Explorer** (New!)
+### 🔍 **Solver Explorer**
 - **Solvers List**: Browse all available solvers with status and coverage info
   - Status indicators (active, inactive, circuit-breaker-open)
   - Asset vs. route-based solver types
@@ -41,7 +41,7 @@ A modern, user-friendly testing interface for the OIF Aggregator API. Built with
 - Visual notifications for final order states
 - Complete order history
 
-### 🩺 **Health Monitoring** (New!)
+### 🩺 **Health Monitoring**
 - **Real-time Health Widget**: Always-visible status indicator in bottom-right corner
   - Auto-refreshes every 30 seconds
   - Color-coded status (green/yellow/red)
@@ -49,14 +49,14 @@ A modern, user-friendly testing interface for the OIF Aggregator API. Built with
   - Shows solver counts, storage health, and version
   - Manual refresh capability
 
-### 🎨 **Theme Switcher** (New!)
+### 🎨 **Theme Switcher**
 - **Light and Dark themes**: Toggle between light and dark modes
 - **Top-right button**: ☀️ (light mode) / 🌙 (dark mode) in header
 - **Persistent**: Theme choice saved and restored on next visit
 - **System-aware**: Defaults to system preference if not set
 - **High contrast**: Optimized readability in both themes
 
-### ⚙️ **Settings Configuration** (New!)
+### ⚙️ **Settings Configuration**
 - **Aggregator URL Configuration**: Connect to different OIF Aggregator instances
   - Dynamic URL switching without reloading the app
   - Test connection before saving
@@ -75,7 +75,7 @@ A modern, user-friendly testing interface for the OIF Aggregator API. Built with
 ## Prerequisites
 
 - Node.js 18+ 
-- npm or yarn
+- pnpm or yarn
 - **OIF Aggregator server** running on port 4000 (or custom port configured in Settings)
 - **One or more solvers** configured and running
   - For demo setup, see the [OIF Solver repository](https://github.com/openintentsframework/oif-solver)
@@ -109,7 +109,7 @@ Before using the UI, you need to have the OIF Aggregator and at least one solver
 
 ```bash
 cd demo
-npm install
+pnpm install
 ```
 
 ### 2. Configure Environment (Optional)
@@ -125,7 +125,7 @@ By default, the UI connects to `localhost:4000`. You can also change this at run
 ### 3. Start Development Server
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 The UI will be available at `http://localhost:5173`.
@@ -135,7 +135,7 @@ The UI will be available at `http://localhost:5173`.
 To generate TypeScript types from the OpenAPI specification:
 
 ```bash
-npm run generate-types
+pnpm generate-types
 ```
 
 This will create `src/types/api.ts` from the OpenAPI spec at `../docs/api/openapi.json`.
@@ -369,15 +369,15 @@ The UI integrates with the following OIF Aggregator endpoints:
 
 ### Available Scripts
 
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run preview` - Preview production build
-- `npm run generate-types` - Generate TypeScript types from OpenAPI spec
+- `pnpm dev` - Start development server
+- `pnpm build` - Build for production
+- `pnpm preview` - Preview production build
+- `pnpm generate-types` - Generate TypeScript types from OpenAPI spec
 
 ### Building for Production
 
 ```bash
-npm run build
+pnpm build
 ```
 
 The built files will be in the `dist/` directory.
@@ -387,7 +387,7 @@ The built files will be in the `dist/` directory.
 You can serve the built files with any static file server:
 
 ```bash
-npm run preview
+pnpm preview
 ```
 
 Or integrate with the Rust server by serving the `dist/` directory.
@@ -517,12 +517,6 @@ If you see a yellow "Address Mismatch Warning" banner:
 - **Why it matters**: Orders must be signed by the user address specified in the quote request
 - **Note**: The UI automatically extracts and validates addresses to prevent errors
 
-## Documentation
-
-- **[SIGNING_GUIDE.md](SIGNING_GUIDE.md)** - Complete guide to EIP-712 signing implementation
-- **[INTEROP_ADDRESS_FIX.md](INTEROP_ADDRESS_FIX.md)** - InteropAddress format specification
-- **[CHANGELOG.md](CHANGELOG.md)** - Version history and changes
-
 ## Contributing
 
 This UI is part of the OIF Aggregator project. For contributions:
@@ -530,7 +524,6 @@ This UI is part of the OIF Aggregator project. For contributions:
 1. Follow the existing code style
 2. Use TypeScript for type safety
 3. Test all form interactions
-4. Ensure responsive design works on mobile
 
 ## License
 
