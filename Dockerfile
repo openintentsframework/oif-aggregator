@@ -1,14 +1,6 @@
 # Production Dockerfile for OIF Aggregator using Chainguard secure images
 FROM --platform=${BUILDPLATFORM} cgr.dev/chainguard/rust:latest@sha256:faf49718aaa95c798ed1dfdf3e4edee2cdbc3790c8994705ca6ef35972128459 AS base
 
-ARG TARGETPLATFORM
-RUN case "$TARGETPLATFORM" in \
-      "linux/amd64")  echo x86_64-unknown-linux-musl  > /rust_target ;; \
-      "linux/arm64")  echo aarch64-unknown-linux-musl > /rust_target ;; \
-      *)              echo x86_64-unknown-linux-musl  > /rust_target ;; \
-    esac \
- && rustup target add $(cat /rust_target)
-
 USER root
 
 # Install system dependencies needed for compilation
