@@ -39,12 +39,9 @@ jobs:
       - name: Prepare pre-requisites
         uses: ./.github/actions/prepare
 
-      - name: Copy config file and compile pkg
-        env:
-          INTEGRITY_SECRET: ${{ secrets.INTEGRITY_SECRET }}
+      - name: Copy config file
         run: |
           cp config/config.example.json config/config.json
-          cargo run 
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
