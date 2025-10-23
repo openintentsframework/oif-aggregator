@@ -40,6 +40,8 @@ jobs:
         uses: ./.github/actions/prepare
 
       - name: Copy config file and compile pkg
+        env:
+          INTEGRITY_SECRET: ${{ secrets.INTEGRITY_SECRET }}
         run: |
           cp config/config.example.json config/config.json
           cargo run 
