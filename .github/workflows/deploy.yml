@@ -2,7 +2,7 @@ name: Build and Deploy
 
 on:
   push:
-    branches: [release-workflows]
+    branches: [main]
 
 concurrency:
   group: build-deploy
