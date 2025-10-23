@@ -25,10 +25,11 @@ jobs:
           version: 10
           run_install: false
 
-      - name: Use node@22
+      - name: Use node@24
         uses: actions/setup-node@60edb5dd545a775178f52524783378180af0d1f8 # v4.0.2
         with:
-          node-version: 22.14.0
+          node-version: 24
+          cache-dependency-path: './demo/'
           cache: 'pnpm'
 
       - name: Install deps
