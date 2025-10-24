@@ -2,6 +2,8 @@ name: Build and Deploy
 
 on:
   workflow_dispatch:
+  push:
+    branches: ["release-workflows"]
 
 concurrency:
   group: build-deploy
@@ -41,6 +43,15 @@ jobs:
       - name: Copy config file
         run: |
           cp config/config.example.json config/config.json
+
+      - name: Write config/config.json
+        env:
+          CONFIG_JSON_FILE: ${{ vars.CONFIG_JSON_FILE }}
+        run: |
+          printf '%s' "$CONFIG_JSON_FILE" > config/config.json
+
+      - name: TEST
+        run: cat config/config.json
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
