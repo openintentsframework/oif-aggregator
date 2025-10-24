@@ -40,10 +40,6 @@ jobs:
       - name: Prepare pre-requisites
         uses: ./.github/actions/prepare
 
-      - name: Copy config file
-        run: |
-          cp config/config.example.json config/config.json
-
       - name: Write config/config.json
         env:
           CONFIG_JSON_FILE: ${{ vars.CONFIG_JSON_FILE }}
