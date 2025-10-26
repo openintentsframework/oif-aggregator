@@ -1,6 +1,7 @@
 import type { OrderRequest, QuoteResponse } from '../types/api';
 import { formatInteropAddress, fromInteropAddress } from '../utils/interopAddress';
 import { getSignerAddress, signQuote } from '../utils/quoteSigner';
+import { useWallet } from '../contexts/WalletContext';
 import { useEffect, useState } from 'react';
 
 import type { Hex } from 'viem';
@@ -13,6 +14,7 @@ interface OrderSubmissionProps {
 }
 
 export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoading }: OrderSubmissionProps) {
+  const { isConnected, address, signTypedData, isSigning: walletIsSigning } = useWallet();
   const [privateKey, setPrivateKey] = useState('');
   const [signature, setSignature] = useState('');
   const [signerAddress, setSignerAddress] = useState('');
@@ -59,35 +61,67 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
     return 'text-green-700 dark:text-green-400';
   };
 
-  // Sign the quote with the private key
+  // Sign the quote - use wallet by default, private key as override
   const handleSignQuote = async () => {
-    if (!privateKey.trim()) {
-      setSigningError('Please enter a private key');
-      return;
-    }
-
     setIsSigning(true);
     setSigningError('');
 
     try {
-      // Validate private key format
-      let formattedKey = privateKey.trim();
-      if (!formattedKey.startsWith('0x')) {
-        formattedKey = `0x${formattedKey}`;
+      let sig: string;
+      let signerAddr: string;
+
+      // Get EIP-712 data from the quote
+      const orderPayload = selectedQuote.order.payload;
+      if (!orderPayload || typeof orderPayload !== 'object' || !('signatureType' in orderPayload)) {
+        throw new Error('Invalid order payload: EIP-712 data not found');
       }
 
-      // Get signer address for verification
-      const address = getSignerAddress(formattedKey as Hex);
-      setSignerAddress(address);
+      const eip712Data = orderPayload as {
+        signatureType: 'eip712';
+        domain: any;
+        primaryType: string;
+        message: any;
+        types: Record<string, Array<{ name: string; type: string }>>;
+      };
 
-      // Sign the quote
-      const sig = await signQuote(
-        selectedQuote as any, // Cast to Quote type from quoteSigner
-        formattedKey as Hex,
-        {
-          rpcUrl: import.meta.env.VITE_RPC_URL // Optional: for fetching domain separators
+      if (eip712Data.signatureType !== 'eip712') {
+        throw new Error(`Unsupported signature type: ${eip712Data.signatureType}`);
+      }
+
+      if (privateKey.trim()) {
+        // Use private key override
+        let formattedKey = privateKey.trim();
+        if (!formattedKey.startsWith('0x')) {
+          formattedKey = `0x${formattedKey}`;
         }
-      );
+
+        // Get signer address for verification
+        signerAddr = getSignerAddress(formattedKey as Hex);
+        setSignerAddress(signerAddr);
+
+        // Sign the quote with private key using the EIP-712 data from the quote
+        sig = await signQuote(
+          selectedQuote as any, // Cast to Quote type from quoteSigner
+          formattedKey as Hex,
+          {
+            rpcUrl: import.meta.env.VITE_RPC_URL // Optional: for fetching domain separators
+          }
+        );
+      } else if (isConnected && address) {
+        // Use wallet signing (default)
+        signerAddr = address;
+        setSignerAddress(signerAddr);
+
+        // Sign with wallet using the EIP-712 data from the quote
+        sig = await signTypedData({
+          domain: eip712Data.domain,
+          types: eip712Data.types,
+          primaryType: eip712Data.primaryType,
+          message: eip712Data.message,
+        });
+      } else {
+        throw new Error('Please connect a wallet or enter a private key');
+      }
 
       setSignature(sig);
       setSigningError('');
@@ -256,33 +290,65 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
           </div>
         </div>
 
-        {/* Private Key Input */}
+        {/* Signing Section */}
         <div className="mb-6">
-          <label className="label-text">
-            Private Key <span className="text-red-600 dark:text-red-400">*</span>
-          </label>
-          <input
-            type="password"
-            value={privateKey}
-            onChange={(e) => setPrivateKey(e.target.value)}
-            placeholder="0x... (Your private key for signing)"
-            className="input-field font-mono text-sm mb-2"
-            disabled={isSigning}
-          />
-          <div className="bg-red-100 dark:bg-red-900/20 border border-red-300 dark:border-red-700 rounded p-3 mb-3">
-            <p className="text-red-700 dark:text-red-400 text-xs">
-              ⚠️ <strong>WARNING:</strong> Never share your private key! This is for testing only.
-              In production, use wallet integration (MetaMask, WalletConnect, etc.).
-            </p>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Sign Quote</h3>
+            {isConnected ? (
+              <span className="text-xs text-green-600 dark:text-green-400">✓ Wallet Connected</span>
+            ) : (
+              <span className="text-xs text-slate-500">Manual signing required</span>
+            )}
+          </div>
+
+          {/* Private Key Override */}
+          <div className="mb-4">
+            <label className="label-text">
+              Private Key Override <span className="text-slate-500">(optional)</span>
+            </label>
+            <input
+              type="password"
+              value={privateKey}
+              onChange={(e) => setPrivateKey(e.target.value)}
+              placeholder={isConnected ? "Leave empty to use wallet signing" : "0x... (Required if wallet not connected)"}
+              className={`input-field font-mono text-sm mb-2 ${isConnected ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-300 dark:border-blue-700' : ''}`}
+              disabled={isSigning || walletIsSigning}
+            />
+            <div className="text-xs text-slate-500 mb-3">
+              {isConnected ? (
+                <>💡 <strong>Wallet connected:</strong> Leave empty to sign with your wallet, or enter private key to override</>
+              ) : (
+                <>⚠️ <strong>No wallet connected:</strong> Enter private key for manual signing</>
+              )}
+            </div>
+            
+            {privateKey.trim() && (
+              <div className="bg-red-100 dark:bg-red-900/20 border border-red-300 dark:border-red-700 rounded p-3 mb-3">
+                <p className="text-red-700 dark:text-red-400 text-xs">
+                  ⚠️ <strong>WARNING:</strong> Never share your private key! This is for testing only.
+                  In production, use wallet integration (MetaMask, WalletConnect, etc.).
+                </p>
+              </div>
+            )}
           </div>
           
           <button
             type="button"
             onClick={handleSignQuote}
-            disabled={isSigning || !privateKey.trim() || isLoading || isQuoteExpired}
+            disabled={isSigning || walletIsSigning || isLoading || isQuoteExpired || (!privateKey.trim() && !isConnected)}
             className="btn-secondary w-full mb-3"
           >
-            {isSigning ? 'Signing...' : isQuoteExpired ? 'Quote Expired' : 'Sign Quote with EIP-712'}
+            {isSigning || walletIsSigning ? (
+              'Signing...'
+            ) : isQuoteExpired ? (
+              'Quote Expired'
+            ) : privateKey.trim() ? (
+              'Sign Quote with Private Key'
+            ) : isConnected ? (
+              'Sign Quote with Wallet'
+            ) : (
+              'Connect Wallet or Enter Private Key'
+            )}
           </button>
           
           {isQuoteExpired && (

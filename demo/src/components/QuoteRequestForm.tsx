@@ -4,8 +4,9 @@ import { fromInteropAddress, isValidAddress, isValidChainId, toInteropAddress } 
 import RecentSearchesModal from './RecentSearchesModal';
 import SolverOptions from './SolverOptions';
 import { localStorageService } from '../services/localStorageService';
+import { useWallet } from '../contexts/WalletContext';
 import { useForm } from 'react-hook-form';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 type SolverOptions = SolverOptionsType;
 
@@ -32,6 +33,7 @@ interface FormOutput {
 
 export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFormProps) {
   const { handleSubmit } = useForm();
+  const { isConnected, address, chainId } = useWallet();
   const [showSolverOptions, setShowSolverOptions] = useState(false);
   const [showRecentSearches, setShowRecentSearches] = useState(false);
   const [inputs, setInputs] = useState<FormInput[]>([
@@ -54,8 +56,25 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
     excludeSolvers: [] as string[],
   });
 
+  // Auto-fill user address when wallet connects
+  useEffect(() => {
+    if (isConnected && address) {
+      setInputs(prev => prev.map(input => ({
+        ...input,
+        userAddress: address,
+        userChainId: chainId?.toString() || input.userChainId,
+      })));
+    }
+  }, [isConnected, address, chainId]);
+
   const addInput = () => {
-    setInputs([...inputs, { userAddress: '', userChainId: '1', asset: '', assetChainId: '1', amount: '' }]);
+    setInputs([...inputs, { 
+      userAddress: isConnected && address ? address : '', 
+      userChainId: isConnected && chainId ? chainId.toString() : '1', 
+      asset: '', 
+      assetChainId: '1', 
+      amount: '' 
+    }]);
   };
 
   const removeInput = (index: number) => {
@@ -263,13 +282,20 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="label-text">User Address</label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="label-text">User Address</label>
+                    {isConnected ? (
+                      <span className="text-xs text-green-600 dark:text-green-400">✓ Wallet Connected</span>
+                    ) : (
+                      <span className="text-xs text-slate-500">Manual entry</span>
+                    )}
+                  </div>
                   <input
                     type="text"
                     value={input.userAddress}
                     onChange={(e) => updateInput(index, 'userAddress', e.target.value)}
-                    placeholder="0x..."
-                    className="input-field"
+                    placeholder={isConnected ? "Auto-filled from wallet" : "0x..."}
+                    className={`input-field ${isConnected ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700' : ''}`}
                   />
                 </div>
                 <div>
