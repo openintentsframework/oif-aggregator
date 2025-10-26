@@ -81,7 +81,7 @@ pub enum TransactionType {
 /// Status of an order in the solver system.
 ///
 /// Order lifecycle status that is fundamental across OIF versions.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub enum OrderStatus {
