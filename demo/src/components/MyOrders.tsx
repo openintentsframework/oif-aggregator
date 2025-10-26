@@ -40,7 +40,7 @@ export default function MyOrders({ onViewOrder, onBack }: MyOrdersProps) {
 
   const getErrorMessage = (status: OrderStatus): string | null => {
     if (typeof status === 'object' && 'failed' in status) {
-      const [txType, error] = status.failed;
+      const [_, error] = status.failed;
       return error;
     }
     return null;
@@ -49,7 +49,7 @@ export default function MyOrders({ onViewOrder, onBack }: MyOrdersProps) {
   const getStatusText = (status: OrderStatus): string => {
     // Handle complex failed status
     if (typeof status === 'object' && 'failed' in status) {
-      const [txType, error] = status.failed;
+      const [txType, _] = status.failed;
       return `failed (${txType})`;
     }
     
