@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { OrderResponse } from '../types/api';
+import type { OrderResponse, OrderStatus } from '../types/api';
 import { localStorageService, type StoredOrder } from '../services/localStorageService';
 import { formatInteropAddress } from '../utils/interopAddress';
 
@@ -38,7 +38,30 @@ export default function MyOrders({ onViewOrder, onBack }: MyOrdersProps) {
     alert('Order ID copied to clipboard!');
   };
 
-  const getStatusColor = (status: string): string => {
+  const getErrorMessage = (status: OrderStatus): string | null => {
+    if (typeof status === 'object' && 'failed' in status) {
+      const [txType, error] = status.failed;
+      return error;
+    }
+    return null;
+  };
+
+  const getStatusText = (status: OrderStatus): string => {
+    // Handle complex failed status
+    if (typeof status === 'object' && 'failed' in status) {
+      const [txType, error] = status.failed;
+      return `failed (${txType})`;
+    }
+    
+    return status;
+  };
+
+  const getStatusColor = (status: OrderStatus): string => {
+    // Handle complex failed status
+    if (typeof status === 'object' && 'failed' in status) {
+      return 'bg-red-600 dark:bg-red-700';
+    }
+    
     switch (status.toLowerCase()) {
       case 'finalized':
       case 'settled':
@@ -163,8 +186,9 @@ export default function MyOrders({ onViewOrder, onBack }: MyOrdersProps) {
                       <td className="py-3 px-4">
                         <span
                           className={`${getStatusColor(order.status)} text-white px-2 py-1 rounded text-xs font-medium uppercase`}
+                          title={getErrorMessage(order.status) || undefined}
                         >
-                          {order.status}
+                          {getStatusText(order.status)}
                         </span>
                       </td>
                       <td className="py-3 px-4">

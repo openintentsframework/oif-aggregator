@@ -486,37 +486,29 @@ impl OrderServiceTrait for OrderService {
 		let cutoff_date = Utc::now() - chrono::Duration::days(retention_days as i64);
 		let mut deleted_count = 0usize;
 
-		// Get all orders with final status
-		let final_statuses = [
-			oif_types::OrderStatus::Finalized,
-			oif_types::OrderStatus::Failed,
-		];
+		let final_orders = self
+			.storage
+			.get_finalised_orders()
+			.await
+			.map_err(|e| OrderServiceError::Storage(e.to_string()))?;
 
-		for status in final_statuses {
-			let orders = self
-				.storage
-				.get_orders_by_status(status)
-				.await
-				.map_err(|e| OrderServiceError::Storage(e.to_string()))?;
+		// Filter by age and delete old orders
+		for order in final_orders {
+			if order.updated_at() < cutoff_date {
+				let deleted = self
+					.storage
+					.delete_order(&order.order_id)
+					.await
+					.map_err(|e| OrderServiceError::Storage(e.to_string()))?;
 
-			// Filter by age and delete old orders
-			for order in orders {
-				if order.updated_at() < cutoff_date {
-					let deleted = self
-						.storage
-						.delete_order(&order.order_id)
-						.await
-						.map_err(|e| OrderServiceError::Storage(e.to_string()))?;
-
-					if deleted {
-						deleted_count += 1;
-						tracing::info!(
-							"Deleted old order {} with status {:?}, last updated: {}",
-							order.order_id,
-							order.status(),
-							order.updated_at()
-						);
-					}
+				if deleted {
+					deleted_count += 1;
+					tracing::info!(
+						"Deleted old order {} with status {:?}, last updated: {}",
+						order.order_id,
+						order.status(),
+						order.updated_at()
+					);
 				}
 			}
 		}
@@ -536,7 +528,7 @@ impl OrderService {
 	fn is_final_status(status: &oif_types::OrderStatus) -> bool {
 		matches!(
 			status,
-			oif_types::OrderStatus::Finalized | oif_types::OrderStatus::Failed
+			oif_types::OrderStatus::Finalized | oif_types::OrderStatus::Failed(_, _)
 		)
 	}
 
@@ -559,9 +551,10 @@ impl OrderService {
 
 		// Update the order status to Failed
 		// The order's OIF response already has the status, we just need to update it
+		let current_status = order.status().clone();
 		match &mut order.order {
 			oif_types::OifGetOrderResponse::V0(ref mut response) => {
-				response.status = oif_types::OrderStatus::Failed;
+				response.status = current_status;
 				response.updated_at = chrono::Utc::now().timestamp() as u64;
 			},
 		}

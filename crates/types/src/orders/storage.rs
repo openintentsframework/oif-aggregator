@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use super::{Order, OrderError, OrderStatus};
 use crate::{
-	oif::common::{AssetAmount, Settlement},
+	oif::common::{AssetAmount, Settlement, TransactionType},
 	oif::OifGetOrderResponse,
 	quotes::Quote,
 };
@@ -35,7 +35,7 @@ pub enum OrderStatusStorage {
 	Executed,
 	Settled,
 	Finalized,
-	Failed,
+	Failed(TransactionType, String),
 	Executing,
 	Settling,
 	Refunded,
@@ -98,7 +98,7 @@ impl From<OrderStatus> for OrderStatusStorage {
 			OrderStatus::Executed => Self::Executed,
 			OrderStatus::Settled => Self::Settled,
 			OrderStatus::Finalized => Self::Finalized,
-			OrderStatus::Failed => Self::Failed,
+			OrderStatus::Failed(tx_type, error) => Self::Failed(tx_type, error),
 			OrderStatus::Executing => Self::Executing,
 			OrderStatus::Settling => Self::Settling,
 			OrderStatus::Refunded => Self::Refunded,
@@ -114,7 +114,7 @@ impl From<OrderStatusStorage> for OrderStatus {
 			OrderStatusStorage::Executed => Self::Executed,
 			OrderStatusStorage::Settled => Self::Settled,
 			OrderStatusStorage::Finalized => Self::Finalized,
-			OrderStatusStorage::Failed => Self::Failed,
+			OrderStatusStorage::Failed(tx_type, error) => Self::Failed(tx_type, error),
 			OrderStatusStorage::Executing => Self::Executing,
 			OrderStatusStorage::Settling => Self::Settling,
 			OrderStatusStorage::Refunded => Self::Refunded,

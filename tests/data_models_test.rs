@@ -1,6 +1,9 @@
 //! Data model tests
 
-use oif_types::{chrono::Utc, oif::common::OrderStatus};
+use oif_types::{
+	chrono::Utc,
+	oif::common::{OrderStatus, TransactionType},
+};
 
 mod mocks;
 use mocks::{entities::MockEntities, entities::TestConstants};
@@ -105,6 +108,12 @@ fn test_order_status_transitions() {
 	let executed_order = MockEntities::order_with_status(OrderStatus::Executed);
 	assert_eq!(*executed_order.status(), OrderStatus::Executed);
 
-	let failed_order = MockEntities::order_with_status(OrderStatus::Failed);
-	assert_eq!(*failed_order.status(), OrderStatus::Failed);
+	let failed_order = MockEntities::order_with_status(OrderStatus::Failed(
+		TransactionType::Fill,
+		"test".to_string(),
+	));
+	assert_eq!(
+		*failed_order.status(),
+		OrderStatus::Failed(TransactionType::Fill, "test".to_string())
+	);
 }

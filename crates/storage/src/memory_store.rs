@@ -112,6 +112,22 @@ impl OrderStorage for MemoryStore {
 			.collect();
 		Ok(orders)
 	}
+
+	async fn get_finalised(&self) -> StorageResult<Vec<Order>> {
+		let orders: Vec<Order> =
+			self.orders
+				.iter()
+				.filter_map(|entry| {
+					let order = entry.value();
+					match order.status() {
+						oif_types::OrderStatus::Finalized
+						| oif_types::OrderStatus::Failed(_, _) => Some(order.clone()),
+						_ => None,
+					}
+				})
+				.collect();
+		Ok(orders)
+	}
 }
 
 #[async_trait]

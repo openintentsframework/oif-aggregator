@@ -59,10 +59,29 @@ pub struct Settlement {
 	pub data: serde_json::Value,
 }
 
+/// Transaction types that can fail during order execution
+///
+/// Core transaction types that are stable across OIF versions.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "PascalCase")]
+#[cfg_attr(feature = "openapi", derive(ToSchema))]
+pub enum TransactionType {
+	/// Prepare transaction failed
+	Prepare,
+	/// Fill transaction failed
+	Fill,
+	/// Post-fill transaction failed
+	PostFill,
+	/// Pre-claim transaction failed
+	PreClaim,
+	/// Claim transaction failed
+	Claim,
+}
+
 /// Status of an order in the solver system.
 ///
 /// Order lifecycle status that is fundamental across OIF versions.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub enum OrderStatus {
@@ -84,11 +103,23 @@ pub enum OrderStatus {
 	/// Order is finalized and complete - claim transaction confirmed.
 	/// Terminal state: No further transitions.
 	Finalized,
-	/// Order execution failed with specific transaction type.
+	/// Order execution failed with specific transaction type and error message.
 	/// Terminal state: No further transitions.
-	Failed,
+	Failed(TransactionType, String),
 	/// Order has been refunded.
 	Refunded,
+}
+
+impl fmt::Display for TransactionType {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			TransactionType::Prepare => write!(f, "Prepare"),
+			TransactionType::Fill => write!(f, "Fill"),
+			TransactionType::PostFill => write!(f, "PostFill"),
+			TransactionType::PreClaim => write!(f, "PreClaim"),
+			TransactionType::Claim => write!(f, "Claim"),
+		}
+	}
 }
 
 impl fmt::Display for OrderStatus {
@@ -100,7 +131,7 @@ impl fmt::Display for OrderStatus {
 			OrderStatus::Executed => write!(f, "Executed"),
 			OrderStatus::Settled => write!(f, "Settled"),
 			OrderStatus::Finalized => write!(f, "Finalized"),
-			OrderStatus::Failed => write!(f, "Failed"),
+			OrderStatus::Failed(tx_type, error) => write!(f, "Failed({}, {})", tx_type, error),
 			OrderStatus::Refunded => write!(f, "Refunded"),
 			OrderStatus::Settling => write!(f, "Settling"),
 		}

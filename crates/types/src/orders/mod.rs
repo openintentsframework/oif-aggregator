@@ -15,7 +15,7 @@ pub use storage::OrderStorage;
 #[cfg(feature = "openapi")]
 use utoipa::ToSchema;
 
-use crate::oif::common::{AssetAmount, Settlement};
+use crate::oif::common::{AssetAmount, Settlement, TransactionType};
 use crate::oif::{v0::GetOrderResponse, OifGetOrderResponse};
 use crate::quotes::Quote;
 
@@ -156,8 +156,8 @@ pub enum OrderStatus {
 	Settling,
 	/// Order is finalized and complete (after claim confirmation).
 	Finalized,
-	/// Order execution failed with specific transaction type.
-	Failed,
+	/// Order execution failed with specific transaction type and error message.
+	Failed(TransactionType, String),
 	/// Order has been refunded.
 	Refunded,
 }
@@ -172,7 +172,7 @@ impl From<crate::oif::common::OrderStatus> for OrderStatus {
 			crate::oif::common::OrderStatus::Settled => Self::Settled,
 			crate::oif::common::OrderStatus::Settling => Self::Settling,
 			crate::oif::common::OrderStatus::Finalized => Self::Finalized,
-			crate::oif::common::OrderStatus::Failed => Self::Failed,
+			crate::oif::common::OrderStatus::Failed(tx_type, error) => Self::Failed(tx_type, error),
 			crate::oif::common::OrderStatus::Refunded => Self::Refunded,
 		}
 	}
@@ -188,7 +188,9 @@ impl From<&crate::oif::common::OrderStatus> for OrderStatus {
 			crate::oif::common::OrderStatus::Settled => Self::Settled,
 			crate::oif::common::OrderStatus::Settling => Self::Settling,
 			crate::oif::common::OrderStatus::Finalized => Self::Finalized,
-			crate::oif::common::OrderStatus::Failed => Self::Failed,
+			crate::oif::common::OrderStatus::Failed(tx_type, error) => {
+				Self::Failed(tx_type.clone(), error.clone())
+			},
 			crate::oif::common::OrderStatus::Refunded => Self::Refunded,
 		}
 	}
@@ -204,7 +206,7 @@ impl From<OrderStatus> for crate::oif::common::OrderStatus {
 			OrderStatus::Settled => Self::Settled,
 			OrderStatus::Settling => Self::Settling,
 			OrderStatus::Finalized => Self::Finalized,
-			OrderStatus::Failed => Self::Failed,
+			OrderStatus::Failed(tx_type, error) => Self::Failed(tx_type, error),
 			OrderStatus::Refunded => Self::Refunded,
 		}
 	}
