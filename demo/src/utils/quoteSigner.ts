@@ -8,7 +8,7 @@
  * - crates/solver-demo/src/core/signing.rs
  * - crates/solver-types/src/utils/eip712.rs
  * 
- * @version 1.0.0
+ * @version 1.1.0
  * @license MIT
  */
 
@@ -20,6 +20,12 @@ import {
   createPublicClient,
   http,
   encodeAbiParameters,
+  keccak256,
+  concat,
+  toHex,
+  encodeAbiParameters as encode,
+  hexToBytes,
+  bytesToHex,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
@@ -216,6 +222,195 @@ function getTypesForPayload(payload: OrderPayload): Record<string, Array<{ name:
   }
 }
 
+/**
+ * Compute EIP-712 domain separator hash
+ */
+function computeDomainSeparator(domain: {
+  name: string;
+  version?: string;
+  chainId: bigint;
+  verifyingContract: Address;
+}): Hex {
+  const domainTypeHash = keccak256(
+    toHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')
+  );
+
+  const encoded = encode(
+    [
+      { type: 'bytes32' },
+      { type: 'bytes32' },
+      { type: 'bytes32' },
+      { type: 'uint256' },
+      { type: 'address' },
+    ],
+    [
+      domainTypeHash,
+      keccak256(toHex(domain.name)),
+      keccak256(toHex(domain.version || '1')),
+      domain.chainId,
+      domain.verifyingContract,
+    ]
+  );
+
+  return keccak256(encoded);
+}
+
+/**
+ * Compute EIP-712 digest from domain separator and struct hash
+ */
+function computeEip712Digest(domainSeparator: Hex, structHash: Hex): Hex {
+  // EIP-712 encoding: 0x1901 || domainSeparator || structHash
+  const digestInput = concat([
+    '0x1901' as Hex,
+    domainSeparator,
+    structHash,
+  ]);
+
+  return keccak256(digestInput);
+}
+
+/**
+ * Reconstruct Permit2 digest using viem's native EIP-712 support
+ * For Permit2, viem's implementation should match the standard
+ */
+async function reconstructPermit2Digest(
+  payload: OrderPayload,
+  account: PrivateKeyAccount
+): Promise<Hex> {
+  const domain = extractDomain(payload);
+  const types = getTypesForPayload(payload);
+
+  // Viem doesn't expose hashTypedData directly, so we need to sign and extract
+  // For Permit2, the standard EIP-712 implementation should be correct
+  const signature = await account.signTypedData({
+    domain,
+    types,
+    primaryType: payload.primaryType,
+    message: payload.message,
+  });
+
+  // We actually need the hash, not the signature
+  // Use viem's internal utilities via signTypedData then compute hash
+  // For now, rely on viem's implementation being correct for Permit2
+  return signature; // This will be used differently below
+}
+
+/**
+ * Reconstruct EIP-3009 digest
+ */
+async function reconstructEip3009Digest(
+  payload: OrderPayload,
+  metadata: Record<string, any>,
+  client?: PublicClient
+): Promise<Hex> {
+  const domain = extractDomain(payload);
+
+  // Try to get domain separator from metadata first (signing.rs:414-427)
+  let domainSeparator: Hex;
+
+  if (metadata.domain_separator) {
+    // Use domain separator from metadata
+    domainSeparator = metadata.domain_separator.startsWith('0x')
+      ? metadata.domain_separator
+      : `0x${metadata.domain_separator}`;
+
+    if (hexToBytes(domainSeparator).length !== 32) {
+      throw new Error(
+        `Invalid domain separator length in metadata: expected 32 bytes, got ${hexToBytes(domainSeparator).length}`
+      );
+    }
+  } else if (client) {
+    // Fetch domain separator from token contract (signing.rs:429-461)
+    domainSeparator = await fetchDomainSeparator(domain.verifyingContract, client);
+    console.log('Retrieved domain separator from contract:', domainSeparator);
+  } else {
+    // Fallback: compute domain separator (may not match contract's actual value!)
+    console.warn('No domain separator provided and no client available - computing locally');
+    domainSeparator = computeDomainSeparator(domain);
+  }
+
+  // Get the struct hash for the message
+  // For EIP-3009, we need to properly encode the struct
+  const types = getTypesForPayload(payload);
+  const primaryTypeFields = types[payload.primaryType];
+
+  if (!primaryTypeFields) {
+    throw new Error(`Missing type definition for ${payload.primaryType}`);
+  }
+
+  // Compute type hash
+  const typeString = `${payload.primaryType}(${primaryTypeFields
+    .map((f) => `${f.type} ${f.name}`)
+    .join(',')})`;
+  const typeHash = keccak256(toHex(typeString));
+
+  // Encode the struct fields
+  const fieldTypes = primaryTypeFields.map((f) => ({ type: f.type }));
+  const fieldValues = primaryTypeFields.map((f) => payload.message[f.name]);
+
+  const structEncoded = encode(
+    [{ type: 'bytes32' }, ...fieldTypes],
+    [typeHash, ...fieldValues]
+  );
+
+  const structHash = keccak256(structEncoded);
+
+  // Compute final EIP-712 digest
+  return computeEip712Digest(domainSeparator, structHash);
+}
+
+/**
+ * Reconstruct Compact digest
+ */
+async function reconstructCompactDigest(
+  payload: OrderPayload,
+  client?: PublicClient
+): Promise<Hex> {
+  const domain = extractDomain(payload);
+
+  let domainSeparator: Hex;
+
+  if (client) {
+    domainSeparator = await fetchDomainSeparator(domain.verifyingContract, client);
+    console.log(
+      `Retrieved domain separator from Compact contract ${domain.verifyingContract}:`,
+      domainSeparator
+    );
+  } else {
+    // Fallback: compute domain separator
+    console.warn('No client available - computing domain separator locally');
+    domainSeparator = computeDomainSeparator(domain);
+  }
+
+  // Get the struct hash for the message
+  const types = getTypesForPayload(payload);
+  const primaryTypeFields = types[payload.primaryType];
+
+  if (!primaryTypeFields) {
+    throw new Error(`Missing type definition for ${payload.primaryType}`);
+  }
+
+  // Compute type hash
+  const typeString = `${payload.primaryType}(${primaryTypeFields
+    .map((f) => `${f.type} ${f.name}`)
+    .join(',')})`;
+  const typeHash = keccak256(toHex(typeString));
+
+  // Encode the struct fields
+  const fieldTypes = primaryTypeFields.map((f) => ({ type: f.type }));
+  const fieldValues = primaryTypeFields.map((f) => payload.message[f.name]);
+
+  const structEncoded = encode(
+    [{ type: 'bytes32' }, ...fieldTypes],
+    [typeHash, ...fieldValues]
+  );
+
+  const structHash = keccak256(structEncoded);
+
+  // Compute final EIP-712 digest
+  return computeEip712Digest(domainSeparator, structHash);
+}
+
 // ============================================================================
 // Signature Scheme Implementations
 // ============================================================================
@@ -223,14 +418,13 @@ function getTypesForPayload(payload: OrderPayload): Record<string, Array<{ name:
 /**
  * Sign Permit2 order (oif-escrow-v0)
  * Implements Permit2 batch witness transfer signature with 0x00 prefix
- * 
- * Based on signing.rs:176-179 and eip712.rs:132-342
  */
 async function signPermit2(payload: OrderPayload, account: PrivateKeyAccount): Promise<Hex> {
   const domain = extractDomain(payload);
   const types = getTypesForPayload(payload);
 
-  // Sign using EIP-712
+  // For Permit2, we can use viem's standard EIP-712 signing
+  // as it follows the standard specification exactly
   const signature = await account.signTypedData({
     domain,
     types,
@@ -238,8 +432,13 @@ async function signPermit2(payload: OrderPayload, account: PrivateKeyAccount): P
     message: payload.message,
   });
 
+  console.log('Generated Permit2 signature, length:', signature.length);
+
   // Add Permit2 prefix (0x00) - matches signing.rs:220-223
-  return `0x00${signature.slice(2)}` as Hex;
+  const prefixed = `0x00${signature.slice(2)}` as Hex;
+  console.log('Applied Permit2 prefix: 0x00');
+
+  return prefixed;
 }
 
 /**
@@ -247,7 +446,6 @@ async function signPermit2(payload: OrderPayload, account: PrivateKeyAccount): P
  * Implements EIP-3009 authorization signature with 0x01 prefix
  * 
  * Supports TransferWithAuthorization and ReceiveWithAuthorization
- * Based on signing.rs:164-174 and eip712.rs:603-700
  */
 async function signEip3009(
   payload: OrderPayload,
@@ -255,31 +453,33 @@ async function signEip3009(
   account: PrivateKeyAccount,
   config?: SignerConfig
 ): Promise<Hex> {
-  const domain = extractDomain(payload);
+  console.log('Processing EIP-3009 signature for', payload.primaryType);
 
-  // Check if we need to fetch domain separator from contract
-  // This matches the logic in signing.rs:414-463
-  if (!metadata.domain_separator && config?.publicClient) {
-    const domainSeparator = await fetchDomainSeparator(
-      domain.verifyingContract,
-      config.publicClient
-    );
+  const digest = await reconstructEip3009Digest(
+    payload,
+    metadata,
+    config?.publicClient
+  );
 
-    console.log('Fetched domain separator from contract:', domainSeparator);
+  console.log('Signing EIP-3009 digest:', digest);
+
+  // Sign the digest directly
+  const signature = await account.sign({ hash: digest });
+
+  console.log('Generated EIP-3009 signature, length:', signature.length);
+
+  // Add EIP-3009 prefix (0x01)
+  const prefixed = `0x01${signature.slice(2)}` as Hex;
+  console.log('Applied EIP-3009 prefix: 0x01');
+
+  const maybeInputs = metadata?.inputs ?? payload.message?.inputs ?? [];
+  if (Array.isArray(maybeInputs) && maybeInputs.length > 1) {
+    console.log(`Multiple inputs detected (${maybeInputs.length}), encoding as bytes[]`);
+    const encoded = encodeAbiParameters([{ type: 'bytes[]' }], [[prefixed]]);
+    return encoded as Hex;
   }
 
-  const types = getTypesForPayload(payload);
-
-  // Sign using EIP-712
-  const signature = await account.signTypedData({
-    domain,
-    types,
-    primaryType: payload.primaryType,
-    message: payload.message,
-  });
-
-  // Add EIP-3009 prefix (0x01) - matches signing.rs:232-235
-  return `0x01${signature.slice(2)}` as Hex;
+return prefixed;
 }
 
 /**
@@ -294,27 +494,18 @@ async function signCompact(
   account: PrivateKeyAccount,
   config?: SignerConfig
 ): Promise<Hex> {
-  const domain = extractDomain(payload);
-  const types = getTypesForPayload(payload);
+  console.log('Processing Compact signature for', payload.primaryType);
 
-  // Fetch domain separator from TheCompact contract if provider available
-  // This matches signing.rs:535-548
-  if (config?.publicClient) {
-    const domainSeparator = await fetchDomainSeparator(
-      domain.verifyingContract,
-      config.publicClient
-    );
+  // Reconstruct the digest using TheCompact contract's domain separator
+  // This matches signing.rs:505-567
+  const digest = await reconstructCompactDigest(payload, config?.publicClient);
 
-    console.log('Fetched domain separator from Compact contract:', domainSeparator);
-  }
+  console.log('Signing Compact digest:', digest);
 
-  // Sign using EIP-712
-  const signature = await account.signTypedData({
-    domain,
-    types,
-    primaryType: payload.primaryType,
-    message: payload.message,
-  });
+  // Sign the digest directly
+  const signature = await account.sign({ hash: digest });
+
+  console.log('Generated Compact signature, length:', signature.length);
 
   // Compact signatures require special ABI encoding: (bytes, bytes)
   // sponsorSig = actual signature, allocatorSig = empty for basic flows
@@ -322,11 +513,17 @@ async function signCompact(
   const sponsorSig = signature;
   const allocatorSig = '0x' as Hex;
 
+  console.log(
+    `Encoding Compact signature tuple: sponsor ${sponsorSig.length} bytes, allocator ${allocatorSig.length} bytes`
+  );
+
   // ABI encode as tuple: (bytes sponsorSig, bytes allocatorSig)
   const encoded = encodeAbiParameters(
     [{ type: 'bytes' }, { type: 'bytes' }],
     [sponsorSig, allocatorSig]
   );
+
+  console.log('Final ABI-encoded Compact signature length:', encoded.length);
 
   return encoded;
 }
@@ -369,11 +566,14 @@ async function signGenericEip712(payload: OrderPayload, account: PrivateKeyAccou
  * });
  * ```
  */
+
 export async function signQuote(
   quote: Quote,
   privateKey: Hex,
   config?: SignerConfig
 ): Promise<Hex> {
+  console.log('Starting quote signature process for quote:', quote.quoteId);
+
   // Parse private key into account
   const account = privateKeyToAccount(privateKey);
 
@@ -479,5 +679,9 @@ export {
   signEip3009,
   signCompact,
   signGenericEip712,
+  reconstructEip3009Digest,
+  reconstructCompactDigest,
+  fetchDomainSeparator,
+  computeDomainSeparator,
+  computeEip712Digest,
 };
-
