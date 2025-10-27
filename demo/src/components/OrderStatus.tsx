@@ -96,8 +96,8 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
   };
 
   return (
-    <div className="space-y-4 max-w-4xl mx-auto">
-      <div className="card py-4">
+    <div className="mx-auto space-y-4 max-w-4xl">
+      <div className="py-4 card">
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Order Status</h2>
           <button onClick={onStartOver} className="btn-secondary">
@@ -106,14 +106,14 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
         </div>
 
         {/* Status Badge */}
-        <div className="flex items-center gap-4 mb-6 flex-wrap">
+        <div className="flex flex-wrap gap-4 items-center mb-6">
           <span className={`${getStatusColor(order.status)} text-white px-4 py-2 rounded-lg font-semibold uppercase text-sm`}>
             {order.status}
           </span>
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="btn-secondary text-sm py-1 px-3"
+            className="px-3 py-1 text-sm btn-secondary"
           >
             {isRefreshing ? '⟳ Refreshing...' : '🔄 Refresh Status'}
           </button>
@@ -121,15 +121,15 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
             onClick={() => setIsPolling(!isPolling)}
             className={`text-sm py-1 px-3 rounded transition-colors ${
               isPolling 
-                ? 'bg-green-600 hover:bg-green-700 text-white' 
-                : 'bg-slate-600 hover:bg-slate-700 text-white'
+                ? 'text-white bg-green-600 hover:bg-green-700' 
+                : 'text-white bg-slate-600 hover:bg-slate-700'
             }`}
             title={isPolling ? 'Auto-refresh enabled (every 2s)' : 'Auto-refresh disabled'}
           >
             {isPolling ? '⏸ Auto-Refresh ON' : '▶ Auto-Refresh OFF'}
           </button>
           {isPolling && shouldPoll(order.status) && (
-            <span className="text-xs text-slate-600 dark:text-slate-400 animate-pulse">
+            <span className="text-xs animate-pulse text-slate-600 dark:text-slate-400">
               • Polling every 2s
             </span>
           )}
@@ -139,7 +139,7 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
         {!shouldPoll(order.status) && (
           <div className={`rounded-lg p-4 mb-6 ${
             order.status === 'finalized' || order.status === 'settled' || order.status === 'executed'
-              ? 'bg-green-900/20 border border-green-700'
+              ? 'border border-green-700'
               : order.status === 'failed'
               ? 'bg-red-900/20 border border-red-700'
               : 'bg-blue-900/20 border border-blue-700'
@@ -162,39 +162,39 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
         )}
 
         {/* Order Details */}
-        <div className="bg-slate-100 dark:bg-slate-900 rounded-lg p-4 mb-6 space-y-4 border border-slate-300 dark:border-slate-700">
+        <div className="p-4 mb-6 space-y-4 rounded-lg border bg-slate-100 dark:bg-slate-900 border-slate-300 dark:border-slate-700">
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-xs text-slate-600 dark:text-slate-400">Order ID</p>
-              <p className="text-slate-900 dark:text-white font-mono text-sm">{order.orderId}</p>
+              <p className="font-mono text-sm text-slate-900 dark:text-white">{order.orderId}</p>
             </div>
             {order.quoteId && (
               <div>
                 <p className="text-xs text-slate-600 dark:text-slate-400">Quote ID</p>
-                <p className="text-slate-900 dark:text-white font-mono text-sm truncate">{order.quoteId}</p>
+                <p className="font-mono text-sm truncate text-slate-900 dark:text-white">{order.quoteId}</p>
               </div>
             )}
             <div>
               <p className="text-xs text-slate-600 dark:text-slate-400">Created At</p>
-              <p className="text-slate-900 dark:text-white text-sm">{formatTimestamp(order.createdAt)}</p>
+              <p className="text-sm text-slate-900 dark:text-white">{formatTimestamp(order.createdAt)}</p>
             </div>
             <div>
               <p className="text-xs text-slate-600 dark:text-slate-400">Updated At</p>
-              <p className="text-slate-900 dark:text-white text-sm">{formatTimestamp(order.updatedAt)}</p>
+              <p className="text-sm text-slate-900 dark:text-white">{formatTimestamp(order.updatedAt)}</p>
             </div>
           </div>
         </div>
 
         {/* Input Amounts */}
         <div className="mb-6">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Input Amounts</h3>
+          <h3 className="mb-3 text-lg font-semibold text-slate-900 dark:text-white">Input Amounts</h3>
           <div className="space-y-2">
             {order.inputAmounts.map((input, idx) => (
-              <div key={idx} className="bg-slate-100 dark:bg-slate-900 rounded-lg p-3 border border-slate-300 dark:border-slate-700">
-                <p className="text-slate-600 dark:text-slate-400 text-sm">
-                  Amount: <span className="text-slate-900 dark:text-white font-medium">{formatAmount(input.amount)}</span>
+              <div key={idx} className="p-3 rounded-lg border bg-slate-100 dark:bg-slate-900 border-slate-300 dark:border-slate-700">
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  Amount: <span className="font-medium text-slate-900 dark:text-white">{formatAmount(input.amount)}</span>
                 </p>
-                <p className="text-slate-500 dark:text-slate-500 text-xs truncate mt-1">
+                <p className="mt-1 text-xs truncate text-slate-500 dark:text-slate-500">
                   Asset: {String(formatInteropAddress(input.asset))}
                 </p>
               </div>
@@ -204,14 +204,14 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
 
         {/* Output Amounts */}
         <div className="mb-6">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Output Amounts</h3>
+          <h3 className="mb-3 text-lg font-semibold text-slate-900 dark:text-white">Output Amounts</h3>
           <div className="space-y-2">
             {order.outputAmounts.map((output, idx) => (
-              <div key={idx} className="bg-slate-100 dark:bg-slate-900 rounded-lg p-3 border border-slate-300 dark:border-slate-700">
-                <p className="text-slate-600 dark:text-slate-400 text-sm">
-                  Amount: <span className="text-slate-900 dark:text-white font-medium">{formatAmount(output.amount)}</span>
+              <div key={idx} className="p-3 rounded-lg border bg-slate-100 dark:bg-slate-900 border-slate-300 dark:border-slate-700">
+                <p className="text-sm text-slate-600 dark:text-slate-400">
+                  Amount: <span className="font-medium text-slate-900 dark:text-white">{formatAmount(output.amount)}</span>
                 </p>
-                <p className="text-slate-500 dark:text-slate-500 text-xs truncate mt-1">
+                <p className="mt-1 text-xs truncate text-slate-500 dark:text-slate-500">
                   Asset: {String(formatInteropAddress(output.asset))}
                 </p>
               </div>
@@ -221,14 +221,14 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
 
         {/* Settlement Information */}
         <div className="mb-6">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Settlement</h3>
-          <div className="bg-slate-100 dark:bg-slate-900 rounded-lg p-4 border border-slate-300 dark:border-slate-700">
-            <p className="text-slate-600 dark:text-slate-400 text-sm mb-2">
-              Type: <span className="text-slate-900 dark:text-white font-medium">{order.settlement.type}</span>
+          <h3 className="mb-3 text-lg font-semibold text-slate-900 dark:text-white">Settlement</h3>
+          <div className="p-4 rounded-lg border bg-slate-100 dark:bg-slate-900 border-slate-300 dark:border-slate-700">
+            <p className="mb-2 text-sm text-slate-600 dark:text-slate-400">
+              Type: <span className="font-medium text-slate-900 dark:text-white">{order.settlement.type}</span>
             </p>
             <details className="text-sm">
-              <summary className="text-slate-600 dark:text-slate-400 cursor-pointer hover:text-slate-900 dark:hover:text-white">Settlement Data (JSON)</summary>
-              <pre className="mt-2 bg-slate-200 dark:bg-slate-800 p-3 rounded overflow-auto text-xs text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700">
+              <summary className="cursor-pointer text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Settlement Data (JSON)</summary>
+              <pre className="overflow-auto p-3 mt-2 text-xs rounded border bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700">
                 {JSON.stringify(order.settlement.data as any, null, 2)}
               </pre>
             </details>
@@ -238,9 +238,9 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
         {/* Fill Transaction (if available) */}
         {order.fillTransaction && (
           <div className="mb-6">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Fill Transaction</h3>
-            <div className="bg-slate-100 dark:bg-slate-900 rounded-lg p-4 border border-slate-300 dark:border-slate-700">
-              <pre className="text-xs text-slate-700 dark:text-slate-300 overflow-auto">
+            <h3 className="mb-3 text-lg font-semibold text-slate-900 dark:text-white">Fill Transaction</h3>
+            <div className="p-4 rounded-lg border bg-slate-100 dark:bg-slate-900 border-slate-300 dark:border-slate-700">
+              <pre className="overflow-auto text-xs text-slate-700 dark:text-slate-300">
                 {JSON.stringify(order.fillTransaction as any, null, 2)}
               </pre>
             </div>
@@ -248,8 +248,8 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
         )}
 
         {/* Status Helper */}
-        <div className="bg-primary-100 dark:bg-primary-900/20 border border-primary-300 dark:border-primary-700 rounded-lg p-4">
-          <p className="text-primary-700 dark:text-primary-400 text-sm">
+        <div className="p-4 rounded-lg border bg-primary-100 dark:bg-primary-900/20 border-primary-300 dark:border-primary-700">
+          <p className="text-sm text-primary-700 dark:text-primary-400">
             💡 <strong>Status Guide:</strong><br />
             • <strong>created/pending</strong>: Order received and queued<br />
             • <strong>executing</strong>: Order is being processed<br />
