@@ -145,7 +145,7 @@ export type OrderStatus =
   | 'settled'
   | 'settling'
   | 'finalized'
-  | 'failed'
+  | { failed: [string, string] } // [transactionType, errorMessage]
   | 'refunded';
 
 export interface AssetAmount {

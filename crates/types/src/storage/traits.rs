@@ -27,6 +27,9 @@ pub trait Repository<Entity>: Send + Sync {
 pub trait OrderStorageTrait: Repository<Order> + Send + Sync {
 	/// Get orders with a specific status
 	async fn get_by_status(&self, status: crate::OrderStatus) -> StorageResult<Vec<Order>>;
+
+	/// Get orders in final status (Finalized or any Failed)
+	async fn get_finalised(&self) -> StorageResult<Vec<Order>>;
 }
 
 /// Trait for solver storage operations (CRUD naming)
@@ -195,6 +198,11 @@ pub trait StorageTrait:
 	/// Get orders by status
 	async fn get_orders_by_status(&self, status: crate::OrderStatus) -> StorageResult<Vec<Order>> {
 		<Self as OrderStorageTrait>::get_by_status(self, status).await
+	}
+
+	/// Get orders in final status (Finalized or any Failed)
+	async fn get_finalised_orders(&self) -> StorageResult<Vec<Order>> {
+		<Self as OrderStorageTrait>::get_finalised(self).await
 	}
 
 	// ===============================

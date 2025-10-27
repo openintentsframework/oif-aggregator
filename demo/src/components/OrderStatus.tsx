@@ -16,6 +16,11 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
   const [isPolling, setIsPolling] = useState(true);
 
   const getStatusColor = (status: OrderStatusType): string => {
+    // Handle complex failed status
+    if (typeof status === 'object' && 'failed' in status) {
+      return 'bg-red-600';
+    }
+    
     switch (status) {
       case 'created':
       case 'pending':
@@ -37,6 +42,16 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
     }
   };
 
+  const getStatusText = (status: OrderStatusType): string => {
+    // Handle complex failed status
+    if (typeof status === 'object' && 'failed' in status) {
+      const [txType, error] = status.failed;
+      return `failed (${txType})`;
+    }
+    
+    return status;
+  };
+
   const handleRefresh = async () => {
     setIsRefreshing(true);
     try {
@@ -51,7 +66,31 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
 
   // Check if order is in a non-final state (should keep polling)
   const shouldPoll = (status: OrderStatusType): boolean => {
+    // Handle complex failed status
+    if (typeof status === 'object' && 'failed' in status) {
+      return false; // Failed orders should not poll
+    }
+    
     return ['created', 'pending', 'executing', 'settling'].includes(status);
+  };
+
+  // Check if status is failed (handles both simple and complex failed status)
+  const isFailed = (status: OrderStatusType): boolean => {
+    return status === 'failed' || (typeof status === 'object' && 'failed' in status);
+  };
+
+  // Check if status is successful final state
+  const isSuccessful = (status: OrderStatusType): boolean => {
+    return status === 'finalized' || status === 'settled' || status === 'executed';
+  };
+
+  // Get error message from failed status
+  const getErrorMessage = (status: OrderStatusType): string | null => {
+    if (typeof status === 'object' && 'failed' in status) {
+      const [txType, error] = status.failed;
+      return error;
+    }
+    return null;
   };
 
   // Auto-polling effect
@@ -95,6 +134,20 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
     }
   };
 
+  const copyToClipboard = async (text: string, label: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      console.log(`${label} copied to clipboard`);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+    }
+  };
+
+  const truncateString = (str: string, maxLength: number = 20) => {
+    if (str.length <= maxLength) return str;
+    return `${str.substring(0, maxLength)}...`;
+  };
+
   return (
     <div className="mx-auto space-y-4 max-w-4xl">
       <div className="py-4 card">
@@ -108,7 +161,7 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
         {/* Status Badge */}
         <div className="flex flex-wrap gap-4 items-center mb-6">
           <span className={`${getStatusColor(order.status)} text-white px-4 py-2 rounded-lg font-semibold uppercase text-sm`}>
-            {order.status}
+            {getStatusText(order.status)}
           </span>
           <button
             onClick={handleRefresh}
@@ -138,26 +191,41 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
         {/* Status Notification */}
         {!shouldPoll(order.status) && (
           <div className={`rounded-lg p-4 mb-6 ${
-            order.status === 'finalized' || order.status === 'settled' || order.status === 'executed'
+            isSuccessful(order.status)
               ? 'border border-green-700'
-              : order.status === 'failed'
+              : isFailed(order.status)
               ? 'bg-red-900/20 border border-red-700'
               : 'bg-blue-900/20 border border-blue-700'
           }`}>
             <p className={`text-sm ${
-              order.status === 'finalized' || order.status === 'settled' || order.status === 'executed'
+              isSuccessful(order.status)
                 ? 'text-green-400'
-                : order.status === 'failed'
+                : isFailed(order.status)
                 ? 'text-red-400'
                 : 'text-blue-400'
             }`}>
-              {order.status === 'finalized' || order.status === 'settled' || order.status === 'executed'
+              {isSuccessful(order.status)
                 ? '✓ Order completed successfully. Auto-refresh has stopped.'
-                : order.status === 'failed'
+                : isFailed(order.status)
                 ? '✗ Order failed. Auto-refresh has stopped.'
-                : `Order is in final state: ${order.status}. Auto-refresh has stopped.`
+                : `Order is in final state: ${getStatusText(order.status)}. Auto-refresh has stopped.`
               }
             </p>
+          </div>
+        )}
+
+        {/* Error Details - Show detailed error message for failed orders */}
+        {isFailed(order.status) && getErrorMessage(order.status) && (
+          <div className="p-4 mb-6 rounded-lg border border-red-700 bg-red-900/20">
+            <div className="flex gap-3 items-start">
+              <span className="flex-shrink-0 text-lg text-red-400">⚠️</span>
+              <div className="flex-1">
+                <h3 className="mb-2 font-medium text-red-300">Error Details</h3>
+                <p className="text-sm leading-relaxed text-red-200 break-words">
+                  {getErrorMessage(order.status)}
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
@@ -166,12 +234,34 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
           <div className="grid grid-cols-2 gap-4">
             <div>
               <p className="text-xs text-slate-600 dark:text-slate-400">Order ID</p>
-              <p className="font-mono text-sm text-slate-900 dark:text-white">{order.orderId}</p>
+              <div className="flex gap-2 items-center">
+                <p className="font-mono text-sm truncate text-slate-900 dark:text-white" title={order.orderId}>
+                  {truncateString(order.orderId, 20)}
+                </p>
+                <button
+                  onClick={() => copyToClipboard(order.orderId, 'Order ID')}
+                  className="flex-shrink-0 p-1 transition-colors text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                  title="Copy Order ID"
+                >
+                  📋
+                </button>
+              </div>
             </div>
             {order.quoteId && (
               <div>
                 <p className="text-xs text-slate-600 dark:text-slate-400">Quote ID</p>
-                <p className="font-mono text-sm truncate text-slate-900 dark:text-white">{order.quoteId}</p>
+                <div className="flex gap-2 items-center">
+                  <p className="font-mono text-sm truncate text-slate-900 dark:text-white" title={order.quoteId}>
+                    {truncateString(order.quoteId, 20)}
+                  </p>
+                  <button
+                    onClick={() => copyToClipboard(order.quoteId, 'Quote ID')}
+                    className="flex-shrink-0 p-1 transition-colors text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
+                    title="Copy Quote ID"
+                  >
+                    📋
+                  </button>
+                </div>
               </div>
             )}
             <div>

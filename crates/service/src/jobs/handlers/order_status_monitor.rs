@@ -149,7 +149,7 @@ impl OrderMonitor {
 
 	/// Check if an order status is final (no more monitoring needed)
 	pub fn is_final_status(status: &OrderStatus) -> bool {
-		matches!(status, OrderStatus::Finalized | OrderStatus::Failed)
+		matches!(status, OrderStatus::Finalized | OrderStatus::Failed(_, _))
 	}
 
 	/// Monitor order status and return the next action to take
@@ -395,12 +395,17 @@ impl OrderStatusMonitorHandler {
 
 #[cfg(test)]
 mod tests {
+	use oif_types::oif::common::TransactionType;
+
 	use super::*;
 
 	#[test]
 	fn test_is_final_status() {
 		assert!(OrderMonitor::is_final_status(&OrderStatus::Finalized));
-		assert!(OrderMonitor::is_final_status(&OrderStatus::Failed));
+		assert!(OrderMonitor::is_final_status(&OrderStatus::Failed(
+			TransactionType::Fill,
+			"test".to_string()
+		)));
 		assert!(!OrderMonitor::is_final_status(&OrderStatus::Created));
 		assert!(!OrderMonitor::is_final_status(&OrderStatus::Pending));
 		assert!(!OrderMonitor::is_final_status(&OrderStatus::Executed));
