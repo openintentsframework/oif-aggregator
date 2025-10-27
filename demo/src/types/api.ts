@@ -97,7 +97,7 @@ export interface Order {
 }
 
 export interface OrderPayload {
-  signatureType: 'eip712' | 'eip3009';
+  signatureType: 'eip712';
   domain: unknown;
   primaryType: string;
   message: unknown;

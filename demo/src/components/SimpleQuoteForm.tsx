@@ -9,7 +9,8 @@ import SolverOptions from './SolverOptions';
 import { fromInteropAddress } from '../utils/interopAddress';
 import { localStorageService } from '../services/localStorageService';
 import { solverDataService } from '../services/solverDataService';
-import { useState } from 'react';
+import { useWallet } from '../contexts/WalletContext';
+import { useState, useEffect } from 'react';
 
 interface SimpleQuoteFormProps {
   onSubmit: (request: QuoteRequest) => void;
@@ -17,6 +18,8 @@ interface SimpleQuoteFormProps {
 }
 
 export default function SimpleQuoteForm({ onSubmit, isLoading }: SimpleQuoteFormProps) {
+  const { isConnected, address, chainId } = useWallet();
+  
   const [formData, setFormData] = useState<SimpleQuoteFormData>({
     amount: '1',
     fromAsset: null,
@@ -38,6 +41,17 @@ export default function SimpleQuoteForm({ onSubmit, isLoading }: SimpleQuoteForm
     minQuotes: 1,
     solverSelection: 'all' as const,
   });
+
+  // Auto-fill user address when wallet connects
+  useEffect(() => {
+    if (isConnected && address) {
+      setFormData(prev => ({
+        ...prev,
+        userAddress: address,
+        fromChain: chainId || prev.fromChain, // Update chain if wallet is on different chain
+      }));
+    }
+  }, [isConnected, address, chainId]);
 
   const cache = solverDataService.getCachedData();
   const chains = cache?.chains || [];
@@ -335,17 +349,25 @@ export default function SimpleQuoteForm({ onSubmit, isLoading }: SimpleQuoteForm
         <div className="mb-4">
           <div className="flex items-center justify-between mb-1">
             <label className="label-text text-sm">User Address</label>
-            <span className="text-xs text-slate-500">Wallet connection coming soon</span>
+            {isConnected ? (
+              <span className="text-xs text-green-600 dark:text-green-400">✓ Wallet Connected</span>
+            ) : (
+              <span className="text-xs text-slate-500">Manual entry</span>
+            )}
           </div>
           <input
             type="text"
             value={formData.userAddress}
             onChange={(e) => updateField('userAddress', e.target.value)}
-            placeholder="0x... (enter manually for now)"
-            className="input-field"
+            placeholder={isConnected ? "Auto-filled from wallet" : "0x... (enter manually for now)"}
+            className={`input-field ${isConnected ? 'bg-green-50 dark:bg-green-900/20 border-green-300 dark:border-green-700' : ''}`}
           />
           <p className="text-xs text-slate-500 mt-1">
-            💡 Future: Click "Connect Wallet" to auto-fill
+            {isConnected ? (
+              <>💡 Connected wallet address auto-filled. You can still edit manually if needed.</>
+            ) : (
+              <>💡 Click "Connect Wallet" to auto-fill</>
+            )}
           </p>
         </div>
 

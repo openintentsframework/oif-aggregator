@@ -12,6 +12,7 @@ import Settings from './components/Settings';
 import SimpleQuoteForm from './components/SimpleQuoteForm';
 import SolverDetail from './components/SolverDetail';
 import SolversList from './components/SolversList';
+import CustomWalletButton from './components/CustomWalletButton';
 import { localStorageService } from './services/localStorageService';
 import { solverDataService } from './services/solverDataService';
 import { useTheme } from './contexts/ThemeContext';
@@ -252,6 +253,8 @@ function App() {
                   </div>
                 </div>
               )}
+              {/* Wallet Connect Button */}
+              <CustomWalletButton />
               {/* Theme Switcher */}
               <button
                 onClick={toggleTheme}
