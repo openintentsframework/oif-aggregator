@@ -97,7 +97,9 @@ impl OrdersResponse {
 			OrderStatus::Executed => "Order executed".to_string(),
 			OrderStatus::Settled => "Order settled".to_string(),
 			OrderStatus::Finalized => "Order finalized".to_string(),
-			OrderStatus::Failed => "Order execution failed".to_string(),
+			OrderStatus::Failed(tx_type, error) => {
+				format!("Order execution failed during {}: {}", tx_type, error)
+			},
 			OrderStatus::Executing => "Order is executing".to_string(),
 			OrderStatus::Settling => "Order is settling".to_string(),
 			OrderStatus::Refunded => "Order has been refunded".to_string(),
@@ -113,7 +115,7 @@ impl std::fmt::Display for OrderStatus {
 			OrderStatus::Executed => write!(f, "executed"),
 			OrderStatus::Settled => write!(f, "settled"),
 			OrderStatus::Finalized => write!(f, "finalized"),
-			OrderStatus::Failed => write!(f, "failed"),
+			OrderStatus::Failed(_, _) => write!(f, "failed"),
 			OrderStatus::Executing => write!(f, "executing"),
 			OrderStatus::Settling => write!(f, "settling"),
 			OrderStatus::Refunded => write!(f, "refunded"),

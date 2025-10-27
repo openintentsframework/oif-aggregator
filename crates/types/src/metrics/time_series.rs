@@ -1465,7 +1465,7 @@ mod tests {
 		assert_eq!(total_requests, 10);
 
 		// Verify that temporal ordering doesn't affect correctness
-		assert!(aggregates.len() > 0);
+		assert!(!aggregates.is_empty());
 		for aggregate in aggregates {
 			assert!(aggregate.total_requests > 0);
 			assert!(aggregate.successful_requests > 0);
