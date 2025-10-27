@@ -1,5 +1,6 @@
 const AGGREGATOR_URL_KEY = 'oif-aggregator-url';
-const DEFAULT_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
+const DEFAULT_URL =
+  import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000';
 
 class SettingsService {
   getAggregatorUrl(): string {
@@ -46,4 +47,3 @@ class SettingsService {
 }
 
 export const settingsService = new SettingsService();
-

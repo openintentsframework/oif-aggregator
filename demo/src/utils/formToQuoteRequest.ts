@@ -12,10 +12,10 @@ export function parseAmount(amount: string, decimals: number): string {
     const [whole, fraction = ''] = amount.split('.');
     const paddedFraction = fraction.padEnd(decimals, '0').slice(0, decimals);
     const weiString = (whole || '0') + paddedFraction;
-    
+
     // Remove leading zeros
     const cleanedWei = weiString.replace(/^0+/, '') || '0';
-    
+
     return cleanedWei;
   } catch (error) {
     throw new Error(`Invalid amount format: ${amount}`);
@@ -31,10 +31,10 @@ export function formatAmount(amountWei: string, decimals: number): string {
     const padded = amountWei.padStart(decimals + 1, '0');
     const whole = padded.slice(0, -decimals) || '0';
     const fraction = padded.slice(-decimals);
-    
+
     // Remove trailing zeros from fraction
     const trimmedFraction = fraction.replace(/0+$/, '');
-    
+
     return trimmedFraction ? `${whole}.${trimmedFraction}` : whole;
   } catch (error) {
     return amountWei;
@@ -122,7 +122,8 @@ export function validateFormData(formData: SimpleQuoteFormData): {
     formData.fromAsset &&
     formData.toAsset &&
     formData.fromChain === formData.toChain &&
-    formData.fromAsset.address.toLowerCase() === formData.toAsset.address.toLowerCase()
+    formData.fromAsset.address.toLowerCase() ===
+      formData.toAsset.address.toLowerCase()
   ) {
     errors.push('From and to assets cannot be the same');
   }
@@ -132,4 +133,3 @@ export function validateFormData(formData: SimpleQuoteFormData): {
     errors,
   };
 }
-

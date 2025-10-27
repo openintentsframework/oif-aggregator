@@ -6,7 +6,7 @@ import type {
   QuoteRequest,
   QuotesResponse,
   SolverResponse,
-  SolversListResponse
+  SolversListResponse,
 } from '../types/api';
 import axios, { AxiosError } from 'axios';
 
@@ -16,9 +16,9 @@ import { settingsService } from './settingsService';
 export const api = axios.create({
   baseURL: settingsService.getAggregatorUrl(),
   headers: {
-    'Content-Type': 'application/json'
+    'Content-Type': 'application/json',
   },
-  timeout: 30000 // 30 second timeout
+  timeout: 30000, // 30 second timeout
 });
 
 /**
@@ -37,7 +37,9 @@ api.interceptors.response.use(
       throw new Error(error.response.data.message || 'An error occurred');
     } else if (error.request) {
       // Request was made but no response received
-      throw new Error('No response from server. Please check if the server is running.');
+      throw new Error(
+        'No response from server. Please check if the server is running.'
+      );
     } else {
       // Something else happened
       throw new Error(error.message || 'An unexpected error occurred');
@@ -55,7 +57,7 @@ export const quoteApi = {
   getQuotes: async (request: QuoteRequest): Promise<QuotesResponse> => {
     const response = await api.post<QuotesResponse>('/v1/quotes', request);
     return response.data;
-  }
+  },
 };
 
 /**
@@ -76,7 +78,7 @@ export const orderApi = {
   getOrder: async (id: string): Promise<OrderResponse> => {
     const response = await api.get<OrderResponse>(`/v1/orders/${id}`);
     return response.data;
-  }
+  },
 };
 
 /**
@@ -86,7 +88,7 @@ export const healthApi = {
   getHealth: async (): Promise<HealthResponse> => {
     const response = await api.get<HealthResponse>('/health');
     return response.data;
-  }
+  },
 };
 
 /**
@@ -96,11 +98,14 @@ export const solverApi = {
   /**
    * Get list of all solvers with pagination
    */
-  getSolvers: async (page?: number, pageSize?: number): Promise<SolversListResponse> => {
+  getSolvers: async (
+    page?: number,
+    pageSize?: number
+  ): Promise<SolversListResponse> => {
     const params = new URLSearchParams();
     if (page) params.append('page', page.toString());
     if (pageSize) params.append('page_size', pageSize.toString());
-    
+
     const response = await api.get<SolversListResponse>(
       `/v1/solvers${params.toString() ? `?${params.toString()}` : ''}`
     );
@@ -113,6 +118,5 @@ export const solverApi = {
   getSolverById: async (id: string): Promise<SolverResponse> => {
     const response = await api.get<SolverResponse>(`/v1/solvers/${id}`);
     return response.data;
-  }
+  },
 };
-

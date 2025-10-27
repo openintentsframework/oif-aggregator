@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import type { QuoteRequest } from '../types/api';
-import { localStorageService, type StoredSearch } from '../services/localStorageService';
+import {
+  localStorageService,
+  type StoredSearch,
+} from '../services/localStorageService';
 import { formatInteropAddress } from '../utils/interopAddress';
 
 interface RecentSearchesModalProps {
@@ -9,7 +12,11 @@ interface RecentSearchesModalProps {
   onLoadSearch: (request: QuoteRequest) => void;
 }
 
-export default function RecentSearchesModal({ isOpen, onClose, onLoadSearch }: RecentSearchesModalProps) {
+export default function RecentSearchesModal({
+  isOpen,
+  onClose,
+  onLoadSearch,
+}: RecentSearchesModalProps) {
   const [searches, setSearches] = useState<StoredSearch[]>([]);
 
   useEffect(() => {
@@ -38,10 +45,14 @@ export default function RecentSearchesModal({ isOpen, onClose, onLoadSearch }: R
   const formatSearchSummary = (request: QuoteRequest): string => {
     const firstInput = request.intent.inputs[0];
     const firstOutput = request.intent.outputs[0];
-    const inputAsset = firstInput ? formatInteropAddress(firstInput.asset) : 'N/A';
-    const outputAsset = firstOutput ? formatInteropAddress(firstOutput.asset) : 'N/A';
+    const inputAsset = firstInput
+      ? formatInteropAddress(firstInput.asset)
+      : 'N/A';
+    const outputAsset = firstOutput
+      ? formatInteropAddress(firstOutput.asset)
+      : 'N/A';
     const amount = firstInput?.amount || firstOutput?.amount || 'N/A';
-    
+
     return `${inputAsset} → ${outputAsset} (${amount})`;
   };
 
@@ -77,7 +88,9 @@ export default function RecentSearchesModal({ isOpen, onClose, onLoadSearch }: R
         <div className="overflow-y-auto flex-1 p-4">
           {searches.length === 0 ? (
             <div className="text-center py-12">
-              <p className="text-slate-600 dark:text-slate-400 text-lg">No recent searches</p>
+              <p className="text-slate-600 dark:text-slate-400 text-lg">
+                No recent searches
+              </p>
               <p className="text-slate-500 dark:text-slate-500 text-sm mt-2">
                 Your recent quote requests will appear here
               </p>
@@ -101,11 +114,17 @@ export default function RecentSearchesModal({ isOpen, onClose, onLoadSearch }: R
                         <span className="bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 px-2 py-1 rounded">
                           Type: {search.request.intent.swapType}
                         </span>
-                        {search.request.solverOptions?.includeSolvers && search.request.solverOptions.includeSolvers.length > 0 && (
-                          <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-2 py-1 rounded">
-                            {search.request.solverOptions.includeSolvers.length} solver(s)
-                          </span>
-                        )}
+                        {search.request.solverOptions?.includeSolvers &&
+                          search.request.solverOptions.includeSolvers.length >
+                            0 && (
+                            <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 px-2 py-1 rounded">
+                              {
+                                search.request.solverOptions.includeSolvers
+                                  .length
+                              }{' '}
+                              solver(s)
+                            </span>
+                          )}
                       </div>
                     </div>
                     <div className="flex flex-col gap-2">
@@ -140,4 +159,3 @@ export default function RecentSearchesModal({ isOpen, onClose, onLoadSearch }: R
     </div>
   );
 }
-

@@ -1,5 +1,15 @@
-import type { Input, Output, QuoteRequest, SolverOptions as SolverOptionsType } from '../types/api';
-import { fromInteropAddress, isValidAddress, isValidChainId, toInteropAddress } from '../utils/interopAddress';
+import type {
+  Input,
+  Output,
+  QuoteRequest,
+  SolverOptions as SolverOptionsType,
+} from '../types/api';
+import {
+  fromInteropAddress,
+  isValidAddress,
+  isValidChainId,
+  toInteropAddress,
+} from '../utils/interopAddress';
 
 import RecentSearchesModal from './RecentSearchesModal';
 import SolverOptions from './SolverOptions';
@@ -30,20 +40,39 @@ interface FormOutput {
   amount: string;
 }
 
-export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFormProps) {
+export default function QuoteRequestForm({
+  onSubmit,
+  isLoading,
+}: QuoteRequestFormProps) {
   const { handleSubmit } = useForm();
   const [showSolverOptions, setShowSolverOptions] = useState(false);
   const [showRecentSearches, setShowRecentSearches] = useState(false);
   const [inputs, setInputs] = useState<FormInput[]>([
-    { userAddress: '', userChainId: '1', asset: '', assetChainId: '1', amount: '' }
+    {
+      userAddress: '',
+      userChainId: '1',
+      asset: '',
+      assetChainId: '1',
+      amount: '',
+    },
   ]);
   const [outputs, setOutputs] = useState<FormOutput[]>([
-    { receiverAddress: '', receiverChainId: '1', asset: '', assetChainId: '1', amount: '' }
+    {
+      receiverAddress: '',
+      receiverChainId: '1',
+      asset: '',
+      assetChainId: '1',
+      amount: '',
+    },
   ]);
 
-  const [swapType, setSwapType] = useState<'exact-input' | 'exact-output'>('exact-input');
-  const [supportedTypes, setSupportedTypes] = useState<string[]>(['oif-escrow-v0']);
-  
+  const [swapType, setSwapType] = useState<'exact-input' | 'exact-output'>(
+    'exact-input'
+  );
+  const [supportedTypes, setSupportedTypes] = useState<string[]>([
+    'oif-escrow-v0',
+  ]);
+
   // Solver options state
   const [solverOptions, setSolverOptions] = useState<Partial<SolverOptions>>({
     timeout: 10000,
@@ -55,7 +84,16 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
   });
 
   const addInput = () => {
-    setInputs([...inputs, { userAddress: '', userChainId: '1', asset: '', assetChainId: '1', amount: '' }]);
+    setInputs([
+      ...inputs,
+      {
+        userAddress: '',
+        userChainId: '1',
+        asset: '',
+        assetChainId: '1',
+        amount: '',
+      },
+    ]);
   };
 
   const removeInput = (index: number) => {
@@ -65,7 +103,16 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
   };
 
   const addOutput = () => {
-    setOutputs([...outputs, { receiverAddress: '', receiverChainId: '1', asset: '', assetChainId: '1', amount: '' }]);
+    setOutputs([
+      ...outputs,
+      {
+        receiverAddress: '',
+        receiverChainId: '1',
+        asset: '',
+        assetChainId: '1',
+        amount: '',
+      },
+    ]);
   };
 
   const removeOutput = (index: number) => {
@@ -74,13 +121,21 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
     }
   };
 
-  const updateInput = (index: number, field: keyof FormInput, value: string) => {
+  const updateInput = (
+    index: number,
+    field: keyof FormInput,
+    value: string
+  ) => {
     const newInputs = [...inputs];
     newInputs[index][field] = value;
     setInputs(newInputs);
   };
 
-  const updateOutput = (index: number, field: keyof FormOutput, value: string) => {
+  const updateOutput = (
+    index: number,
+    field: keyof FormOutput,
+    value: string
+  ) => {
     const newOutputs = [...outputs];
     newOutputs[index][field] = value;
     setOutputs(newOutputs);
@@ -101,16 +156,21 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
         }
 
         return {
-          user: toInteropAddress(input.userAddress, parseInt(input.userChainId)),
+          user: toInteropAddress(
+            input.userAddress,
+            parseInt(input.userChainId)
+          ),
           asset: toInteropAddress(input.asset, parseInt(input.assetChainId)),
-          amount: input.amount || undefined
+          amount: input.amount || undefined,
         };
       });
 
       // Validate and convert outputs
       const apiOutputs: Output[] = outputs.map((output) => {
         if (!isValidAddress(output.receiverAddress)) {
-          throw new Error(`Invalid receiver address: ${output.receiverAddress}`);
+          throw new Error(
+            `Invalid receiver address: ${output.receiverAddress}`
+          );
         }
         if (!isValidAddress(output.asset)) {
           throw new Error(`Invalid output asset address: ${output.asset}`);
@@ -120,9 +180,12 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
         }
 
         return {
-          receiver: toInteropAddress(output.receiverAddress, parseInt(output.receiverChainId)),
+          receiver: toInteropAddress(
+            output.receiverAddress,
+            parseInt(output.receiverChainId)
+          ),
           asset: toInteropAddress(output.asset, parseInt(output.assetChainId)),
-          amount: output.amount || undefined
+          amount: output.amount || undefined,
         };
       });
 
@@ -133,10 +196,10 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
           intentType: 'oif-swap',
           inputs: apiInputs,
           outputs: apiOutputs,
-          swapType
+          swapType,
         },
         supportedTypes,
-        solverOptions: showSolverOptions ? solverOptions : undefined
+        solverOptions: showSolverOptions ? solverOptions : undefined,
       };
 
       localStorageService.saveRecentSearch(request);
@@ -150,12 +213,12 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
     try {
       // Load swap type
       setSwapType(request.intent.swapType || 'exact-input');
-      
+
       // Load supported types
       setSupportedTypes(request.supportedTypes || ['oif-escrow-v0']);
-      
+
       // Load inputs
-      const loadedInputs: FormInput[] = request.intent.inputs.map(input => {
+      const loadedInputs: FormInput[] = request.intent.inputs.map((input) => {
         const userInterop = fromInteropAddress(input.user);
         const assetInterop = fromInteropAddress(input.asset);
         return {
@@ -163,25 +226,27 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
           userChainId: userInterop.chainId.toString(),
           asset: assetInterop.address,
           assetChainId: assetInterop.chainId.toString(),
-          amount: '' // Reset to empty - saved amount is already converted to smallest unit
+          amount: '', // Reset to empty - saved amount is already converted to smallest unit
         };
       });
       setInputs(loadedInputs);
-      
+
       // Load outputs
-      const loadedOutputs: FormOutput[] = request.intent.outputs.map(output => {
-        const receiverInterop = fromInteropAddress(output.receiver);
-        const assetInterop = fromInteropAddress(output.asset);
-        return {
-          receiverAddress: receiverInterop.address,
-          receiverChainId: receiverInterop.chainId.toString(),
-          asset: assetInterop.address,
-          assetChainId: assetInterop.chainId.toString(),
-          amount: '' // Reset to empty - saved amount is already converted to smallest unit
-        };
-      });
+      const loadedOutputs: FormOutput[] = request.intent.outputs.map(
+        (output) => {
+          const receiverInterop = fromInteropAddress(output.receiver);
+          const assetInterop = fromInteropAddress(output.asset);
+          return {
+            receiverAddress: receiverInterop.address,
+            receiverChainId: receiverInterop.chainId.toString(),
+            asset: assetInterop.address,
+            assetChainId: assetInterop.chainId.toString(),
+            amount: '', // Reset to empty - saved amount is already converted to smallest unit
+          };
+        }
+      );
       setOutputs(loadedOutputs);
-      
+
       // Load solver options if present
       if (request.solverOptions) {
         setSolverOptions(request.solverOptions);
@@ -194,10 +259,15 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
   };
 
   return (
-    <form onSubmit={handleSubmit(handleFormSubmit)} className="space-y-6 max-w-4xl mx-auto">
+    <form
+      onSubmit={handleSubmit(handleFormSubmit)}
+      className="space-y-6 max-w-4xl mx-auto"
+    >
       <div className="card">
         <div className="flex items-center justify-between mb-6">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Request Quote (Advanced Mode)</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+            Request Quote (Advanced Mode)
+          </h2>
           <button
             type="button"
             onClick={() => setShowRecentSearches(true)}
@@ -220,7 +290,9 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
                 onChange={(e) => setSwapType(e.target.value as 'exact-input')}
                 className="mr-2"
               />
-              <span className="text-slate-900 dark:text-white">Exact Input</span>
+              <span className="text-slate-900 dark:text-white">
+                Exact Input
+              </span>
             </label>
             <label className="flex items-center">
               <input
@@ -230,7 +302,9 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
                 onChange={(e) => setSwapType(e.target.value as 'exact-output')}
                 className="mr-2"
               />
-              <span className="text-slate-900 dark:text-white">Exact Output</span>
+              <span className="text-slate-900 dark:text-white">
+                Exact Output
+              </span>
             </label>
           </div>
         </div>
@@ -238,7 +312,9 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
         {/* Inputs Section */}
         <div className="mb-6">
           <div className="flex justify-between items-center mb-3">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Inputs</h3>
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+              Inputs
+            </h3>
             <button
               type="button"
               onClick={addInput}
@@ -248,9 +324,14 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
             </button>
           </div>
           {inputs.map((input, index) => (
-            <div key={index} className="bg-slate-100 dark:bg-slate-900 rounded-lg p-4 mb-3 border border-slate-300 dark:border-slate-700">
+            <div
+              key={index}
+              className="bg-slate-100 dark:bg-slate-900 rounded-lg p-4 mb-3 border border-slate-300 dark:border-slate-700"
+            >
               <div className="flex justify-between items-center mb-3">
-                <span className="text-slate-600 dark:text-slate-400 text-sm">Input #{index + 1}</span>
+                <span className="text-slate-600 dark:text-slate-400 text-sm">
+                  Input #{index + 1}
+                </span>
                 {inputs.length > 1 && (
                   <button
                     type="button"
@@ -267,7 +348,9 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
                   <input
                     type="text"
                     value={input.userAddress}
-                    onChange={(e) => updateInput(index, 'userAddress', e.target.value)}
+                    onChange={(e) =>
+                      updateInput(index, 'userAddress', e.target.value)
+                    }
                     placeholder="0x..."
                     className="input-field"
                   />
@@ -277,7 +360,9 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
                   <input
                     type="number"
                     value={input.userChainId}
-                    onChange={(e) => updateInput(index, 'userChainId', e.target.value)}
+                    onChange={(e) =>
+                      updateInput(index, 'userChainId', e.target.value)
+                    }
                     placeholder="1"
                     className="input-field"
                   />
@@ -287,7 +372,9 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
                   <input
                     type="text"
                     value={input.asset}
-                    onChange={(e) => updateInput(index, 'asset', e.target.value)}
+                    onChange={(e) =>
+                      updateInput(index, 'asset', e.target.value)
+                    }
                     placeholder="0x..."
                     className="input-field"
                   />
@@ -297,17 +384,23 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
                   <input
                     type="number"
                     value={input.assetChainId}
-                    onChange={(e) => updateInput(index, 'assetChainId', e.target.value)}
+                    onChange={(e) =>
+                      updateInput(index, 'assetChainId', e.target.value)
+                    }
                     placeholder="1"
                     className="input-field"
                   />
                 </div>
                 <div className="col-span-2">
-                  <label className="label-text">Amount (optional for exact-output)</label>
+                  <label className="label-text">
+                    Amount (optional for exact-output)
+                  </label>
                   <input
                     type="text"
                     value={input.amount}
-                    onChange={(e) => updateInput(index, 'amount', e.target.value)}
+                    onChange={(e) =>
+                      updateInput(index, 'amount', e.target.value)
+                    }
                     placeholder="1000000000000000000"
                     className="input-field"
                   />
@@ -320,7 +413,9 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
         {/* Outputs Section */}
         <div className="mb-6">
           <div className="flex justify-between items-center mb-3">
-            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">Outputs</h3>
+            <h3 className="text-lg font-semibold text-slate-900 dark:text-white">
+              Outputs
+            </h3>
             <button
               type="button"
               onClick={addOutput}
@@ -330,9 +425,14 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
             </button>
           </div>
           {outputs.map((output, index) => (
-            <div key={index} className="bg-slate-100 dark:bg-slate-900 rounded-lg p-4 mb-3 border border-slate-300 dark:border-slate-700">
+            <div
+              key={index}
+              className="bg-slate-100 dark:bg-slate-900 rounded-lg p-4 mb-3 border border-slate-300 dark:border-slate-700"
+            >
               <div className="flex justify-between items-center mb-3">
-                <span className="text-slate-600 dark:text-slate-400 text-sm">Output #{index + 1}</span>
+                <span className="text-slate-600 dark:text-slate-400 text-sm">
+                  Output #{index + 1}
+                </span>
                 {outputs.length > 1 && (
                   <button
                     type="button"
@@ -349,7 +449,9 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
                   <input
                     type="text"
                     value={output.receiverAddress}
-                    onChange={(e) => updateOutput(index, 'receiverAddress', e.target.value)}
+                    onChange={(e) =>
+                      updateOutput(index, 'receiverAddress', e.target.value)
+                    }
                     placeholder="0x..."
                     className="input-field"
                   />
@@ -359,7 +461,9 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
                   <input
                     type="number"
                     value={output.receiverChainId}
-                    onChange={(e) => updateOutput(index, 'receiverChainId', e.target.value)}
+                    onChange={(e) =>
+                      updateOutput(index, 'receiverChainId', e.target.value)
+                    }
                     placeholder="1"
                     className="input-field"
                   />
@@ -369,7 +473,9 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
                   <input
                     type="text"
                     value={output.asset}
-                    onChange={(e) => updateOutput(index, 'asset', e.target.value)}
+                    onChange={(e) =>
+                      updateOutput(index, 'asset', e.target.value)
+                    }
                     placeholder="0x..."
                     className="input-field"
                   />
@@ -379,17 +485,23 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
                   <input
                     type="number"
                     value={output.assetChainId}
-                    onChange={(e) => updateOutput(index, 'assetChainId', e.target.value)}
+                    onChange={(e) =>
+                      updateOutput(index, 'assetChainId', e.target.value)
+                    }
                     placeholder="1"
                     className="input-field"
                   />
                 </div>
                 <div className="col-span-2">
-                  <label className="label-text">Amount (optional for exact-input)</label>
+                  <label className="label-text">
+                    Amount (optional for exact-input)
+                  </label>
                   <input
                     type="text"
                     value={output.amount}
-                    onChange={(e) => updateOutput(index, 'amount', e.target.value)}
+                    onChange={(e) =>
+                      updateOutput(index, 'amount', e.target.value)
+                    }
                     placeholder="1000000"
                     className="input-field"
                   />
@@ -403,7 +515,12 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
         <div className="mb-6">
           <label className="label-text">Supported Order Types</label>
           <div className="flex flex-wrap gap-2 mt-2">
-            {['oif-escrow-v0', 'oif-resource-lock-v0', 'oif-3009-v0', 'oif-generic-v0'].map((type) => (
+            {[
+              'oif-escrow-v0',
+              'oif-resource-lock-v0',
+              'oif-3009-v0',
+              'oif-generic-v0',
+            ].map((type) => (
               <label key={type} className="flex items-center">
                 <input
                   type="checkbox"
@@ -412,12 +529,16 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
                     if (e.target.checked) {
                       setSupportedTypes([...supportedTypes, type]);
                     } else {
-                      setSupportedTypes(supportedTypes.filter(t => t !== type));
+                      setSupportedTypes(
+                        supportedTypes.filter((t) => t !== type)
+                      );
                     }
                   }}
                   className="mr-2"
                 />
-                <span className="text-slate-900 dark:text-white text-sm">{type}</span>
+                <span className="text-slate-900 dark:text-white text-sm">
+                  {type}
+                </span>
               </label>
             ))}
           </div>
@@ -434,7 +555,10 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
             <span className="text-xl">{showSolverOptions ? '−' : '+'}</span>
           </button>
           {showSolverOptions && (
-            <SolverOptions options={solverOptions} onChange={setSolverOptions} />
+            <SolverOptions
+              options={solverOptions}
+              onChange={setSolverOptions}
+            />
           )}
         </div>
 
@@ -457,4 +581,3 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
     </form>
   );
 }
-

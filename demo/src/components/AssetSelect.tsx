@@ -58,7 +58,9 @@ export default function AssetSelect({
           />
           <div className="bg-white dark:bg-slate-800 border-2 border-slate-300 dark:border-slate-700 rounded-lg max-h-60 overflow-y-auto shadow-lg">
             {filteredAssets.length === 0 ? (
-              <div className="p-3 text-slate-600 dark:text-slate-400 text-sm">No assets found</div>
+              <div className="p-3 text-slate-600 dark:text-slate-400 text-sm">
+                No assets found
+              </div>
             ) : (
               filteredAssets.map((asset) => (
                 <button
@@ -69,11 +71,17 @@ export default function AssetSelect({
                 >
                   <div className="flex items-center justify-between">
                     <div>
-                      <span className="text-slate-900 dark:text-white font-medium">{asset.symbol}</span>
-                      <span className="text-slate-600 dark:text-slate-400 text-sm ml-2">{asset.name}</span>
+                      <span className="text-slate-900 dark:text-white font-medium">
+                        {asset.symbol}
+                      </span>
+                      <span className="text-slate-600 dark:text-slate-400 text-sm ml-2">
+                        {asset.name}
+                      </span>
                     </div>
                     {showChain && (
-                      <span className="text-slate-500 dark:text-slate-500 text-xs">Chain {asset.chainId}</span>
+                      <span className="text-slate-500 dark:text-slate-500 text-xs">
+                        Chain {asset.chainId}
+                      </span>
                     )}
                   </div>
                   <div className="text-slate-500 dark:text-slate-500 text-xs truncate mt-1">
@@ -94,15 +102,23 @@ export default function AssetSelect({
           {value ? (
             <div className="flex items-center justify-between w-full">
               <div>
-                <span className="text-slate-900 dark:text-white font-medium">{value.symbol}</span>
-                <span className="text-slate-600 dark:text-slate-400 text-sm ml-2">{value.name}</span>
+                <span className="text-slate-900 dark:text-white font-medium">
+                  {value.symbol}
+                </span>
+                <span className="text-slate-600 dark:text-slate-400 text-sm ml-2">
+                  {value.name}
+                </span>
               </div>
               {showChain && (
-                <span className="text-slate-500 dark:text-slate-500 text-xs">Chain {value.chainId}</span>
+                <span className="text-slate-500 dark:text-slate-500 text-xs">
+                  Chain {value.chainId}
+                </span>
               )}
             </div>
           ) : (
-            <span className="text-slate-500 dark:text-slate-400">{placeholder}</span>
+            <span className="text-slate-500 dark:text-slate-400">
+              {placeholder}
+            </span>
           )}
           <span className="text-slate-500 dark:text-slate-400 ml-2">▼</span>
         </button>
@@ -110,4 +126,3 @@ export default function AssetSelect({
     </div>
   );
 }
-

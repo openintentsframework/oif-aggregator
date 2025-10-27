@@ -1,5 +1,8 @@
 import type { OrderRequest, QuoteResponse } from '../types/api';
-import { formatInteropAddress, fromInteropAddress } from '../utils/interopAddress';
+import {
+  formatInteropAddress,
+  fromInteropAddress,
+} from '../utils/interopAddress';
 import { getSignerAddress, signQuote } from '../utils/quoteSigner';
 import { useEffect, useState } from 'react';
 
@@ -12,7 +15,12 @@ interface OrderSubmissionProps {
   isLoading: boolean;
 }
 
-export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoading }: OrderSubmissionProps) {
+export default function OrderSubmission({
+  selectedQuote,
+  onSubmit,
+  onBack,
+  isLoading,
+}: OrderSubmissionProps) {
   const [privateKey, setPrivateKey] = useState('');
   const [signature, setSignature] = useState('');
   const [signerAddress, setSignerAddress] = useState('');
@@ -85,7 +93,7 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
         selectedQuote as any, // Cast to Quote type from quoteSigner
         formattedKey as Hex,
         {
-          rpcUrl: import.meta.env.VITE_RPC_URL // Optional: for fetching domain separators
+          rpcUrl: import.meta.env.VITE_RPC_URL, // Optional: for fetching domain separators
         }
       );
 
@@ -93,7 +101,9 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
       setSigningError('');
     } catch (error) {
       console.error('Signing error:', error);
-      setSigningError(error instanceof Error ? error.message : 'Failed to sign quote');
+      setSigningError(
+        error instanceof Error ? error.message : 'Failed to sign quote'
+      );
       setSignature('');
       setSignerAddress('');
     } finally {
@@ -122,7 +132,7 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
     const request: OrderRequest = {
       quoteResponse: selectedQuote,
       signature: signature.trim(),
-      metadata
+      metadata,
     };
 
     onSubmit(request);
@@ -139,7 +149,7 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
   };
 
   // Extract user address from quote preview
-  const userAddress = selectedQuote.preview?.inputs?.[0]?.user 
+  const userAddress = selectedQuote.preview?.inputs?.[0]?.user
     ? fromInteropAddress(selectedQuote.preview.inputs[0].user).address
     : '';
 
@@ -147,20 +157,24 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
     <form onSubmit={handleSubmit} className="space-y-4 max-w-3xl mx-auto">
       <div className="card py-4">
         <div className="flex justify-between items-center mb-4">
-          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Submit Order</h2>
+          <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+            Submit Order
+          </h2>
           <button type="button" onClick={onBack} className="btn-secondary">
             ← Back to Quotes
           </button>
         </div>
 
         {/* Quote Validity Timer */}
-        <div className={`rounded-lg p-3 mb-4 ${
-          isQuoteExpired 
-            ? 'bg-red-100 dark:bg-red-900/20 border border-red-300 dark:border-red-700' 
-            : remainingTime < 30
-            ? 'bg-yellow-100 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700'
-            : 'bg-green-100 dark:bg-green-900/20 border border-green-300 dark:border-green-700'
-        }`}>
+        <div
+          className={`rounded-lg p-3 mb-4 ${
+            isQuoteExpired
+              ? 'bg-red-100 dark:bg-red-900/20 border border-red-300 dark:border-red-700'
+              : remainingTime < 30
+                ? 'bg-yellow-100 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700'
+                : 'bg-green-100 dark:bg-green-900/20 border border-green-300 dark:border-green-700'
+          }`}
+        >
           <div className="flex items-center justify-between">
             <div>
               <p className={`text-sm font-semibold ${getTimerColor()}`}>
@@ -168,7 +182,8 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
               </p>
               {isQuoteExpired && (
                 <p className="text-xs text-red-700 dark:text-red-400 mt-1">
-                  This quote is no longer valid. Please go back and request a new quote.
+                  This quote is no longer valid. Please go back and request a
+                  new quote.
                 </p>
               )}
             </div>
@@ -185,37 +200,63 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
 
         {/* Selected Quote Summary */}
         <div className="bg-slate-100 dark:bg-slate-900 rounded-lg p-4 mb-6 border border-slate-300 dark:border-slate-700">
-          <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">Selected Quote</h3>
-          
+          <h3 className="text-lg font-semibold text-slate-900 dark:text-white mb-3">
+            Selected Quote
+          </h3>
+
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <p className="text-xs text-slate-600 dark:text-slate-400">Provider</p>
-                <p className="text-slate-900 dark:text-white">{selectedQuote.provider || 'Unknown'}</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  Provider
+                </p>
+                <p className="text-slate-900 dark:text-white">
+                  {selectedQuote.provider || 'Unknown'}
+                </p>
               </div>
               <div>
-                <p className="text-xs text-slate-600 dark:text-slate-400">Solver ID</p>
-                <p className="text-slate-900 dark:text-white">{selectedQuote.solverId}</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  Solver ID
+                </p>
+                <p className="text-slate-900 dark:text-white">
+                  {selectedQuote.solverId}
+                </p>
               </div>
               <div>
-                <p className="text-xs text-slate-600 dark:text-slate-400">Quote ID</p>
-                <p className="text-slate-900 dark:text-white text-sm truncate">{selectedQuote.quoteId}</p>
+                <p className="text-xs text-slate-600 dark:text-slate-400">
+                  Quote ID
+                </p>
+                <p className="text-slate-900 dark:text-white text-sm truncate">
+                  {selectedQuote.quoteId}
+                </p>
               </div>
               {selectedQuote.eta && (
                 <div>
-                  <p className="text-xs text-slate-600 dark:text-slate-400">ETA</p>
-                  <p className="text-slate-900 dark:text-white">{selectedQuote.eta}s</p>
+                  <p className="text-xs text-slate-600 dark:text-slate-400">
+                    ETA
+                  </p>
+                  <p className="text-slate-900 dark:text-white">
+                    {selectedQuote.eta}s
+                  </p>
                 </div>
               )}
             </div>
 
             {/* Inputs */}
             <div>
-              <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Inputs</p>
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                Inputs
+              </p>
               {selectedQuote.preview.inputs.map((input, idx) => (
-                <div key={idx} className="bg-slate-200 dark:bg-slate-800 rounded p-2 mb-1 text-sm border border-slate-300 dark:border-slate-700">
+                <div
+                  key={idx}
+                  className="bg-slate-200 dark:bg-slate-800 rounded p-2 mb-1 text-sm border border-slate-300 dark:border-slate-700"
+                >
                   <p className="text-slate-600 dark:text-slate-400">
-                    Amount: <span className="text-slate-900 dark:text-white">{formatAmount(input.amount)}</span>
+                    Amount:{' '}
+                    <span className="text-slate-900 dark:text-white">
+                      {formatAmount(input.amount)}
+                    </span>
                   </p>
                   <p className="text-slate-500 dark:text-slate-500 text-xs truncate">
                     Asset: {formatInteropAddress(input.asset)}
@@ -226,11 +267,19 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
 
             {/* Outputs */}
             <div>
-              <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">Outputs</p>
+              <p className="text-sm font-medium text-slate-700 dark:text-slate-300 mb-2">
+                Outputs
+              </p>
               {selectedQuote.preview.outputs.map((output, idx) => (
-                <div key={idx} className="bg-slate-200 dark:bg-slate-800 rounded p-2 mb-1 text-sm border border-slate-300 dark:border-slate-700">
+                <div
+                  key={idx}
+                  className="bg-slate-200 dark:bg-slate-800 rounded p-2 mb-1 text-sm border border-slate-300 dark:border-slate-700"
+                >
                   <p className="text-slate-600 dark:text-slate-400">
-                    Amount: <span className="text-slate-900 dark:text-white">{formatAmount(output.amount)}</span>
+                    Amount:{' '}
+                    <span className="text-slate-900 dark:text-white">
+                      {formatAmount(output.amount)}
+                    </span>
                   </p>
                   <p className="text-slate-500 dark:text-slate-500 text-xs truncate">
                     Asset: {formatInteropAddress(output.asset)}
@@ -242,15 +291,24 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
             {/* Additional Info */}
             <div className="border-t border-slate-300 dark:border-slate-700 pt-3 text-sm">
               <p className="text-slate-600 dark:text-slate-400">
-                Partial Fill: <span className="text-slate-900 dark:text-white">{selectedQuote.partialFill ? 'Yes' : 'No'}</span>
+                Partial Fill:{' '}
+                <span className="text-slate-900 dark:text-white">
+                  {selectedQuote.partialFill ? 'Yes' : 'No'}
+                </span>
               </p>
               {selectedQuote.failureHandling && (
                 <p className="text-slate-600 dark:text-slate-400">
-                  Failure Handling: <span className="text-slate-900 dark:text-white">{selectedQuote.failureHandling}</span>
+                  Failure Handling:{' '}
+                  <span className="text-slate-900 dark:text-white">
+                    {selectedQuote.failureHandling}
+                  </span>
                 </p>
               )}
               <p className="text-slate-600 dark:text-slate-400">
-                Order Type: <span className="text-slate-900 dark:text-white">{selectedQuote.order.type}</span>
+                Order Type:{' '}
+                <span className="text-slate-900 dark:text-white">
+                  {selectedQuote.order.type}
+                </span>
               </p>
             </div>
           </div>
@@ -259,7 +317,8 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
         {/* Private Key Input */}
         <div className="mb-6">
           <label className="label-text">
-            Private Key <span className="text-red-600 dark:text-red-400">*</span>
+            Private Key{' '}
+            <span className="text-red-600 dark:text-red-400">*</span>
           </label>
           <input
             type="password"
@@ -271,20 +330,27 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
           />
           <div className="bg-red-100 dark:bg-red-900/20 border border-red-300 dark:border-red-700 rounded p-3 mb-3">
             <p className="text-red-700 dark:text-red-400 text-xs">
-              ⚠️ <strong>WARNING:</strong> Never share your private key! This is for testing only.
-              In production, use wallet integration (MetaMask, WalletConnect, etc.).
+              ⚠️ <strong>WARNING:</strong> Never share your private key! This is
+              for testing only. In production, use wallet integration (MetaMask,
+              WalletConnect, etc.).
             </p>
           </div>
-          
+
           <button
             type="button"
             onClick={handleSignQuote}
-            disabled={isSigning || !privateKey.trim() || isLoading || isQuoteExpired}
+            disabled={
+              isSigning || !privateKey.trim() || isLoading || isQuoteExpired
+            }
             className="btn-secondary w-full mb-3"
           >
-            {isSigning ? 'Signing...' : isQuoteExpired ? 'Quote Expired' : 'Sign Quote with EIP-712'}
+            {isSigning
+              ? 'Signing...'
+              : isQuoteExpired
+                ? 'Quote Expired'
+                : 'Sign Quote with EIP-712'}
           </button>
-          
+
           {isQuoteExpired && (
             <p className="text-red-700 dark:text-red-400 text-xs mb-3">
               Cannot sign expired quote. Please request a new quote.
@@ -295,35 +361,40 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
             <>
               <div className="bg-green-100 dark:bg-green-900/20 border border-green-300 dark:border-green-700 rounded p-3 mb-2">
                 <p className="text-green-700 dark:text-green-400 text-xs">
-                  ✓ Signer Address: <span className="font-mono">{signerAddress}</span>
+                  ✓ Signer Address:{' '}
+                  <span className="font-mono">{signerAddress}</span>
                 </p>
               </div>
-              
+
               {/* Address Validation Warning */}
-              {userAddress && signerAddress.toLowerCase() !== userAddress.toLowerCase() && (
-                <div className="bg-yellow-100 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded p-3 mb-2">
-                  <p className="text-yellow-800 dark:text-yellow-400 text-xs font-semibold mb-1">
-                    ⚠️ Address Mismatch Warning
-                  </p>
-                  <p className="text-yellow-800 dark:text-yellow-400 text-xs">
-                    The signer address doesn't match the user address from the quote request.
-                  </p>
-                  <p className="text-yellow-800 dark:text-yellow-400 text-xs mt-1">
-                    Expected: <span className="font-mono">{userAddress}</span>
-                  </p>
-                  <p className="text-yellow-800 dark:text-yellow-400 text-xs">
-                    Signing with: <span className="font-mono">{signerAddress}</span>
-                  </p>
-                </div>
-              )}
-              
-              {userAddress && signerAddress.toLowerCase() === userAddress.toLowerCase() && (
-                <div className="bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700 rounded p-3 mb-2">
-                  <p className="text-blue-700 dark:text-blue-400 text-xs">
-                    ✓ Signer address matches quote request user address
-                  </p>
-                </div>
-              )}
+              {userAddress &&
+                signerAddress.toLowerCase() !== userAddress.toLowerCase() && (
+                  <div className="bg-yellow-100 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded p-3 mb-2">
+                    <p className="text-yellow-800 dark:text-yellow-400 text-xs font-semibold mb-1">
+                      ⚠️ Address Mismatch Warning
+                    </p>
+                    <p className="text-yellow-800 dark:text-yellow-400 text-xs">
+                      The signer address doesn't match the user address from the
+                      quote request.
+                    </p>
+                    <p className="text-yellow-800 dark:text-yellow-400 text-xs mt-1">
+                      Expected: <span className="font-mono">{userAddress}</span>
+                    </p>
+                    <p className="text-yellow-800 dark:text-yellow-400 text-xs">
+                      Signing with:{' '}
+                      <span className="font-mono">{signerAddress}</span>
+                    </p>
+                  </div>
+                )}
+
+              {userAddress &&
+                signerAddress.toLowerCase() === userAddress.toLowerCase() && (
+                  <div className="bg-blue-100 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700 rounded p-3 mb-2">
+                    <p className="text-blue-700 dark:text-blue-400 text-xs">
+                      ✓ Signer address matches quote request user address
+                    </p>
+                  </div>
+                )}
             </>
           )}
 
@@ -339,9 +410,7 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
         {/* Generated Signature */}
         {signature && (
           <div className="mb-6">
-            <label className="label-text">
-              Generated Signature
-            </label>
+            <label className="label-text">Generated Signature</label>
             <textarea
               value={signature}
               readOnly
@@ -361,7 +430,9 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
             onClick={() => setShowMetadata(!showMetadata)}
             className="flex items-center justify-between w-full text-left text-slate-900 dark:text-white hover:text-primary-600 dark:hover:text-primary-400 transition-colors mb-2"
           >
-            <span className="text-sm font-medium">Optional: Custom Metadata (JSON)</span>
+            <span className="text-sm font-medium">
+              Optional: Custom Metadata (JSON)
+            </span>
             <span className="text-xl">{showMetadata ? '−' : '+'}</span>
           </button>
           {showMetadata && (
@@ -381,7 +452,11 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
           disabled={isLoading || !signature.trim() || isQuoteExpired}
           className="btn-primary w-full py-3 text-lg"
         >
-          {isLoading ? 'Submitting Order...' : isQuoteExpired ? 'Quote Expired - Cannot Submit' : 'Submit Signed Order'}
+          {isLoading
+            ? 'Submitting Order...'
+            : isQuoteExpired
+              ? 'Quote Expired - Cannot Submit'
+              : 'Submit Signed Order'}
         </button>
 
         {!signature && !isQuoteExpired && (
@@ -389,7 +464,7 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
             ⚠️ Please sign the quote before submitting
           </p>
         )}
-        
+
         {isQuoteExpired && (
           <p className="text-red-400 text-sm text-center mt-3">
             ⏰ This quote has expired. Please go back and request a new quote.
@@ -399,4 +474,3 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
     </form>
   );
 }
-

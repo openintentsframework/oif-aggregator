@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import type { OrderResponse } from '../types/api';
-import { localStorageService, type StoredOrder } from '../services/localStorageService';
+import {
+  localStorageService,
+  type StoredOrder,
+} from '../services/localStorageService';
 import { formatInteropAddress } from '../utils/interopAddress';
 
 interface MyOrdersProps {
@@ -73,7 +76,9 @@ export default function MyOrders({ onViewOrder, onBack }: MyOrdersProps) {
       <div className="card py-4">
         <div className="flex justify-between items-center mb-6">
           <div>
-            <h2 className="text-2xl font-bold text-slate-900 dark:text-white">My Orders</h2>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+              My Orders
+            </h2>
             <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
               {orders.length} order{orders.length !== 1 ? 's' : ''} in history
             </p>
@@ -95,7 +100,9 @@ export default function MyOrders({ onViewOrder, onBack }: MyOrdersProps) {
 
         {orders.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-slate-600 dark:text-slate-400 text-lg">No orders yet</p>
+            <p className="text-slate-600 dark:text-slate-400 text-lg">
+              No orders yet
+            </p>
             <p className="text-slate-500 dark:text-slate-500 text-sm mt-2">
               Your submitted orders will appear here
             </p>
@@ -149,7 +156,8 @@ export default function MyOrders({ onViewOrder, onBack }: MyOrdersProps) {
                       <td className="py-3 px-4">
                         <div className="flex items-center gap-2">
                           <span className="text-slate-900 dark:text-white font-mono text-xs">
-                            {order.orderId.slice(0, 8)}...{order.orderId.slice(-6)}
+                            {order.orderId.slice(0, 8)}...
+                            {order.orderId.slice(-6)}
                           </span>
                           <button
                             onClick={() => handleCopyOrderId(order.orderId)}
@@ -174,7 +182,9 @@ export default function MyOrders({ onViewOrder, onBack }: MyOrdersProps) {
                       </td>
                       <td className="py-3 px-4">
                         <div className="text-xs">
-                          <p className="text-slate-900 dark:text-white font-medium">{inputAmount}</p>
+                          <p className="text-slate-900 dark:text-white font-medium">
+                            {inputAmount}
+                          </p>
                           <p className="text-slate-500 dark:text-slate-500 truncate max-w-[150px]">
                             {inputAsset}
                           </p>
@@ -182,7 +192,9 @@ export default function MyOrders({ onViewOrder, onBack }: MyOrdersProps) {
                       </td>
                       <td className="py-3 px-4">
                         <div className="text-xs">
-                          <p className="text-slate-900 dark:text-white font-medium">{outputAmount}</p>
+                          <p className="text-slate-900 dark:text-white font-medium">
+                            {outputAmount}
+                          </p>
                           <p className="text-slate-500 dark:text-slate-500 truncate max-w-[150px]">
                             {outputAsset}
                           </p>
@@ -216,4 +228,3 @@ export default function MyOrders({ onViewOrder, onBack }: MyOrdersProps) {
     </div>
   );
 }
-

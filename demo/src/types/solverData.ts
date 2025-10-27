@@ -44,4 +44,3 @@ export interface SimpleQuoteFormData {
   userAddress: string;
   receiverAddress?: string; // Optional separate receiver
 }
-

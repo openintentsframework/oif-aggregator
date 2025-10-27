@@ -1,4 +1,10 @@
-import type { OrderRequest, OrderResponse, QuoteRequest, QuoteResponse, QuotesResponse } from './types/api';
+import type {
+  OrderRequest,
+  OrderResponse,
+  QuoteRequest,
+  QuoteResponse,
+  QuotesResponse,
+} from './types/api';
 import { orderApi, quoteApi } from './services/api';
 import { useEffect, useState } from 'react';
 
@@ -16,19 +22,31 @@ import { localStorageService } from './services/localStorageService';
 import { solverDataService } from './services/solverDataService';
 import { useTheme } from './contexts/ThemeContext';
 
-type Step = 'request' | 'quotes' | 'order' | 'status' | 'solvers' | 'solver-detail' | 'my-orders' | 'settings';
+type Step =
+  | 'request'
+  | 'quotes'
+  | 'order'
+  | 'status'
+  | 'solvers'
+  | 'solver-detail'
+  | 'my-orders'
+  | 'settings';
 
 function App() {
   const { theme, toggleTheme } = useTheme();
   const [step, setStep] = useState<Step>('request');
   const [quotes, setQuotes] = useState<QuotesResponse | null>(null);
-  const [selectedQuote, setSelectedQuote] = useState<QuoteResponse | null>(null);
+  const [selectedQuote, setSelectedQuote] = useState<QuoteResponse | null>(
+    null
+  );
   const [order, setOrder] = useState<OrderResponse | null>(null);
   const [selectedSolverId, setSelectedSolverId] = useState<string | null>(null);
-  const [lastQuoteRequest, setLastQuoteRequest] = useState<QuoteRequest | null>(null);
+  const [lastQuoteRequest, setLastQuoteRequest] = useState<QuoteRequest | null>(
+    null
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Data loading state
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [dataError, setDataError] = useState<string | null>(null);
@@ -72,7 +90,7 @@ function App() {
 
   const handleRefreshQuotes = async () => {
     if (!lastQuoteRequest) return;
-    
+
     setIsLoading(true);
     setError(null);
     try {
@@ -184,15 +202,22 @@ function App() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-6">
               <div>
-                <h1 className="text-2xl font-bold text-slate-900 dark:text-white">OIF Aggregator</h1>
-                <p className="text-slate-600 dark:text-slate-400 text-xs">Testing Interface for Quote & Order API</p>
+                <h1 className="text-2xl font-bold text-slate-900 dark:text-white">
+                  OIF Aggregator
+                </h1>
+                <p className="text-slate-600 dark:text-slate-400 text-xs">
+                  Testing Interface for Quote & Order API
+                </p>
               </div>
               {/* Navigation */}
               <nav className="flex items-center gap-2">
                 <button
                   onClick={() => setStep('request')}
                   className={`px-3 py-1.5 text-sm rounded transition-colors ${
-                    step === 'request' || step === 'quotes' || step === 'order' || step === 'status'
+                    step === 'request' ||
+                    step === 'quotes' ||
+                    step === 'order' ||
+                    step === 'status'
                       ? 'bg-primary-600 text-white'
                       : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-400 hover:bg-slate-300 dark:hover:bg-slate-700'
                   }`}
@@ -233,21 +258,32 @@ function App() {
             </div>
             <div className="flex items-center gap-4">
               {/* Step Indicator - only show for quote flow */}
-              {(step === 'request' || step === 'quotes' || step === 'order' || step === 'status') && (
+              {(step === 'request' ||
+                step === 'quotes' ||
+                step === 'order' ||
+                step === 'status') && (
                 <div className="hidden md:flex items-center gap-2 text-sm">
-                  <div className={`px-3 py-1 rounded ${step === 'request' ? 'bg-primary-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-400'}`}>
+                  <div
+                    className={`px-3 py-1 rounded ${step === 'request' ? 'bg-primary-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-400'}`}
+                  >
                     1. Request
                   </div>
                   <div className="text-slate-400 dark:text-slate-600">→</div>
-                  <div className={`px-3 py-1 rounded ${step === 'quotes' ? 'bg-primary-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-400'}`}>
+                  <div
+                    className={`px-3 py-1 rounded ${step === 'quotes' ? 'bg-primary-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-400'}`}
+                  >
                     2. Quotes
                   </div>
                   <div className="text-slate-400 dark:text-slate-600">→</div>
-                  <div className={`px-3 py-1 rounded ${step === 'order' ? 'bg-primary-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-400'}`}>
+                  <div
+                    className={`px-3 py-1 rounded ${step === 'order' ? 'bg-primary-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-400'}`}
+                  >
                     3. Order
                   </div>
                   <div className="text-slate-400 dark:text-slate-600">→</div>
-                  <div className={`px-3 py-1 rounded ${step === 'status' ? 'bg-primary-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-400'}`}>
+                  <div
+                    className={`px-3 py-1 rounded ${step === 'status' ? 'bg-primary-600 text-white' : 'bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-400'}`}
+                  >
                     4. Status
                   </div>
                 </div>
@@ -271,8 +307,12 @@ function App() {
         {isLoadingData && (
           <div className="card text-center py-12">
             <div className="animate-spin h-12 w-12 border-4 border-primary-600 border-t-transparent rounded-full mx-auto mb-4"></div>
-            <p className="text-slate-900 dark:text-white text-lg">Loading solver data...</p>
-            <p className="text-slate-600 dark:text-slate-400 text-sm mt-2">Fetching available assets and routes</p>
+            <p className="text-slate-900 dark:text-white text-lg">
+              Loading solver data...
+            </p>
+            <p className="text-slate-600 dark:text-slate-400 text-sm mt-2">
+              Fetching available assets and routes
+            </p>
           </div>
         )}
 
@@ -305,15 +345,23 @@ function App() {
                   onClick={() => setUseAdvancedMode(!useAdvancedMode)}
                   className="text-sm text-slate-600 dark:text-slate-400 hover:text-primary-600 dark:hover:text-primary-400 transition-colors"
                 >
-                  {useAdvancedMode ? '← Switch to Simple Mode' : 'Advanced Mode →'}
+                  {useAdvancedMode
+                    ? '← Switch to Simple Mode'
+                    : 'Advanced Mode →'}
                 </button>
               </div>
             )}
 
             {useAdvancedMode ? (
-              <QuoteRequestForm onSubmit={handleQuoteRequest} isLoading={isLoading} />
+              <QuoteRequestForm
+                onSubmit={handleQuoteRequest}
+                isLoading={isLoading}
+              />
             ) : (
-              <SimpleQuoteForm onSubmit={handleQuoteRequest} isLoading={isLoading} />
+              <SimpleQuoteForm
+                onSubmit={handleQuoteRequest}
+                isLoading={isLoading}
+              />
             )}
           </>
         )}
@@ -363,16 +411,17 @@ function App() {
           />
         )}
 
-        {step === 'settings' && (
-          <Settings onUrlChange={handleSettingsSave} />
-        )}
+        {step === 'settings' && <Settings onUrlChange={handleSettingsSave} />}
       </main>
 
       {/* Footer */}
       <footer className="border-t border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-900/50 backdrop-blur mt-12">
         <div className="container mx-auto px-4 py-3">
           <div className="flex items-center justify-between text-sm text-slate-600 dark:text-slate-400">
-            <p>OIF Aggregator Testing UI - Built with React + TypeScript + Tailwind</p>
+            <p>
+              OIF Aggregator Testing UI - Built with React + TypeScript +
+              Tailwind
+            </p>
             <div className="flex items-center gap-4">
               <a
                 href="https://github.com/openintentsframework/oif-aggregator"
@@ -394,4 +443,3 @@ function App() {
 }
 
 export default App;
-

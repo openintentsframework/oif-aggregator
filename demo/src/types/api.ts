@@ -1,7 +1,7 @@
 /**
  * This file will be auto-generated from OpenAPI spec.
  * Run: npm run generate-types
- * 
+ *
  * For now, we define the core types manually based on the OpenAPI schema
  */
 
@@ -25,7 +25,11 @@ export interface IntentRequest {
   preference?: 'price' | 'speed' | 'inputPriority' | 'trustMinimization';
   partialFill?: boolean;
   minValidUntil?: number;
-  failureHandling?: ('refund-automatic' | 'refund-claim' | 'needs-new-signature')[];
+  failureHandling?: (
+    | 'refund-automatic'
+    | 'refund-claim'
+    | 'needs-new-signature'
+  )[];
   originSubmission?: OriginSubmission;
   metadata?: unknown;
 }
@@ -166,7 +170,11 @@ export interface ErrorResponse {
 
 // Solver types
 
-export type SolverStatus = 'active' | 'inactive' | 'circuit-breaker-open' | 'unknown';
+export type SolverStatus =
+  | 'active'
+  | 'inactive'
+  | 'circuit-breaker-open'
+  | 'unknown';
 
 export interface AssetInfo {
   address: string;
@@ -233,4 +241,3 @@ export interface HealthResponse {
   solvers: SolverStats;
   storage: StorageHealthInfo;
 }
-

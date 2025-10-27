@@ -6,7 +6,10 @@ interface SolverOptionsProps {
   onChange: (options: Partial<SolverOptionsType>) => void;
 }
 
-export default function SolverOptions({ options, onChange }: SolverOptionsProps) {
+export default function SolverOptions({
+  options,
+  onChange,
+}: SolverOptionsProps) {
   const [includeSolverInput, setIncludeSolverInput] = useState('');
   const [excludeSolverInput, setExcludeSolverInput] = useState('');
 
@@ -27,7 +30,10 @@ export default function SolverOptions({ options, onChange }: SolverOptionsProps)
 
   const removeIncludeSolver = (solver: string) => {
     const current = options.includeSolvers || [];
-    updateOption('includeSolvers', current.filter(s => s !== solver));
+    updateOption(
+      'includeSolvers',
+      current.filter((s) => s !== solver)
+    );
   };
 
   const addExcludeSolver = () => {
@@ -40,7 +46,10 @@ export default function SolverOptions({ options, onChange }: SolverOptionsProps)
 
   const removeExcludeSolver = (solver: string) => {
     const current = options.excludeSolvers || [];
-    updateOption('excludeSolvers', current.filter(s => s !== solver));
+    updateOption(
+      'excludeSolvers',
+      current.filter((s) => s !== solver)
+    );
   };
 
   return (
@@ -52,7 +61,9 @@ export default function SolverOptions({ options, onChange }: SolverOptionsProps)
           <input
             type="number"
             value={options.timeout || ''}
-            onChange={(e) => updateOption('timeout', parseInt(e.target.value) || undefined)}
+            onChange={(e) =>
+              updateOption('timeout', parseInt(e.target.value) || undefined)
+            }
             placeholder="10000"
             className="input-field"
           />
@@ -62,7 +73,12 @@ export default function SolverOptions({ options, onChange }: SolverOptionsProps)
           <input
             type="number"
             value={options.solverTimeout || ''}
-            onChange={(e) => updateOption('solverTimeout', parseInt(e.target.value) || undefined)}
+            onChange={(e) =>
+              updateOption(
+                'solverTimeout',
+                parseInt(e.target.value) || undefined
+              )
+            }
             placeholder="5000"
             className="input-field"
           />
@@ -75,7 +91,9 @@ export default function SolverOptions({ options, onChange }: SolverOptionsProps)
         <input
           type="number"
           value={options.minQuotes || ''}
-          onChange={(e) => updateOption('minQuotes', parseInt(e.target.value) || undefined)}
+          onChange={(e) =>
+            updateOption('minQuotes', parseInt(e.target.value) || undefined)
+          }
           placeholder="1"
           className="input-field"
         />
@@ -86,7 +104,12 @@ export default function SolverOptions({ options, onChange }: SolverOptionsProps)
         <label className="label-text">Solver Selection Strategy</label>
         <select
           value={options.solverSelection || 'all'}
-          onChange={(e) => updateOption('solverSelection', e.target.value as 'all' | 'sampled' | 'priority')}
+          onChange={(e) =>
+            updateOption(
+              'solverSelection',
+              e.target.value as 'all' | 'sampled' | 'priority'
+            )
+          }
           className="input-field"
         >
           <option value="all">All</option>
@@ -102,7 +125,9 @@ export default function SolverOptions({ options, onChange }: SolverOptionsProps)
           <input
             type="number"
             value={options.sampleSize || ''}
-            onChange={(e) => updateOption('sampleSize', parseInt(e.target.value) || undefined)}
+            onChange={(e) =>
+              updateOption('sampleSize', parseInt(e.target.value) || undefined)
+            }
             placeholder="5"
             className="input-field"
           />
@@ -116,7 +141,12 @@ export default function SolverOptions({ options, onChange }: SolverOptionsProps)
           <input
             type="number"
             value={options.priorityThreshold || ''}
-            onChange={(e) => updateOption('priorityThreshold', parseInt(e.target.value) || undefined)}
+            onChange={(e) =>
+              updateOption(
+                'priorityThreshold',
+                parseInt(e.target.value) || undefined
+              )
+            }
             placeholder="70"
             className="input-field"
           />
@@ -131,7 +161,9 @@ export default function SolverOptions({ options, onChange }: SolverOptionsProps)
             type="text"
             value={includeSolverInput}
             onChange={(e) => setIncludeSolverInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addIncludeSolver())}
+            onKeyDown={(e) =>
+              e.key === 'Enter' && (e.preventDefault(), addIncludeSolver())
+            }
             placeholder="solver-id"
             className="input-field flex-1"
           />
@@ -170,7 +202,9 @@ export default function SolverOptions({ options, onChange }: SolverOptionsProps)
             type="text"
             value={excludeSolverInput}
             onChange={(e) => setExcludeSolverInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addExcludeSolver())}
+            onKeyDown={(e) =>
+              e.key === 'Enter' && (e.preventDefault(), addExcludeSolver())
+            }
             placeholder="solver-id"
             className="input-field flex-1"
           />
@@ -203,4 +237,3 @@ export default function SolverOptions({ options, onChange }: SolverOptionsProps)
     </div>
   );
 }
-

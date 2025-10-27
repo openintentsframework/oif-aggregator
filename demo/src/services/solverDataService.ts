@@ -1,4 +1,9 @@
-import type { AssetInfo, ChainInfo, RouteInfo, SolverDataCache } from '../types/solverData';
+import type {
+  AssetInfo,
+  ChainInfo,
+  RouteInfo,
+  SolverDataCache,
+} from '../types/solverData';
 
 import { api } from './api';
 
@@ -148,9 +153,11 @@ class SolverDataService {
           const existingRoute = routes.find(
             (r) =>
               r.originChainId === route.originChainId &&
-              r.originAsset.toLowerCase() === route.originTokenAddress.toLowerCase() &&
+              r.originAsset.toLowerCase() ===
+                route.originTokenAddress.toLowerCase() &&
               r.destinationChainId === route.destinationChainId &&
-              r.destinationAsset.toLowerCase() === route.destinationTokenAddress.toLowerCase()
+              r.destinationAsset.toLowerCase() ===
+                route.destinationTokenAddress.toLowerCase()
           );
 
           if (existingRoute) {
@@ -214,7 +221,10 @@ class SolverDataService {
   /**
    * Get compatible destination chains/assets for a given origin
    */
-  getCompatibleDestinations(originChainId: number, originAsset: string): {
+  getCompatibleDestinations(
+    originChainId: number,
+    originAsset: string
+  ): {
     chains: number[];
     assetsByChain: Map<number, AssetInfo[]>;
   } {
@@ -240,7 +250,11 @@ class SolverDataService {
           assetsByChain.set(route.destinationChainId, []);
         }
         const chainAssets = assetsByChain.get(route.destinationChainId)!;
-        if (!chainAssets.find((a) => a.address.toLowerCase() === destAsset.address.toLowerCase())) {
+        if (
+          !chainAssets.find(
+            (a) => a.address.toLowerCase() === destAsset.address.toLowerCase()
+          )
+        ) {
           chainAssets.push(destAsset);
         }
       }
@@ -251,7 +265,7 @@ class SolverDataService {
     if (compatibleRoutes.length === 0) {
       const originAssetKey = `${originChainId}-${originAsset.toLowerCase()}`;
       const originAssetInfo = this.cache.assets.get(originAssetKey);
-      
+
       if (originAssetInfo) {
         // Check if any solver supports this asset
         for (const solver of originAssetInfo.solvers) {
@@ -263,7 +277,11 @@ class SolverDataService {
                 assetsByChain.set(asset.chainId, []);
               }
               const chainAssets = assetsByChain.get(asset.chainId)!;
-              if (!chainAssets.find((a) => a.address.toLowerCase() === asset.address.toLowerCase())) {
+              if (
+                !chainAssets.find(
+                  (a) => a.address.toLowerCase() === asset.address.toLowerCase()
+                )
+              ) {
                 chainAssets.push(asset);
               }
             }
@@ -398,4 +416,3 @@ class SolverDataService {
 
 // Export singleton instance
 export const solverDataService = new SolverDataService();
-

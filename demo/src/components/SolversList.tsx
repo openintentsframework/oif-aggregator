@@ -68,9 +68,11 @@ export default function SolversList({ onSelectSolver }: SolversListProps) {
   const getSupportedChainsCount = (solver: SolverResponse): number => {
     const chains = new Set<number>();
     if (solver.supportedAssets.type === 'assets') {
-      solver.supportedAssets.assets?.forEach(asset => chains.add(asset.chainId));
+      solver.supportedAssets.assets?.forEach((asset) =>
+        chains.add(asset.chainId)
+      );
     } else {
-      solver.supportedAssets.routes?.forEach(route => {
+      solver.supportedAssets.routes?.forEach((route) => {
         chains.add(route.originChainId);
         chains.add(route.destinationChainId);
       });
@@ -83,7 +85,9 @@ export default function SolversList({ onSelectSolver }: SolversListProps) {
       <div className="flex items-center justify-center py-12">
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500 mb-4"></div>
-          <p className="text-slate-600 dark:text-slate-400">Loading solvers...</p>
+          <p className="text-slate-600 dark:text-slate-400">
+            Loading solvers...
+          </p>
         </div>
       </div>
     );
@@ -93,7 +97,9 @@ export default function SolversList({ onSelectSolver }: SolversListProps) {
     return (
       <div className="card py-4">
         <div className="bg-red-900/20 border border-red-700 rounded-lg p-4 mb-4">
-          <p className="text-red-400 font-semibold mb-2">⚠️ Error Loading Solvers</p>
+          <p className="text-red-400 font-semibold mb-2">
+            ⚠️ Error Loading Solvers
+          </p>
           <p className="text-red-300 text-sm">{error}</p>
         </div>
         <button onClick={fetchSolvers} className="btn-secondary">
@@ -106,7 +112,9 @@ export default function SolversList({ onSelectSolver }: SolversListProps) {
   if (solvers.length === 0) {
     return (
       <div className="card py-4">
-        <p className="text-slate-600 dark:text-slate-400 text-center">No solvers available</p>
+        <p className="text-slate-600 dark:text-slate-400 text-center">
+          No solvers available
+        </p>
       </div>
     );
   }
@@ -116,12 +124,14 @@ export default function SolversList({ onSelectSolver }: SolversListProps) {
       <div className="card py-4">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h2 className="text-2xl font-bold text-slate-900 dark:text-white">Solvers</h2>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-white">
+              Solvers
+            </h2>
             <p className="text-slate-600 dark:text-slate-400 text-sm mt-1">
               {totalSolvers} solver{totalSolvers !== 1 ? 's' : ''} available
             </p>
           </div>
-          <button 
+          <button
             onClick={fetchSolvers}
             className="btn-secondary text-sm px-3 py-1.5"
             title="Refresh solvers list"
@@ -134,13 +144,27 @@ export default function SolversList({ onSelectSolver }: SolversListProps) {
           <table className="w-full">
             <thead>
               <tr className="border-b border-slate-300 dark:border-slate-700">
-                <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-300">Status</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-300">Solver</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-300">Adapter</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-300">Coverage</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-300">Type</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-300">Last Seen</th>
-                <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-300">Actions</th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  Status
+                </th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  Solver
+                </th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  Adapter
+                </th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  Coverage
+                </th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  Type
+                </th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  Last Seen
+                </th>
+                <th className="text-left py-3 px-4 text-sm font-semibold text-slate-700 dark:text-slate-300">
+                  Actions
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -155,7 +179,9 @@ export default function SolversList({ onSelectSolver }: SolversListProps) {
                         solver.status
                       )}`}
                     >
-                      <span className="text-sm">{getStatusIcon(solver.status)}</span>
+                      <span className="text-sm">
+                        {getStatusIcon(solver.status)}
+                      </span>
                       {solver.status}
                     </span>
                   </td>
@@ -165,7 +191,9 @@ export default function SolversList({ onSelectSolver }: SolversListProps) {
                         {solver.name || solver.solverId}
                       </p>
                       {solver.name && (
-                        <p className="text-slate-600 dark:text-slate-400 text-xs font-mono">{solver.solverId}</p>
+                        <p className="text-slate-600 dark:text-slate-400 text-xs font-mono">
+                          {solver.solverId}
+                        </p>
                       )}
                       {solver.description && (
                         <p className="text-slate-600 dark:text-slate-400 text-xs mt-1 max-w-xs truncate">
@@ -175,22 +203,29 @@ export default function SolversList({ onSelectSolver }: SolversListProps) {
                     </div>
                   </td>
                   <td className="py-3 px-4">
-                    <p className="text-slate-700 dark:text-slate-300 text-sm font-mono">{solver.adapterId}</p>
+                    <p className="text-slate-700 dark:text-slate-300 text-sm font-mono">
+                      {solver.adapterId}
+                    </p>
                   </td>
                   <td className="py-3 px-4">
                     <div className="text-sm">
-                      <p className="text-slate-700 dark:text-slate-300">{getSupportedAssetsCount(solver)}</p>
+                      <p className="text-slate-700 dark:text-slate-300">
+                        {getSupportedAssetsCount(solver)}
+                      </p>
                       <p className="text-slate-600 dark:text-slate-400 text-xs">
-                        {getSupportedChainsCount(solver)} chain{getSupportedChainsCount(solver) !== 1 ? 's' : ''}
+                        {getSupportedChainsCount(solver)} chain
+                        {getSupportedChainsCount(solver) !== 1 ? 's' : ''}
                       </p>
                     </div>
                   </td>
                   <td className="py-3 px-4">
-                    <span className={`text-xs px-2 py-1 rounded ${
-                      solver.supportedAssets.type === 'assets'
-                        ? 'bg-blue-900/30 text-blue-400'
-                        : 'bg-purple-900/30 text-purple-400'
-                    }`}>
+                    <span
+                      className={`text-xs px-2 py-1 rounded ${
+                        solver.supportedAssets.type === 'assets'
+                          ? 'bg-blue-900/30 text-blue-400'
+                          : 'bg-purple-900/30 text-purple-400'
+                      }`}
+                    >
                       {solver.supportedAssets.type}
                     </span>
                   </td>
@@ -218,4 +253,3 @@ export default function SolversList({ onSelectSolver }: SolversListProps) {
     </div>
   );
 }
-

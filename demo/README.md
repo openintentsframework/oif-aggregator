@@ -5,6 +5,7 @@ A modern, user-friendly testing interface for the OIF Aggregator API. Built with
 ## Features
 
 ### 🎯 **Smart Dropdown-Based Quote Form**
+
 - **Asset Selection**: Choose from available assets via searchable dropdowns
 - **Network Selection**: Select chains with visual indicators
 - **Auto-Discovery**: Automatically fetches solver and asset data from API
@@ -13,12 +14,14 @@ A modern, user-friendly testing interface for the OIF Aggregator API. Built with
 - **Two Modes**: Simple (dropdown) or Advanced (manual input)
 
 ### 📊 **Quote Management**
+
 - View and compare quotes from multiple solvers
 - Sort by ETA, solver name, or default
 - Detailed quote information (inputs, outputs, metadata)
 - Aggregation statistics display
 
 ### 🔍 **Solver Explorer**
+
 - **Solvers List**: Browse all available solvers with status and coverage info
   - Status indicators (active, inactive, circuit-breaker-open)
   - Asset vs. route-based solver types
@@ -32,6 +35,7 @@ A modern, user-friendly testing interface for the OIF Aggregator API. Built with
   - Discovery source (autoDiscovered vs. manual)
 
 ### 📝 **Order Flow**
+
 - **EIP-712 Signing**: Automatic signature generation with support for Permit2, TheCompact, and EIP-3009
 - Submit orders with cryptographic signatures
 - Track order execution status
@@ -42,6 +46,7 @@ A modern, user-friendly testing interface for the OIF Aggregator API. Built with
 - Complete order history
 
 ### 🩺 **Health Monitoring**
+
 - **Real-time Health Widget**: Always-visible status indicator in bottom-right corner
   - Auto-refreshes every 30 seconds
   - Color-coded status (green/yellow/red)
@@ -50,6 +55,7 @@ A modern, user-friendly testing interface for the OIF Aggregator API. Built with
   - Manual refresh capability
 
 ### 🎨 **Theme Switcher**
+
 - **Light and Dark themes**: Toggle between light and dark modes
 - **Top-right button**: ☀️ (light mode) / 🌙 (dark mode) in header
 - **Persistent**: Theme choice saved and restored on next visit
@@ -57,6 +63,7 @@ A modern, user-friendly testing interface for the OIF Aggregator API. Built with
 - **High contrast**: Optimized readability in both themes
 
 ### ⚙️ **Settings Configuration**
+
 - **Aggregator URL Configuration**: Connect to different OIF Aggregator instances
   - Dynamic URL switching without reloading the app
   - Test connection before saving
@@ -66,6 +73,7 @@ A modern, user-friendly testing interface for the OIF Aggregator API. Built with
 - **Persistent**: Custom URL saved to localStorage
 
 ### ⚡ **Performance & UX**
+
 - LocalStorage caching (5-minute TTL)
 - Fast subsequent page loads
 - Loading states and error handling
@@ -74,7 +82,7 @@ A modern, user-friendly testing interface for the OIF Aggregator API. Built with
 
 ## Prerequisites
 
-- Node.js 18+ 
+- Node.js 18+
 - pnpm or yarn
 - **OIF Aggregator server** running on port 4000 (or custom port configured in Settings)
 - **One or more solvers** configured and running
@@ -90,6 +98,7 @@ Before using the UI, you need to have the OIF Aggregator and at least one solver
 ### Complete Setup Workflow
 
 1. **Set up and run solvers** (see [OIF Solver repository](https://github.com/openintentsframework/oif-solver))
+
    ```bash
    # In the oif-solver directory
    ./oif-demo env up          # Start local chains and deploy contracts
@@ -151,6 +160,7 @@ Click the **🔍 Solvers** tab in the header to explore available solvers.
 #### Solvers List View
 
 View all solvers with key information:
+
 - **Status**: Visual indicators showing if solver is active, inactive, or has circuit breaker open
 - **Solver Info**: Name, ID, and description
 - **Adapter**: The adapter type being used
@@ -163,6 +173,7 @@ Click **View Details →** on any solver to see comprehensive information.
 #### Solver Detail View
 
 Detailed information about a specific solver:
+
 - **Overview**: Adapter ID, endpoint, created date, last seen
 - **Asset Type**: Whether it's asset-based or route-based
 - **For Asset-Based Solvers**: Complete list of supported assets grouped by chain
@@ -181,13 +192,16 @@ Use the **← Back to Solvers** button to return to the list.
 A real-time health monitoring widget is always visible in the **bottom-right corner** of the screen.
 
 #### Collapsed View
+
 - **Status indicator**: Pulsing dot showing system health (green/yellow/red)
 - **Status text**: System status (HEALTHY, DEGRADED, UNHEALTHY)
 - **Solver count**: Quick view of active/total solvers (e.g., "2/3 solvers")
 - Click to expand for detailed statistics
 
 #### Expanded View
+
 Shows comprehensive system information:
+
 - **Version**: Current OIF Aggregator version
 - **Solvers**: Total, active, inactive, healthy, and unhealthy counts
 - **Storage**: Backend type and health status
@@ -239,6 +253,7 @@ The quotes section provides two modes: **Simple Mode** (dropdown-based, recommen
 5. Click **Get Quotes**
 
 The UI automatically:
+
 - Shows only assets available on the selected network
 - Filters compatible destination networks based on your source asset
 - Warns if no solvers support the selected route
@@ -397,12 +412,14 @@ Or integrate with the Rust server by serving the `dist/` directory.
 The UI automatically converts between standard Ethereum addresses and the ERC-7930 InteropAddress format:
 
 **Input (User-Friendly)**:
+
 ```
 Address: 0xA0b86a33E6441E7C81F7C93451777f5F4dE78e86
 Chain ID: 1
 ```
 
 **Converted to (ERC-7930)**:
+
 ```json
 {
   "version": 1,
@@ -419,6 +436,7 @@ Chain ID: 1
 **Ethereum Mainnet WETH to Optimism USDC**:
 
 Input:
+
 ```
 User Address: 0x70997970C51812dc3A010C7d01b50e0d17dc79C8
 Chain ID: 1
@@ -427,6 +445,7 @@ Amount: 1000000000000000000 (1 WETH)
 ```
 
 Output:
+
 ```
 Receiver: 0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC
 Chain ID: 10
@@ -437,6 +456,7 @@ Amount: 1000000 (1 USDC)
 ### Mock Signature
 
 For testing without actual wallet signing:
+
 ```
 0x1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890abcdef12
 ```
@@ -498,9 +518,9 @@ If you encounter issues with EIP-712 signing:
 If you see "Quote Expired" or the timer shows "EXPIRED":
 
 - **Cause**: Too much time has elapsed since the quote was generated
-- **Solution**: 
+- **Solution**:
   1. Click "← Back to Quotes" button
-  2. Click "Back to Request Form" 
+  2. Click "Back to Request Form"
   3. Submit a new quote request
 - **Why it happens**: Quotes have limited validity (typically 5-15 minutes) to ensure pricing accuracy
 - **Tip**: Complete signing and submission quickly when timer shows < 30 seconds
@@ -510,7 +530,7 @@ If you see "Quote Expired" or the timer shows "EXPIRED":
 If you see a yellow "Address Mismatch Warning" banner:
 
 - **Cause**: The private key you're using doesn't correspond to the user address in the quote request
-- **Solution**: 
+- **Solution**:
   1. Verify you entered the correct private key
   2. Check that the user address in the quote request matches your intended account
   3. If intentionally signing with a different account, you can proceed but the order may fail
@@ -528,4 +548,3 @@ This UI is part of the OIF Aggregator project. For contributions:
 ## License
 
 MIT License - see the main project LICENSE file.
-

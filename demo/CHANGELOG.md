@@ -5,12 +5,13 @@ All notable changes to the OIF Aggregator UI will be documented in this file.
 ## [Unreleased]
 
 ### Added
+
 - **Light/Dark Theme Switcher** (2025-10-10): Toggle between light and dark themes
   - **Theme toggle button**: Located in top-right corner of header (☀️/🌙 icon)
   - **Persistent preference**: Theme choice saved to localStorage
   - **System preference**: Defaults to system theme preference on first visit
   - **Comprehensive styling**: All components styled for both themes
-  - **High contrast in light mode**: 
+  - **High contrast in light mode**:
     - Darker text on light backgrounds
     - Stronger borders (2px) on inputs and cards
     - Improved readability with slate-900 text on white backgrounds
@@ -47,12 +48,14 @@ All notable changes to the OIF Aggregator UI will be documented in this file.
   - **Type Definitions**: Added `SolverResponse`, `SolversListResponse`, `SolverStatus`, `AssetInfo`, `RouteInfo`, `SupportedAssetsResponse`
 
 ### Changed
+
 - **Default Port** (2025-10-10): Changed development server port from 3000 to 5173 (Vite default)
   - Updated `vite.config.ts` to use port 5173
   - UI now accessible at `http://localhost:5173` instead of `http://localhost:3000`
   - Avoids conflicts with other common development servers on port 3000
 
 ### Added (continued)
+
 - **Quote Validity Countdown Timer** (2025-10-09): Real-time countdown showing quote expiration
   - Live timer updates every second showing MM:SS remaining
   - Color-coded warnings (green > 30s, yellow < 30s, red when expired)
@@ -62,6 +65,7 @@ All notable changes to the OIF Aggregator UI will be documented in this file.
   - Prevents submission of expired quotes
 
 ### Fixed
+
 - **Route Validation Logic** (2025-10-09): Fixed false "no solvers support this route" warnings
   - Enhanced `getSolversForRoute()` to check both route-based and asset-based solvers
   - Route-based solvers: Check explicit route definitions
@@ -73,6 +77,7 @@ All notable changes to the OIF Aggregator UI will be documented in this file.
   - Prevents false mismatch warnings due to mixed-case addresses (checksum format)
 
 ### Added (continued)
+
 - **EIP-712 Address Validation** (2025-10-09): Validates that signer address matches quote request user address
   - Extracts original user address from quote preview using `fromInteropAddress()`
   - Case-insensitive comparison of signer address with expected user address
@@ -81,6 +86,7 @@ All notable changes to the OIF Aggregator UI will be documented in this file.
   - Helps prevent signing errors and invalid orders
 
 ### Changed
+
 - **Consistent Page Widths** (2025-10-09): Applied max-width constraints to all pages for better readability
   - Quote request form: `max-w-2xl` (unchanged)
   - Quote results: `max-w-4xl` (wider for comparison)
@@ -101,6 +107,7 @@ All notable changes to the OIF Aggregator UI will be documented in this file.
   - Better UX alignment with user mental model
 
 ### Added
+
 - **Auto-Polling Order Status** (2025-10-09): Automatic status updates every 2 seconds while order is in progress
   - Toggle auto-refresh ON/OFF button with visual indicator
   - Automatically stops polling when order reaches final state (executed, finalized, failed, refunded)
@@ -118,9 +125,11 @@ All notable changes to the OIF Aggregator UI will be documented in this file.
 - **RPC Support** (2025-10-09): Optional RPC URL configuration for domain separator verification
 
 ### Fixed
+
 - **InteropAddress Format** (2025-10-09): Fixed quote request body format to send InteropAddress as hex-encoded strings instead of JSON objects with byte arrays. This matches the backend's serde implementation. See `INTEROP_ADDRESS_FIX.md` for details.
 
 ### Added (continued)
+
 - **Simplified Quote Form** (2025-10-09): Added dropdown-based UI for selecting assets and networks, making it easier to request quotes without manually entering addresses
 - **Solver Data Service** (2025-10-09): Automatic fetching and caching of solver and asset data from `/v1/solvers` endpoint
 - **Smart Dropdowns** (2025-10-09): Cascading dropdowns that show only compatible destination chains and assets based on the selected origin
@@ -128,12 +137,14 @@ All notable changes to the OIF Aggregator UI will be documented in this file.
 - **Form Width Constraint** (2025-10-09): Constrained form width to `max-w-2xl` for better readability
 
 ### Changed
+
 - **User Address Field** (2025-10-09): Changed from required input to placeholder with note about wallet connection (to be implemented)
 - **Form Layout** (2025-10-09): Simplified form to focus on essential fields: amount, from asset/network, to asset/network
 
 ## [0.1.0] - Initial Release
 
 ### Added
+
 - Basic quote request form with manual address inputs
 - Quote results display with solver information
 - Order submission workflow

@@ -24,11 +24,17 @@ class LocalStorageService {
         timestamp: Date.now(),
         request,
       };
-      
+
       // Add to beginning and limit to MAX_RECENT_SEARCHES
-      const updatedSearches = [newSearch, ...searches].slice(0, MAX_RECENT_SEARCHES);
-      
-      localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(updatedSearches));
+      const updatedSearches = [newSearch, ...searches].slice(
+        0,
+        MAX_RECENT_SEARCHES
+      );
+
+      localStorage.setItem(
+        RECENT_SEARCHES_KEY,
+        JSON.stringify(updatedSearches)
+      );
     } catch (error) {
       console.error('Failed to save recent search:', error);
     }
@@ -38,7 +44,7 @@ class LocalStorageService {
     try {
       const data = localStorage.getItem(RECENT_SEARCHES_KEY);
       if (!data) return [];
-      
+
       const searches = JSON.parse(data);
       return Array.isArray(searches) ? searches : [];
     } catch (error) {
@@ -69,10 +75,12 @@ class LocalStorageService {
   saveOrder(order: OrderResponse): void {
     try {
       const orders = this.getOrders();
-      
+
       // Check if order already exists (by orderId)
-      const existingIndex = orders.findIndex(item => item.order.orderId === order.orderId);
-      
+      const existingIndex = orders.findIndex(
+        (item) => item.order.orderId === order.orderId
+      );
+
       if (existingIndex !== -1) {
         // Update existing order in place, preserving original timestamp
         orders[existingIndex] = {
@@ -98,7 +106,7 @@ class LocalStorageService {
     try {
       const data = localStorage.getItem(ORDERS_KEY);
       if (!data) return [];
-      
+
       const orders = JSON.parse(data);
       return Array.isArray(orders) ? orders : [];
     } catch (error) {
@@ -110,7 +118,9 @@ class LocalStorageService {
   deleteOrder(orderId: string): void {
     try {
       const orders = this.getOrders();
-      const filteredOrders = orders.filter(item => item.order.orderId !== orderId);
+      const filteredOrders = orders.filter(
+        (item) => item.order.orderId !== orderId
+      );
       localStorage.setItem(ORDERS_KEY, JSON.stringify(filteredOrders));
     } catch (error) {
       console.error('Failed to delete order:', error);
@@ -128,4 +138,3 @@ class LocalStorageService {
 
 export const localStorageService = new LocalStorageService();
 export type { StoredSearch, StoredOrder };
-

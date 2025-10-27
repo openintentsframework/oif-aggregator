@@ -1,13 +1,13 @@
 /**
  * OIF Quote Signer - TypeScript/JavaScript implementation
- * 
+ *
  * This module provides EIP-712 signature generation for OIF (Open Intent Framework) quotes.
  * It supports multiple signature schemes: Permit2, EIP-3009, and Compact (TheCompact).
- * 
+ *
  * Based on the Rust implementation from:
  * - crates/solver-demo/src/core/signing.rs
  * - crates/solver-types/src/utils/eip712.rs
- * 
+ *
  * @version 1.1.0
  * @license MIT
  */
@@ -60,7 +60,11 @@ export interface OrderPayload {
 export type OifOrder =
   | { type: 'oif-escrow-v0'; payload: OrderPayload }
   | { type: 'oif-resource-lock-v0'; payload: OrderPayload }
-  | { type: 'oif-3009-v0'; payload: OrderPayload; metadata: Record<string, any> }
+  | {
+      type: 'oif-3009-v0';
+      payload: OrderPayload;
+      metadata: Record<string, any>;
+    }
   | { type: 'oif-generic-v0'; payload: Record<string, any> };
 
 /**
@@ -198,7 +202,9 @@ async function fetchDomainSeparator(
 /**
  * Get or build EIP-712 types from payload
  */
-function getTypesForPayload(payload: OrderPayload): Record<string, Array<{ name: string; type: string }>> {
+function getTypesForPayload(
+  payload: OrderPayload
+): Record<string, Array<{ name: string; type: string }>> {
   // If types are provided in payload, use them
   if (payload.types) {
     return payload.types;
@@ -214,11 +220,14 @@ function getTypesForPayload(payload: OrderPayload): Record<string, Array<{ name:
     case 'ReceiveWithAuthorization':
     case 'CancelAuthorization':
       return {
-        [payload.primaryType]: EIP3009_TYPES[payload.primaryType as keyof typeof EIP3009_TYPES],
+        [payload.primaryType]:
+          EIP3009_TYPES[payload.primaryType as keyof typeof EIP3009_TYPES],
       };
 
     default:
-      throw new Error(`Unknown primary type: ${payload.primaryType}. Please provide types in payload.`);
+      throw new Error(
+        `Unknown primary type: ${payload.primaryType}. Please provide types in payload.`
+      );
   }
 }
 
@@ -232,7 +241,9 @@ function computeDomainSeparator(domain: {
   verifyingContract: Address;
 }): Hex {
   const domainTypeHash = keccak256(
-    toHex('EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)')
+    toHex(
+      'EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)'
+    )
   );
 
   const encoded = encode(
@@ -260,11 +271,7 @@ function computeDomainSeparator(domain: {
  */
 function computeEip712Digest(domainSeparator: Hex, structHash: Hex): Hex {
   // EIP-712 encoding: 0x1901 || domainSeparator || structHash
-  const digestInput = concat([
-    '0x1901' as Hex,
-    domainSeparator,
-    structHash,
-  ]);
+  const digestInput = concat(['0x1901' as Hex, domainSeparator, structHash]);
 
   return keccak256(digestInput);
 }
@@ -321,11 +328,16 @@ async function reconstructEip3009Digest(
     }
   } else if (client) {
     // Fetch domain separator from token contract (signing.rs:429-461)
-    domainSeparator = await fetchDomainSeparator(domain.verifyingContract, client);
+    domainSeparator = await fetchDomainSeparator(
+      domain.verifyingContract,
+      client
+    );
     console.log('Retrieved domain separator from contract:', domainSeparator);
   } else {
     // Fallback: compute domain separator (may not match contract's actual value!)
-    console.warn('No domain separator provided and no client available - computing locally');
+    console.warn(
+      'No domain separator provided and no client available - computing locally'
+    );
     domainSeparator = computeDomainSeparator(domain);
   }
 
@@ -371,7 +383,10 @@ async function reconstructCompactDigest(
   let domainSeparator: Hex;
 
   if (client) {
-    domainSeparator = await fetchDomainSeparator(domain.verifyingContract, client);
+    domainSeparator = await fetchDomainSeparator(
+      domain.verifyingContract,
+      client
+    );
     console.log(
       `Retrieved domain separator from Compact contract ${domain.verifyingContract}:`,
       domainSeparator
@@ -419,7 +434,10 @@ async function reconstructCompactDigest(
  * Sign Permit2 order (oif-escrow-v0)
  * Implements Permit2 batch witness transfer signature with 0x00 prefix
  */
-async function signPermit2(payload: OrderPayload, account: PrivateKeyAccount): Promise<Hex> {
+async function signPermit2(
+  payload: OrderPayload,
+  account: PrivateKeyAccount
+): Promise<Hex> {
   const domain = extractDomain(payload);
   const types = getTypesForPayload(payload);
 
@@ -444,7 +462,7 @@ async function signPermit2(payload: OrderPayload, account: PrivateKeyAccount): P
 /**
  * Sign EIP-3009 order (oif-3009-v0)
  * Implements EIP-3009 authorization signature with 0x01 prefix
- * 
+ *
  * Supports TransferWithAuthorization and ReceiveWithAuthorization
  */
 async function signEip3009(
@@ -474,18 +492,20 @@ async function signEip3009(
 
   const maybeInputs = metadata?.inputs ?? payload.message?.inputs ?? [];
   if (Array.isArray(maybeInputs) && maybeInputs.length > 1) {
-    console.log(`Multiple inputs detected (${maybeInputs.length}), encoding as bytes[]`);
+    console.log(
+      `Multiple inputs detected (${maybeInputs.length}), encoding as bytes[]`
+    );
     const encoded = encodeAbiParameters([{ type: 'bytes[]' }], [[prefixed]]);
     return encoded as Hex;
   }
 
-return prefixed;
+  return prefixed;
 }
 
 /**
  * Sign Compact order (oif-resource-lock-v0)
  * Implements TheCompact signature with ABI-encoded tuple
- * 
+ *
  * Encodes signature as (bytes sponsorSig, bytes allocatorSig)
  * Based on signing.rs:180-183 and signing.rs:591-646
  */
@@ -532,7 +552,10 @@ async function signCompact(
  * Sign generic EIP-712 order
  * For orders that don't require special signature encoding
  */
-async function signGenericEip712(payload: OrderPayload, account: PrivateKeyAccount): Promise<Hex> {
+async function signGenericEip712(
+  payload: OrderPayload,
+  account: PrivateKeyAccount
+): Promise<Hex> {
   const domain = extractDomain(payload);
   const types = getTypesForPayload(payload);
 
@@ -550,15 +573,15 @@ async function signGenericEip712(payload: OrderPayload, account: PrivateKeyAccou
 
 /**
  * Sign a quote with the appropriate signature scheme
- * 
+ *
  * This is the main entry point that routes to the correct signing function
  * based on the order type. Matches the logic in signing.rs:103-132
- * 
+ *
  * @param quote - Quote object from API response
  * @param privateKey - Private key hex string (with or without 0x prefix)
  * @param config - Optional configuration for RPC provider
  * @returns Hex-encoded signature with scheme-specific encoding
- * 
+ *
  * @example
  * ```typescript
  * const signature = await signQuote(quote, '0x123...', {
@@ -598,10 +621,17 @@ export async function signQuote(
       return signCompact(quote.order.payload, account, effectiveConfig);
 
     case 'oif-3009-v0':
-      return signEip3009(quote.order.payload, quote.order.metadata, account, effectiveConfig);
+      return signEip3009(
+        quote.order.payload,
+        quote.order.metadata,
+        account,
+        effectiveConfig
+      );
 
     case 'oif-generic-v0':
-      throw new Error('Generic orders (oif-generic-v0) are not supported for signing');
+      throw new Error(
+        'Generic orders (oif-generic-v0) are not supported for signing'
+      );
 
     default:
       throw new Error(`Unsupported order type: ${(quote.order as any).type}`);
@@ -611,7 +641,7 @@ export async function signQuote(
 /**
  * Sign an order payload directly without a full quote object
  * Useful for testing or when you have the payload structure already
- * 
+ *
  * @param orderType - Type of order ('oif-escrow-v0', 'oif-resource-lock-v0', 'oif-3009-v0')
  * @param payload - Order payload with EIP-712 structure
  * @param privateKey - Private key hex string
@@ -659,7 +689,7 @@ export async function signOrderPayload(
 /**
  * Get the signer address from a private key
  * Useful for verifying which address will sign the quote
- * 
+ *
  * @param privateKey - Private key hex string
  * @returns Ethereum address derived from the private key
  */
