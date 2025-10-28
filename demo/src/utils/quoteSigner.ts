@@ -84,6 +84,8 @@ export interface SignerConfig {
   rpcUrl?: string;
   /** Custom public client for provider operations (optional) */
   publicClient?: PublicClient;
+  /** Wallet signing function for EIP-712 (optional - if not provided, uses private key) */
+  walletSignTypedData?: (args: { domain: any; types: any; primaryType: string; message: any }) => Promise<Hex>;
 }
 
 // ============================================================================
@@ -391,18 +393,18 @@ async function reconstructCompactDigest(
  * Sign Permit2 order (oif-escrow-v0)
  * Implements Permit2 batch witness transfer signature with 0x00 prefix
  */
-async function signPermit2(payload: OrderPayload, account: PrivateKeyAccount): Promise<Hex> {
+async function signPermit2(
+  payload: OrderPayload, 
+  account?: PrivateKeyAccount,
+  walletSignFn?: (args: { domain: any; types: any; primaryType: string; message: any }) => Promise<Hex>
+): Promise<Hex> {
   const domain = extractDomain(payload);
   const types = getTypesForPayload(payload);
 
-  // For Permit2, we can use viem's standard EIP-712 signing
-  // as it follows the standard specification exactly
-  const signature = await account.signTypedData({
-    domain,
-    types,
-    primaryType: payload.primaryType,
-    message: payload.message,
-  });
+  // Sign using wallet or private key
+  const signature = walletSignFn
+    ? await walletSignFn({ domain, types, primaryType: payload.primaryType, message: payload.message })
+    : await account!.signTypedData({ domain, types, primaryType: payload.primaryType, message: payload.message });
 
   // Add Permit2 prefix (0x00)
   const prefixed = `0x00${signature.slice(2)}` as Hex;
@@ -419,17 +421,62 @@ async function signPermit2(payload: OrderPayload, account: PrivateKeyAccount): P
 async function signEip3009(
   payload: OrderPayload,
   metadata: Record<string, any>,
-  account: PrivateKeyAccount,
-  config?: SignerConfig
+  account?: PrivateKeyAccount,
+  config?: SignerConfig,
+  walletSignFn?: (args: { domain: any; types: any; primaryType: string; message: any }) => Promise<Hex>
 ): Promise<Hex> {
-  const digest = await reconstructEip3009Digest(
-    payload,
-    metadata,
-    config?.publicClient
-  );
+  let signature: Hex;
 
-  // Sign the digest directly
-  const signature = await account.sign({ hash: digest });
+  if (walletSignFn) {
+    // Wallet signing: use signTypedData with cleaned types
+    const payloadDomain = extractDomain(payload);
+    let types = getTypesForPayload(payload);
+    
+    // Remove EIP712Domain from types if present
+    if (types.EIP712Domain) {
+      const { EIP712Domain, ...typesWithoutDomain } = types;
+      types = typesWithoutDomain;
+    }
+    
+    // Verify domain separator if possible
+    if (metadata.domain_separator && config?.publicClient) {
+      const payloadDomainSep = computeDomainSeparator(payloadDomain);
+      const metadataDomainSep = metadata.domain_separator.startsWith('0x')
+        ? metadata.domain_separator
+        : `0x${metadata.domain_separator}`;
+      
+      if (payloadDomainSep !== metadataDomainSep) {
+        throw new Error('EIP-3009 domain mismatch: Please use Private Key Override.');
+      }
+      
+      // Verify against token contract
+      const contractDomainSep = await fetchDomainSeparator(
+        payloadDomain.verifyingContract as Address,
+        config.publicClient
+      );
+      
+      if (contractDomainSep !== payloadDomainSep) {
+        throw new Error('EIP-3009 domain mismatch: Please use Private Key Override.');
+      }
+    }
+    
+    // Ensure domain has version field
+    const domainForSigning = {
+      ...payloadDomain,
+      version: payloadDomain.version || '1',
+    };
+    
+    signature = await walletSignFn({
+      domain: domainForSigning,
+      types,
+      primaryType: payload.primaryType,
+      message: payload.message,
+    });
+  } else {
+    // Private key signing: reconstruct and sign digest
+    const digest = await reconstructEip3009Digest(payload, metadata, config?.publicClient);
+    signature = await account!.sign({ hash: digest });
+  }
 
   // Add EIP-3009 prefix (0x01)
   const prefixed = `0x01${signature.slice(2)}` as Hex;
@@ -452,20 +499,33 @@ async function signEip3009(
  */
 async function signCompact(
   payload: OrderPayload,
-  account: PrivateKeyAccount,
-  config?: SignerConfig
+  account?: PrivateKeyAccount,
+  config?: SignerConfig,
+  walletSignFn?: (args: { domain: any; types: any; primaryType: string; message: any }) => Promise<Hex>
 ): Promise<Hex> {
-  // Reconstruct the digest using TheCompact contract's domain separator
-  const digest = await reconstructCompactDigest(payload, config?.publicClient);
+  let signature: Hex;
 
-  // Sign the digest directly
-  const signature = await account.sign({ hash: digest });
+  if (walletSignFn) {
+    // Wallet signing: use standard EIP-712
+    const domain = extractDomain(payload);
+    const types = getTypesForPayload(payload);
+    
+    signature = await walletSignFn({
+      domain,
+      types,
+      primaryType: payload.primaryType,
+      message: payload.message,
+    });
+  } else {
+    // Private key signing: reconstruct and sign digest
+    const digest = await reconstructCompactDigest(payload, config?.publicClient);
+    signature = await account!.sign({ hash: digest });
+  }
 
   // Compact signatures require special ABI encoding: (bytes, bytes)
   const sponsorSig = signature;
   const allocatorSig = '0x' as Hex;
 
-  // ABI encode as tuple: (bytes sponsorSig, bytes allocatorSig)
   const encoded = encodeAbiParameters(
     [{ type: 'bytes' }, { type: 'bytes' }],
     [sponsorSig, allocatorSig]
@@ -515,11 +575,17 @@ async function signGenericEip712(payload: OrderPayload, account: PrivateKeyAccou
 
 export async function signQuote(
   quote: Quote,
-  privateKey: Hex,
+  privateKey?: Hex,
   config?: SignerConfig
 ): Promise<Hex> {
-  // Parse private key into account
-  const account = privateKeyToAccount(privateKey);
+  // Parse private key into account if provided
+  const account = privateKey ? privateKeyToAccount(privateKey) : undefined;
+  const walletSignFn = config?.walletSignTypedData;
+
+  // Require either private key or wallet signing function
+  if (!account && !walletSignFn) {
+    throw new Error('Either privateKey or config.walletSignTypedData must be provided');
+  }
 
   // Setup public client if RPC URL provided and not already configured
   let effectiveConfig = config;
@@ -535,13 +601,13 @@ export async function signQuote(
   // Route to appropriate signing function based on order type
   switch (quote.order.type) {
     case 'oif-escrow-v0':
-      return signPermit2(quote.order.payload, account);
+      return signPermit2(quote.order.payload, account, walletSignFn);
 
     case 'oif-resource-lock-v0':
-      return signCompact(quote.order.payload, account, effectiveConfig);
+      return signCompact(quote.order.payload, account, effectiveConfig, walletSignFn);
 
     case 'oif-3009-v0':
-      return signEip3009(quote.order.payload, quote.order.metadata, account, effectiveConfig);
+      return signEip3009(quote.order.payload, quote.order.metadata, account, effectiveConfig, walletSignFn);
 
     case 'oif-generic-v0':
       throw new Error('Generic orders (oif-generic-v0) are not supported for signing');
@@ -609,164 +675,6 @@ export async function signOrderPayload(
 export function getSignerAddress(privateKey: Hex): Address {
   const account = privateKeyToAccount(privateKey);
   return account.address;
-}
-
-/**
- * Sign a quote using wallet (MetaMask, etc.)
- * This handles EIP-3009 orders differently by signing the reconstructed digest
- * 
- * @param quote - Quote object from API response  
- * @param signMessageFn - Function to sign a message (from useSignMessage)
- * @param signTypedDataFn - Function to sign typed data (from useSignTypedData)
- * @param config - Optional configuration for RPC provider
- * @returns Properly encoded signature for the order type
- */
-export async function signQuoteWithWallet(
-  quote: Quote,
-  _signMessageFn: (message: Hex) => Promise<Hex>,
-  signTypedDataFn: (args: { domain: any; types: any; primaryType: string; message: any }) => Promise<Hex>,
-  config?: SignerConfig
-): Promise<Hex> {
-  // Setup public client if RPC URL provided
-  let effectiveConfig = config;
-  if (config?.rpcUrl && !config.publicClient) {
-    effectiveConfig = {
-      ...config,
-      publicClient: createPublicClient({
-        transport: http(config.rpcUrl),
-      }),
-    };
-  }
-
-  const order = quote.order;
-
-  switch (order.type) {
-    case 'oif-escrow-v0': {
-      // Permit2: Use standard EIP-712 signing
-      const payload = order.payload;
-      const domain = extractDomain(payload);
-      const types = getTypesForPayload(payload);
-      
-      const rawSig = await signTypedDataFn({
-        domain,
-        types,
-        primaryType: payload.primaryType,
-        message: payload.message,
-      });
-
-      // Add Permit2 prefix (0x00)
-      const prefixed = `0x00${rawSig.slice(2)}` as Hex;
-      return prefixed;
-    }
-
-    case 'oif-3009-v0': {
-      // EIP-3009: Use standard EIP-712 signing with proper domain verification
-      const payload = order.payload;
-      const metadata = order.metadata || {};
-      const payloadDomain = extractDomain(payload);
-      let types = getTypesForPayload(payload);
-      
-      // Remove EIP712Domain from types if present (viem handles this automatically)
-      if (types.EIP712Domain) {
-        const { EIP712Domain, ...typesWithoutDomain } = types;
-        types = typesWithoutDomain;
-      }
-      
-      // Verify domain separator against metadata if available
-      if (metadata.domain_separator) {
-        const payloadDomainSep = computeDomainSeparator(payloadDomain);
-        const metadataDomainSep = metadata.domain_separator.startsWith('0x')
-          ? metadata.domain_separator
-          : `0x${metadata.domain_separator}`;
-        
-        if (payloadDomainSep !== metadataDomainSep) {
-          throw new Error(
-            'EIP-3009 domain mismatch: The metadata domain_separator does not match the payload domain. ' +
-            'Please use Private Key Override or contact the solver provider.'
-          );
-        }
-      }
-      
-      // Verify against the actual token contract if we have an RPC client
-      if (effectiveConfig?.publicClient) {
-        try {
-          const contractDomainSep = await fetchDomainSeparator(
-            payloadDomain.verifyingContract as Address,
-            effectiveConfig.publicClient
-          );
-          const payloadDomainSep = computeDomainSeparator(payloadDomain);
-          
-          if (contractDomainSep !== payloadDomainSep) {
-            throw new Error(
-              'EIP-3009 domain mismatch: The quote payload domain does not match the token contract. ' +
-              'Please use Private Key Override instead.'
-            );
-          }
-        } catch (error) {
-          if (error instanceof Error && error.message.includes('domain mismatch')) {
-            throw error;
-          }
-          // Continue if verification fails for other reasons
-        }
-      }
-      
-      // Ensure domain has version field
-      const domainForSigning = {
-        ...payloadDomain,
-        version: payloadDomain.version || '1',
-      };
-      
-      const rawSig = await signTypedDataFn({
-        domain: domainForSigning,
-        types,
-        primaryType: payload.primaryType,
-        message: payload.message,
-      });
-
-      // Add EIP-3009 prefix (0x01)
-      const prefixed = `0x01${rawSig.slice(2)}` as Hex;
-      
-      // Check if multiple inputs require bytes[] encoding
-      const maybeInputs = metadata?.inputs ?? payload.message?.inputs ?? [];
-      if (Array.isArray(maybeInputs) && maybeInputs.length > 1) {
-        const encoded = encodeAbiParameters([{ type: 'bytes[]' }], [[prefixed]]);
-        return encoded as Hex;
-      }
-      
-      return prefixed;
-    }
-
-    case 'oif-resource-lock-v0': {
-      // Compact: Use standard EIP-712 signing
-      const payload = order.payload;
-      const domain = extractDomain(payload);
-      const types = getTypesForPayload(payload);
-      
-      const rawSig = await signTypedDataFn({
-        domain,
-        types,
-        primaryType: payload.primaryType,
-        message: payload.message,
-      });
-
-      // Compact signatures require ABI encoding as (bytes, bytes) tuple
-      const sponsorSig = rawSig;
-      const allocatorSig = '0x' as Hex;
-      
-      const encoded = encodeAbiParameters(
-        [{ type: 'bytes' }, { type: 'bytes' }],
-        [sponsorSig, allocatorSig]
-      );
-      
-      return encoded;
-    }
-
-    case 'oif-generic-v0':
-      throw new Error('Generic orders (oif-generic-v0) are not supported for wallet signing');
-
-    default:
-      throw new Error(`Unsupported order type: ${(order as any).type}`);
-  }
 }
 
 // ============================================================================
