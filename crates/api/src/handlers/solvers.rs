@@ -101,6 +101,14 @@ pub async fn get_solver_by_id(
 				oif_service::SolverServiceError::NotFound(_) => {
 					unreachable!("NotFound should not occur with new signature")
 				},
+				oif_service::SolverServiceError::Adapter(msg) => (
+					StatusCode::INTERNAL_SERVER_ERROR,
+					Json(ErrorResponse {
+						error: "SOLVER_ADAPTER_ERROR".to_string(),
+						message: msg,
+						timestamp: chrono::Utc::now().timestamp(),
+					}),
+				),
 			});
 		},
 	};

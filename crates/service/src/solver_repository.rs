@@ -8,6 +8,7 @@ use std::sync::Arc;
 use crate::jobs::scheduler::JobScheduler;
 use crate::solver_adapter::SolverAdapterService;
 use crate::solver_adapter::SolverAdapterTrait;
+use crate::CircuitBreakerTrait;
 use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
 use oif_adapters::AdapterRegistry;
@@ -15,7 +16,8 @@ use oif_storage::Storage;
 use oif_types::models::health::SolverStats;
 use oif_types::solvers::Solver;
 use oif_types::solvers::{AssetSource, SupportedAssets};
-use oif_types::{CircuitState, SolverStatus};
+use oif_types::CircuitDecision;
+use oif_types::CircuitState;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
@@ -66,6 +68,8 @@ pub enum SolverServiceError {
 	Storage(String),
 	#[error("not found: {0}")]
 	NotFound(String),
+	#[error("adapter error: {0}")]
+	Adapter(String),
 }
 
 #[derive(Clone)]
@@ -73,6 +77,7 @@ pub struct SolverService {
 	storage: Arc<dyn Storage>,
 	adapter_registry: Arc<AdapterRegistry>,
 	job_scheduler: Option<Arc<dyn JobScheduler>>,
+	circuit_breaker: Arc<dyn CircuitBreakerTrait>,
 }
 
 impl SolverService {
@@ -80,11 +85,13 @@ impl SolverService {
 		storage: Arc<dyn Storage>,
 		adapter_registry: Arc<AdapterRegistry>,
 		job_scheduler: Option<Arc<dyn JobScheduler>>,
+		circuit_breaker: Arc<dyn CircuitBreakerTrait>,
 	) -> Self {
 		Self {
 			storage,
 			adapter_registry,
 			job_scheduler,
+			circuit_breaker,
 		}
 	}
 
@@ -240,75 +247,49 @@ impl SolverServiceTrait for SolverService {
 		let active = active_solvers.len();
 		let inactive = total.saturating_sub(active);
 
-		// Check if circuit breaker states exist (optimization for disabled circuit breaker)
-		let circuit_states = self
+		// Load all solvers for health status evaluation
+		let solvers = self
 			.storage
-			.list_circuit_states()
+			.list_all_solvers()
 			.await
 			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
-		// Determine health status efficiently
+		// Determine health status for each solver
 		let mut health_details = HashMap::new();
 		let mut healthy = 0;
 
-		if circuit_states.is_empty() {
-			// No circuit breaker states exist - circuit breaker is likely disabled
-			// Use active_solvers directly - they are all healthy by definition
-			healthy = active_solvers.len();
-
-			// Mark all active solvers as healthy
-			for solver in &active_solvers {
-				health_details.insert(solver.solver_id.clone(), true);
-			}
-
-			// Load all solvers only to get IDs of inactive ones and mark them as unhealthy
-			let solvers = self
+		for solver in &solvers {
+			// Try to get circuit state first
+			let circuit_state = self
 				.storage
-				.list_all_solvers()
+				.get_solver_circuit_state(&solver.solver_id)
 				.await
 				.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
-			for solver in &solvers {
-				// Skip if already marked as healthy (active)
-				if !health_details.contains_key(&solver.solver_id) {
-					health_details.insert(solver.solver_id.clone(), false);
-				}
-			}
-		} else {
-			// Circuit breaker states exist - use them for more accurate health determination
-			// Load all solvers for health status evaluation
-			let solvers = self
-				.storage
-				.list_all_solvers()
-				.await
-				.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
+			let is_healthy = match circuit_state {
+				Some(state) => match state.state {
+					CircuitState::Closed => true,   // Circuit closed = healthy
+					CircuitState::HalfOpen => true, // Half-open = recovering (consider healthy)
+					CircuitState::Open => false,    // Circuit open = unhealthy (blocked)
+				},
+				None => {
+					// No circuit state exists - compute circuit decision
+					let computed_decision = self.circuit_breaker.should_open_primary(solver);
+					match computed_decision {
+						CircuitDecision::Closed => true,        // Circuit closed = healthy
+						CircuitDecision::Open { .. } => false,  // Circuit open = unhealthy (blocked)
+						CircuitDecision::Inconclusive => false, // Inconclusive = unhealthy
+					}
+				},
+			};
 
-			let circuit_state_map: HashMap<String, &oif_types::CircuitBreakerState> =
-				circuit_states
-					.iter()
-					.map(|state| (state.solver_id.clone(), state))
-					.collect();
+			let has_route_info = solver.has_route_info();
 
-			for solver in &solvers {
-				let is_healthy = match circuit_state_map.get(&solver.solver_id) {
-					Some(circuit_state) => match circuit_state.state {
-						CircuitState::Closed => true,   // Circuit closed = healthy
-						CircuitState::HalfOpen => true, // Half-open = recovering (consider healthy)
-						CircuitState::Open => false,    // Circuit open = unhealthy (blocked)
-					},
-					None => {
-						// No circuit state exists - use solver status
-						match solver.status {
-							SolverStatus::Active => true, // Active solver without circuit issues = healthy
-							_ => false,                   // Disabled/Inactive = unhealthy
-						}
-					},
-				};
+			let is_healthy_with_route_info = is_healthy && has_route_info;
 
-				health_details.insert(solver.solver_id.clone(), is_healthy);
-				if is_healthy {
-					healthy += 1;
-				}
+			health_details.insert(solver.solver_id.clone(), is_healthy_with_route_info);
+			if is_healthy_with_route_info {
+				healthy += 1;
 			}
 		}
 
@@ -376,8 +357,6 @@ impl SolverServiceTrait for SolverService {
 		// Call adapter method to get support data (adapter chooses mode)
 		let support_result = adapter_service.get_supported_assets().await;
 
-		let mut has_updates = false;
-
 		// Business logic: Handle support result and update solver
 		match support_result {
 			Ok(support_data) => {
@@ -402,26 +381,24 @@ impl SolverServiceTrait for SolverService {
 					item_count, solver_id
 				);
 				updated_solver.metadata.supported_assets = supported_assets;
-				has_updates = true;
 			},
 			Err(e) => {
 				warn!(
 					"Failed to auto-discover assets/routes for solver {}: {}",
 					solver_id, e
 				);
+				return Err(SolverServiceError::Adapter(e.to_string()));
 			},
 		}
 
-		// Business logic: Update solver in storage if we have updates
-		if has_updates {
-			updated_solver.last_seen = Some(Utc::now());
-			self.storage
-				.update_solver(updated_solver)
-				.await
-				.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
+		// Business logic: Update solver in storage
+		updated_solver.last_seen = Some(Utc::now());
+		self.storage
+			.update_solver(updated_solver)
+			.await
+			.map_err(|e| SolverServiceError::Storage(e.to_string()))?;
 
-			debug!("Updated solver metadata for: {}", solver_id);
-		}
+		debug!("Updated solver metadata for: {}", solver_id);
 
 		Ok(())
 	}
@@ -644,6 +621,10 @@ impl SolverServiceTrait for SolverService {
 
 #[cfg(test)]
 mod tests {
+	use oif_config::CircuitBreakerSettings;
+
+	use crate::CircuitBreakerService;
+
 	use super::*;
 
 	#[tokio::test]
@@ -686,7 +667,11 @@ mod tests {
 
 		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
 		let adapter_registry = Arc::new(AdapterRegistry::new());
-		let service = SolverService::new(storage.clone(), adapter_registry, None);
+		let circuit_breaker = Arc::new(CircuitBreakerService::new(
+			storage.clone(),
+			CircuitBreakerSettings::default(),
+		));
+		let service = SolverService::new(storage.clone(), adapter_registry, None, circuit_breaker);
 
 		// Create test solvers
 		let mut solver1 = Solver::new(
@@ -755,7 +740,11 @@ mod tests {
 
 		let storage: Arc<dyn Storage> = Arc::new(MemoryStore::new());
 		let adapter_registry = Arc::new(AdapterRegistry::new());
-		let service = SolverService::new(storage.clone(), adapter_registry, None);
+		let circuit_breaker = Arc::new(CircuitBreakerService::new(
+			storage.clone(),
+			CircuitBreakerSettings::default(),
+		));
+		let service = SolverService::new(storage.clone(), adapter_registry, None, circuit_breaker);
 
 		// Create test solvers
 		let mut solver1 = Solver::new(

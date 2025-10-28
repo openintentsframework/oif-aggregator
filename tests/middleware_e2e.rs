@@ -160,7 +160,7 @@ async fn test_rate_limiting_disabled() {
 		.expect("Failed to start test server");
 	let client = Client::new();
 
-	let endpoint = format!("{}/health", server.base_url);
+	let endpoint = format!("{}/v1/solvers", server.base_url);
 
 	// Make multiple requests - all should succeed
 	for i in 1..=5 {
