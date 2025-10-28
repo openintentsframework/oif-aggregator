@@ -22,10 +22,23 @@ export const api = axios.create({
 });
 
 /**
+ * Health check client - inherits global axios config (treats 503 as valid)
+ */
+export const healthClient = axios.create({
+  baseURL: settingsService.getAggregatorUrl(),
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  timeout: 30000, // 30 second timeout
+  validateStatus: (status) => (status >= 200 && status < 300) || status === 503
+});
+
+/**
  * Update the API base URL dynamically
  */
 export function updateApiBaseUrl(newUrl: string): void {
   api.defaults.baseURL = newUrl;
+  healthClient.defaults.baseURL = newUrl;
 }
 
 // Add response interceptor for error handling
@@ -80,11 +93,11 @@ export const orderApi = {
 };
 
 /**
- * Health check
+ * Health check - uses dedicated health client which treats 503 as valid status
  */
 export const healthApi = {
   getHealth: async (): Promise<HealthResponse> => {
-    const response = await api.get<HealthResponse>('/health');
+    const response = await healthClient.get<HealthResponse>('/health');
     return response.data;
   }
 };

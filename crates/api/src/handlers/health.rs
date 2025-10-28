@@ -34,7 +34,8 @@ pub async fn health(State(state): State<AppState>) -> (StatusCode, Json<HealthRe
 		});
 
 	// Determine overall health
-	let solvers_healthy = solver_stats.healthy == solver_stats.total || solver_stats.total == 0;
+	// Service is healthy if storage is healthy AND at least one solver is healthy
+	let solvers_healthy = solver_stats.healthy > 0;
 	let overall_healthy = storage_healthy && solvers_healthy;
 
 	let status = if overall_healthy {

@@ -36,6 +36,9 @@ impl GenericJobHandler<BulkHealthCheckParams> for SolversHealthCheckHandler {
 				crate::solver_repository::SolverServiceError::NotFound(msg) => {
 					JobError::InvalidConfig(msg)
 				},
+				crate::solver_repository::SolverServiceError::Adapter(msg) => {
+					JobError::Adapter(msg)
+				},
 			})?;
 
 		debug!("Bulk health checks job completed successfully");
@@ -47,7 +50,7 @@ impl GenericJobHandler<BulkHealthCheckParams> for SolversHealthCheckHandler {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use crate::solver_repository::SolverService;
+	use crate::{solver_repository::SolverService, CircuitBreakerTrait};
 	use oif_adapters::AdapterRegistry;
 	use oif_storage::MemoryStore;
 
@@ -55,7 +58,15 @@ mod tests {
 	async fn create_test_solver_service() -> Arc<SolverService> {
 		let storage = Arc::new(MemoryStore::new());
 		let adapter_registry = Arc::new(AdapterRegistry::with_defaults());
-		Arc::new(SolverService::new(storage, adapter_registry, None))
+		let circuit_breaker_service =
+			Arc::new(crate::MockCircuitBreakerTrait::new()) as Arc<dyn CircuitBreakerTrait>;
+
+		Arc::new(SolverService::new(
+			storage,
+			adapter_registry,
+			None,
+			circuit_breaker_service.clone(),
+		))
 	}
 
 	#[tokio::test]
