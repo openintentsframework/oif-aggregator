@@ -1,6 +1,6 @@
 import type { OrderRequest, QuoteResponse } from '../types/api';
 import { formatInteropAddress, fromInteropAddress } from '../utils/interopAddress';
-import { getSignerAddress, signQuote, signQuoteWithWallet } from '../utils/quoteSigner';
+import { getSignerAddress, signQuote } from '../utils/quoteSigner';
 import { useWallet } from '../contexts/WalletContext';
 import { useEffect, useState } from 'react';
 
@@ -14,7 +14,7 @@ interface OrderSubmissionProps {
 }
 
 export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoading }: OrderSubmissionProps) {
-  const { isConnected, address, signTypedData, signMessage, isSigning: walletIsSigning } = useWallet();
+  const { isConnected, address, signTypedData, isSigning: walletIsSigning } = useWallet();
   const [privateKey, setPrivateKey] = useState('');
   const [signature, setSignature] = useState('');
   const [signerAddress, setSignerAddress] = useState('');
@@ -139,12 +139,13 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
         
         const rpcUrl = getRpcUrlForChain(chainId);
         
-        sig = await signQuoteWithWallet(
+        // Use unified signQuote with wallet signing function
+        sig = await signQuote(
           selectedQuote as any,
-          signMessage,
-          signTypedData,
+          undefined, // No private key
           {
-            rpcUrl
+            rpcUrl,
+            walletSignTypedData: signTypedData
           }
         );
       } else {
