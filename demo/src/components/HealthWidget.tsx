@@ -81,14 +81,14 @@ export default function HealthWidget() {
 
   if (!health) return null;
 
-  const isUnhealthy = health.status.toLowerCase() === 'unhealthy';
+  const isDegraded = health.status.toLowerCase() === 'degraded';
 
   return (
     <div
       className={`fixed bottom-16 right-4 bg-white dark:bg-slate-800 border rounded-lg shadow-lg z-50 transition-all ${
         isExpanded ? 'w-80' : 'w-auto'
       } ${
-        isUnhealthy
+        isDegraded
           ? 'border-red-300 dark:border-red-700'
           : 'border-slate-200 dark:border-slate-700'
       }`}
