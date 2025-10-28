@@ -152,7 +152,11 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
           intentType: 'oif-swap',
           inputs: apiInputs,
           outputs: apiOutputs,
-          swapType
+          swapType,
+          originSubmission: {
+            mode: 'user',
+            schemes: ['permit2']
+          }
         },
         supportedTypes,
         solverOptions: showSolverOptions ? solverOptions : undefined
