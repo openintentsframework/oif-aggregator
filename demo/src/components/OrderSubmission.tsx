@@ -1,6 +1,6 @@
 import type { OrderRequest, QuoteResponse } from '../types/api';
 import { formatInteropAddress, fromInteropAddress } from '../utils/interopAddress';
-import { getSignerAddress, signQuote } from '../utils/quoteSigner';
+import { getSignerAddress, signQuote, signQuoteWithWallet } from '../utils/quoteSigner';
 import { useWallet } from '../contexts/WalletContext';
 import { useEffect, useState } from 'react';
 
@@ -14,7 +14,7 @@ interface OrderSubmissionProps {
 }
 
 export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoading }: OrderSubmissionProps) {
-  const { isConnected, address, signTypedData, isSigning: walletIsSigning } = useWallet();
+  const { isConnected, address, signTypedData, signMessage, isSigning: walletIsSigning } = useWallet();
   const [privateKey, setPrivateKey] = useState('');
   const [signature, setSignature] = useState('');
   const [signerAddress, setSignerAddress] = useState('');
@@ -112,25 +112,53 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
         signerAddr = address;
         setSignerAddress(signerAddr);
 
-        // Sign with wallet using the EIP-712 data from the quote
-        sig = await signTypedData({
-          domain: eip712Data.domain,
-          types: eip712Data.types,
-          primaryType: eip712Data.primaryType,
-          message: eip712Data.message,
-        });
+        // Get the chain ID from the order payload to configure the correct RPC
+        const chainId = typeof eip712Data.domain.chainId === 'string' 
+          ? parseInt(eip712Data.domain.chainId) 
+          : Number(eip712Data.domain.chainId);
+        
+        // Determine RPC URL based on chain ID
+        const getRpcUrlForChain = (chainId: number): string => {
+          const envRpc = import.meta.env.VITE_RPC_URL;
+          if (envRpc) return envRpc;
+          
+          // Fallback to public RPCs for common chains
+          const publicRpcs: Record<number, string> = {
+            1: 'https://eth.llamarpc.com',
+            10: 'https://optimism.llamarpc.com',
+            42161: 'https://arbitrum.llamarpc.com',
+            8453: 'https://base.llamarpc.com',
+            11155111: 'https://sepolia.llamarpc.com',
+            11155420: 'https://sepolia.optimism.io',
+            84532: 'https://sepolia.base.org',
+            421614: 'https://sepolia-rollup.arbitrum.io/rpc',
+          };
+          
+          return publicRpcs[chainId] || `https://rpc.ankr.com/eth`;
+        };
+        
+        const rpcUrl = getRpcUrlForChain(chainId);
+        
+        sig = await signQuoteWithWallet(
+          selectedQuote as any,
+          signMessage,
+          signTypedData,
+          {
+            rpcUrl
+          }
+        );
       } else {
         throw new Error('Please connect a wallet or enter a private key');
       }
 
       setSignature(sig);
       setSigningError('');
-    } catch (error) {
-      console.error('Signing error:', error);
-      setSigningError(error instanceof Error ? error.message : 'Failed to sign quote');
-      setSignature('');
-      setSignerAddress('');
-    } finally {
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Failed to sign quote';
+        setSigningError(errorMsg);
+        setSignature('');
+        setSignerAddress('');
+      } finally {
       setIsSigning(false);
     }
   };
