@@ -157,6 +157,40 @@ const EIP3009_TYPES = {
 // Helper Functions
 // ============================================================================
 
+function normalizeTypedDataValue(value: any): any {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeTypedDataValue(item));
+  }
+
+  if (value !== null && typeof value === 'object') {
+    const normalized: Record<string, any> = {};
+    for (const [key, nestedValue] of Object.entries(value)) {
+      normalized[key] = normalizeTypedDataValue(nestedValue);
+    }
+    return normalized;
+  }
+
+  if (typeof value === 'string') {
+    if (value.startsWith('0x') || value.startsWith('0X')) {
+      return value as Hex;
+    }
+
+    if (/^\d+$/.test(value)) {
+      try {
+        return BigInt(value);
+      } catch {
+        return value;
+      }
+    }
+  }
+
+  return value;
+}
+
+function normalizeTypedDataMessage(message: Record<string, any>): Record<string, any> {
+  return normalizeTypedDataValue(message);
+}
+
 /**
  * Extract and normalize domain from payload for viem signing
  * Only includes fields that are defined to avoid viem encoding issues
@@ -210,7 +244,14 @@ async function fetchDomainSeparator(
 function getTypesForPayload(payload: OrderPayload): Record<string, Array<{ name: string; type: string }>> {
   // If types are provided in payload, use them
   if (payload.types) {
-    return payload.types;
+    // Filter out EIP712Domain - wallets add this automatically
+    const filteredTypes: Record<string, Array<{ name: string; type: string }>> = {};
+    for (const [typeName, typeFields] of Object.entries(payload.types)) {
+      if (typeName !== 'EIP712Domain') {
+        filteredTypes[typeName] = typeFields;
+      }
+    }
+    return filteredTypes;
   }
 
   // Otherwise, construct based on primaryType
@@ -556,12 +597,24 @@ async function reconstructCompactDigest(
   const domain = payload.domain as any;
   const message = payload.message as any;
 
+  const normalizedDomain = {
+    name: domain.name as string,
+    chainId: BigInt(domain.chainId),
+    verifyingContract: domain.verifyingContract as Address,
+    version: domain.version ?? '1',
+  };
+
   // 1. Compute domain separator
   let domainSeparator: Hex;
   if (client) {
-    domainSeparator = await fetchDomainSeparator(domain.verifyingContract as Address, client);
+    domainSeparator = await fetchDomainSeparator(normalizedDomain.verifyingContract, client);
   } else {
-    domainSeparator = computeDomainSeparator(domain);
+    console.warn('⚠️  WARNING: Computing domain separator locally (no client provided)');
+    console.warn('   This may not match the on-chain domain separator!');
+    console.warn('   Domain:', normalizedDomain);
+    domainSeparator = computeDomainSeparator(normalizedDomain);
+    console.warn('   Computed domain separator:', domainSeparator);
+    console.warn('   Expected from solver:', '0xc521956382ee2d10650715bb8cfd09c6d2fec7e3e32da559068ba06354306ad3');
   }
 
   // 2. Extract message fields
@@ -599,12 +652,12 @@ async function reconstructCompactDigest(
 
   // Hash all lock hashes together
   const commitmentsHash = lockHashes.length > 0
-    ? keccak256(concat(lockHashes))
+    ? keccak256(concatBytes(...lockHashes.map(h => encodeBytes32(h))))
     : keccak256('0x');
 
   // 4. Build mandate hash
   const mandate = message.mandate as any;
-  const fillDeadline = mandate.fillDeadline as number;
+  const fillDeadline = Number(mandate.fillDeadline);
   const inputOracle = mandate.inputOracle as Address;
   const outputs = mandate.outputs as Array<any>;
 
@@ -643,7 +696,7 @@ async function reconstructCompactDigest(
   }
 
   const outputsHash = outputHashes.length > 0
-    ? keccak256(concat(outputHashes.map(h => encodeBytes32(h))))
+    ? keccak256(concatBytes(...outputHashes.map(h => encodeBytes32(h))))
     : keccak256('0x');
 
   // Build mandate struct hash
@@ -670,7 +723,9 @@ async function reconstructCompactDigest(
   const structHash = keccak256(structEncoded);
 
   // 6. Compute final EIP-712 digest
-  return computeEip712Digest(domainSeparator, structHash);
+  const finalDigest = computeEip712Digest(domainSeparator, structHash);
+  
+  return finalDigest;
 }
 
 // ============================================================================
@@ -811,12 +866,13 @@ async function signCompact(
     // Wallet signing: use standard EIP-712
     const domain = extractDomain(payload);
     const types = getTypesForPayload(payload);
+    const normalizedMessage = normalizeTypedDataMessage(payload.message as Record<string, any>);
     
     signature = await walletSignFn({
       domain,
       types,
       primaryType: payload.primaryType,
-      message: payload.message,
+      message: normalizedMessage,
     });
   } else {
     // Private key signing: reconstruct and sign digest

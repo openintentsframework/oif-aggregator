@@ -122,6 +122,7 @@ impl OrderServiceTrait for OrderService {
 		let submit_order_request = oif_types::OifPostOrderRequest::try_from(request)
 			.map_err(|e| OrderServiceError::Validation(format!("Invalid order request: {}", e)))?;
 
+
 		// 4. Check circuit breaker before submitting order
 		// Get solver info for circuit breaker check
 		let solver = self
@@ -157,6 +158,8 @@ impl OrderServiceTrait for OrderService {
 		.await?;
 
 		let order_response = solver_adapter.submit_order(&submit_order_request).await?;
+
+
 
 		let order_id = order_response
 			.order_id()
@@ -229,13 +232,23 @@ impl OrderServiceTrait for OrderService {
 		{
 			Ok(scheduled_id) => {
 				tracing::info!(
+					target: TRACING_TARGET,
+					order_id = %order_id,
+					scheduled_id = %scheduled_id,
 					"Started monitoring for order '{}' (job ID: {})",
 					order_id,
 					scheduled_id
 				);
 			},
 			Err(e) => {
-				tracing::warn!("Failed to start monitoring for order '{}': {}", order_id, e);
+				tracing::warn!(
+					target: TRACING_TARGET,
+					order_id = %order_id,
+					error = %e,
+					"Failed to start monitoring for order '{}': {}",
+					order_id,
+					e
+				);
 				// Don't fail the order submission if monitoring fails to start
 			},
 		}

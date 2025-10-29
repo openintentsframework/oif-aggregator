@@ -71,8 +71,8 @@ export function convertFormToQuoteRequest(
     amount: swapType === "exact-input" ? amountWei : undefined,
   };
 
-  // Add lock field if only Compact is supported
-  if (supportedTypes.length === 1 && supportedTypes[0] === "oif-resource-lock-v0") {
+
+  if (supportedTypes.includes("oif-resource-lock-v0")) {
     input.lock = { kind: "the-compact" };
   }
 
