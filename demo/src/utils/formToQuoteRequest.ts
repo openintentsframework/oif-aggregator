@@ -47,7 +47,7 @@ export function formatAmount(amountWei: string, decimals: number): string {
 export function convertFormToQuoteRequest(
   formData: SimpleQuoteFormData,
   swapType: "exact-input" | "exact-output",
-  supportedTypes: string[] = ["oif-escrow-v0", "oif-resource-lock-v0"]
+  supportedTypes: string[] = ["oif-escrow-v0", "oif-resource-lock-v0", "oif-3009-v0"]
 ): QuoteRequest {
   if (!formData.fromAsset || !formData.toAsset) {
     throw new Error("Both from and to assets must be selected");
@@ -71,6 +71,11 @@ export function convertFormToQuoteRequest(
     amount: swapType === "exact-input" ? amountWei : undefined,
   };
 
+  // Add lock field if only Compact is supported
+  if (supportedTypes.length === 1 && supportedTypes[0] === "oif-resource-lock-v0") {
+    input.lock = { kind: "the-compact" };
+  }
+
   // Create output
   const receiverAddress = formData.receiverAddress || formData.userAddress;
   const output: Output = {
@@ -79,6 +84,24 @@ export function convertFormToQuoteRequest(
     amount: swapType === "exact-output" ? amountWei : undefined,
   };
 
+  // Build originSubmission for escrow (Permit2) or EIP-3009
+  let originSubmission;
+  const schemes: Array<'permit2' | 'eip3009'> = [];
+  
+  if (supportedTypes.includes("oif-escrow-v0")) {
+    schemes.push("permit2");
+  }
+  if (supportedTypes.includes("oif-3009-v0")) {
+    schemes.push("eip3009");
+  }
+  
+  if (schemes.length > 0) {
+    originSubmission = {
+      mode: "user" as const,
+      schemes,
+    };
+  }
+
   return {
     user: input.user,
     intent: {
@@ -86,10 +109,7 @@ export function convertFormToQuoteRequest(
       inputs: [input],
       outputs: [output],
       swapType,
-      originSubmission: {
-        mode: "user",
-        schemes: ["permit2"],
-      },
+      ...(originSubmission && { originSubmission }),
     },
     supportedTypes,
   };
