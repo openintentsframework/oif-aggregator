@@ -155,7 +155,7 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
           swapType,
           originSubmission: {
             mode: 'user',
-            schemes: ['permit2']
+            schemes: supportedTypes.includes('oif-3009-v0') ? ['eip3009'] : ['permit2']
           }
         },
         supportedTypes,

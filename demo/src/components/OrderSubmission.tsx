@@ -1,10 +1,12 @@
 import type { OrderRequest, QuoteResponse } from '../types/api';
 import { formatInteropAddress, fromInteropAddress } from '../utils/interopAddress';
 import { getSignerAddress, signQuote } from '../utils/quoteSigner';
+import { checkPermit2Approval, requestPermit2Approval } from '../utils/permit2Approval';
 import { useWallet } from '../contexts/WalletContext';
 import { useEffect, useState } from 'react';
+import { useWalletClient } from 'wagmi';
 
-import type { Hex } from 'viem';
+import type { Hex, Address } from 'viem';
 
 interface OrderSubmissionProps {
   selectedQuote: QuoteResponse;
@@ -15,11 +17,18 @@ interface OrderSubmissionProps {
 
 export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoading }: OrderSubmissionProps) {
   const { isConnected, address, signTypedData, isSigning: walletIsSigning } = useWallet();
+  const { data: walletClient } = useWalletClient();
   const [privateKey, setPrivateKey] = useState('');
   const [signature, setSignature] = useState('');
   const [signerAddress, setSignerAddress] = useState('');
   const [signingError, setSigningError] = useState('');
   const [isSigning, setIsSigning] = useState(false);
+  
+  // Permit2 approval state
+  const [needsApproval, setNeedsApproval] = useState(false);
+  const [isCheckingApproval, setIsCheckingApproval] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+  const [approvalTxHash, setApprovalTxHash] = useState<string>('');
   const [metadataJson, setMetadataJson] = useState('');
   const [showMetadata, setShowMetadata] = useState(false);
   const [remainingTime, setRemainingTime] = useState<number>(0);
@@ -59,6 +68,87 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
     if (remainingTime === 0) return 'text-red-700 dark:text-red-400';
     if (remainingTime < 30) return 'text-yellow-700 dark:text-yellow-400';
     return 'text-green-700 dark:text-green-400';
+  };
+
+  // Check Permit2 approval for wallet signing
+  useEffect(() => {
+    const checkApproval = async () => {
+      // Only check for Permit2 orders when using wallet (not private key override)
+      if (selectedQuote.order.type !== 'oif-escrow-v0' || !isConnected || !address || privateKey.trim()) {
+        setNeedsApproval(false);
+        return;
+      }
+
+      setIsCheckingApproval(true);
+      
+      try {
+        const firstInput = selectedQuote.preview.inputs[0];
+        if (!firstInput) return;
+
+        const inputInterop = fromInteropAddress(firstInput.asset);
+        const rpcUrl = getRpcUrlForChain(inputInterop.chainId);
+        
+        const result = await checkPermit2Approval(
+          address as Address,
+          inputInterop.address as Address,
+          inputInterop.chainId,
+          rpcUrl
+        );
+
+        setNeedsApproval(!result.hasApproval);
+      } catch (error) {
+        console.error('Failed to check Permit2 approval:', error);
+        setNeedsApproval(false);
+      } finally {
+        setIsCheckingApproval(false);
+      }
+    };
+
+    checkApproval();
+  }, [selectedQuote, isConnected, address, privateKey]);
+
+  // Helper to get RPC URL
+  const getRpcUrlForChain = (chainId: number): string => {
+    const publicRpcs: Record<number, string> = {
+      11155420: 'https://sepolia.optimism.io',
+      84532: 'https://sepolia.base.org',
+    };
+    return publicRpcs[chainId] || 'https://rpc.ankr.com/eth';
+  };
+
+  // Handle Permit2 approval
+  const handleApprove = async () => {
+    if (!walletClient || !address) {
+      setSigningError('Wallet not connected');
+      return;
+    }
+
+    setIsApproving(true);
+    setSigningError('');
+
+    try {
+      const firstInput = selectedQuote.preview.inputs[0];
+      if (!firstInput) {
+        throw new Error('No input found in quote');
+      }
+
+      const inputInterop = fromInteropAddress(firstInput.asset);
+      
+      const txHash = await requestPermit2Approval(
+        inputInterop.address as Address,
+        inputInterop.chainId,
+        walletClient
+      );
+
+      setApprovalTxHash(txHash);
+      setNeedsApproval(false);
+      alert(`Approval transaction submitted! Hash: ${txHash}\n\nYou can now sign the quote.`);
+    } catch (error) {
+      console.error('Approval error:', error);
+      setSigningError((error as Error).message);
+    } finally {
+      setIsApproving(false);
+    }
   };
 
   // Sign the quote - use wallet by default, private key as override
@@ -330,6 +420,46 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
             )}
           </div>
 
+          {/* Permit2 Approval Warning */}
+          {needsApproval && !privateKey.trim() && (
+            <div className="mb-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded">
+              <div className="flex items-start">
+                <svg className="w-5 h-5 text-yellow-600 dark:text-yellow-400 mt-0.5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <div className="flex-1">
+                  <h4 className="font-semibold text-yellow-800 dark:text-yellow-200 mb-1">
+                    Permit2 Approval Required
+                  </h4>
+                  <p className="text-sm text-yellow-700 dark:text-yellow-300 mb-3">
+                    This order requires approval for the Permit2 contract to spend your tokens. 
+                    You'll need to complete the approval transaction before signing the quote.
+                  </p>
+                  <button
+                    onClick={handleApprove}
+                    disabled={isApproving || !walletClient}
+                    className={`btn-primary ${isApproving ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  >
+                    {isApproving ? 'Approving...' : '✓ Approve Permit2'}
+                  </button>
+                  {approvalTxHash && (
+                    <p className="text-xs text-green-600 dark:text-green-400 mt-2">
+                      ✓ Approval submitted: {approvalTxHash.slice(0, 10)}...{approvalTxHash.slice(-8)}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {isCheckingApproval && !privateKey.trim() && (
+            <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded">
+              <p className="text-sm text-blue-700 dark:text-blue-300">
+                ⏳ Checking Permit2 approval...
+              </p>
+            </div>
+          )}
+
           {/* Private Key Override */}
           <div className="mb-4">
             <label className="label-text">
@@ -364,13 +494,15 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
           <button
             type="button"
             onClick={handleSignQuote}
-            disabled={isSigning || walletIsSigning || isLoading || isQuoteExpired || (!privateKey.trim() && !isConnected)}
+            disabled={isSigning || walletIsSigning || isLoading || isQuoteExpired || (!privateKey.trim() && !isConnected) || (needsApproval && !privateKey.trim())}
             className="btn-secondary w-full mb-3"
           >
             {isSigning || walletIsSigning ? (
               'Signing...'
             ) : isQuoteExpired ? (
               'Quote Expired'
+            ) : needsApproval && !privateKey.trim() ? (
+              '🔒 Approve Permit2 First'
             ) : privateKey.trim() ? (
               'Sign Quote with Private Key'
             ) : isConnected ? (

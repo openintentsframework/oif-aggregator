@@ -47,7 +47,7 @@ export function formatAmount(amountWei: string, decimals: number): string {
 export function convertFormToQuoteRequest(
   formData: SimpleQuoteFormData,
   swapType: "exact-input" | "exact-output",
-  supportedTypes: string[] = ["oif-escrow-v0", "oif-resource-lock-v0"]
+  supportedTypes: string[] = ["oif-escrow-v0"]
 ): QuoteRequest {
   if (!formData.fromAsset || !formData.toAsset) {
     throw new Error("Both from and to assets must be selected");
@@ -88,7 +88,7 @@ export function convertFormToQuoteRequest(
       swapType,
       originSubmission: {
         mode: "user",
-        schemes: ["permit2"],
+        schemes: supportedTypes.includes("oif-3009-v0") ? ["eip3009"] : ["permit2"],
       },
     },
     supportedTypes,
