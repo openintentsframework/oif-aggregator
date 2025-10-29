@@ -134,6 +134,10 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
     if (stepIndex < currentStepIndex) {
       return 'completed';
     } else if (stepIndex === currentStepIndex) {
+      // If this is the finalized step and we're at it, mark as completed (green) not current (orange)
+      if (currentStatus === 'finalized' && stepKey === 'finalized') {
+        return 'completed';
+      }
       return 'current';
     } else {
       return 'pending';
@@ -196,7 +200,7 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
       return false; // Failed orders should not poll
     }
     
-    return ['created', 'pending', 'executing', 'settling'].includes(status);
+    return ['created', 'pending', 'executing', 'executed', 'settling', 'settled'].includes(status);
   };
 
   // Check if status is failed (handles both simple and complex failed status)
@@ -206,7 +210,7 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
 
   // Check if status is successful final state
   const isSuccessful = (status: OrderStatusType): boolean => {
-    return status === 'finalized' || status === 'settled' || status === 'executed';
+    return status === 'finalized';
   };
 
   // Get error message from failed status
