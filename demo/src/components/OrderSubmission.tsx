@@ -119,10 +119,7 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
         
         // Determine RPC URL based on chain ID
         const getRpcUrlForChain = (chainId: number): string => {
-          const envRpc = import.meta.env.VITE_RPC_URL;
-          if (envRpc) return envRpc;
-          
-          // Fallback to public RPCs for common chains
+          // Use chain-specific RPC URLs for correct network
           const publicRpcs: Record<number, string> = {
             1: 'https://eth.llamarpc.com',
             10: 'https://optimism.llamarpc.com',
@@ -134,7 +131,8 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
             421614: 'https://sepolia-rollup.arbitrum.io/rpc',
           };
           
-          return publicRpcs[chainId] || `https://rpc.ankr.com/eth`;
+          // Return chain-specific RPC or fallback to env var
+          return publicRpcs[chainId] || import.meta.env.VITE_RPC_URL || `https://rpc.ankr.com/eth`;
         };
         
         const rpcUrl = getRpcUrlForChain(chainId);

@@ -44,7 +44,7 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
   ]);
 
   const [swapType, setSwapType] = useState<'exact-input' | 'exact-output'>('exact-input');
-  const [supportedTypes, setSupportedTypes] = useState<string[]>(['oif-escrow-v0']);
+  const [supportedTypes, setSupportedTypes] = useState<string[]>(['oif-escrow-v0', 'oif-3009-v0', 'oif-resource-lock-v0']);
   
   // Solver options state
   const [solverOptions, setSolverOptions] = useState<Partial<SolverOptions>>({
@@ -145,6 +145,24 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
         };
       });
 
+      // Build originSubmission for escrow (Permit2) or EIP-3009
+      let originSubmission;
+      const schemes: Array<'permit2' | 'eip3009'> = [];
+      
+      if (supportedTypes.includes('oif-escrow-v0')) {
+        schemes.push('permit2');
+      }
+      if (supportedTypes.includes('oif-3009-v0')) {
+        schemes.push('eip3009');
+      }
+      
+      if (schemes.length > 0) {
+        originSubmission = {
+          mode: 'user' as const,
+          schemes,
+        };
+      }
+
       // Use first input's user as the request user
       const request: QuoteRequest = {
         user: apiInputs[0].user,
@@ -153,10 +171,7 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
           inputs: apiInputs,
           outputs: apiOutputs,
           swapType,
-          originSubmission: {
-            mode: 'user',
-            schemes: ['permit2']
-          }
+          ...(originSubmission && { originSubmission }),
         },
         supportedTypes,
         solverOptions: showSolverOptions ? solverOptions : undefined
@@ -175,7 +190,7 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
       setSwapType(request.intent.swapType || 'exact-input');
       
       // Load supported types
-      setSupportedTypes(request.supportedTypes || ['oif-escrow-v0']);
+      setSupportedTypes(request.supportedTypes || ['oif-escrow-v0', 'oif-3009-v0', 'oif-resource-lock-v0']);
       
       // Load inputs
       const loadedInputs: FormInput[] = request.intent.inputs.map(input => {
