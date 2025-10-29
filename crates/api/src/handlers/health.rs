@@ -57,7 +57,8 @@ pub async fn health(State(state): State<AppState>) -> (StatusCode, Json<HealthRe
 	let status_code = if overall_healthy {
 		StatusCode::OK
 	} else {
-		StatusCode::SERVICE_UNAVAILABLE
+		// We are returning StatusCode::OK instead of StatusCode::SERVICE_UNAVAILABLE because of simple handling with AWS ALB target group health checks
+		StatusCode::OK
 	};
 
 	(status_code, Json(response))
