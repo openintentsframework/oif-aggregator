@@ -741,6 +741,15 @@ impl SolverAdapter for OifAdapter {
 				reason: "OIF adapter only supports v0 quotes".to_string(),
 			})?;
 
+		let request_json = serde_json::to_string_pretty(v0_request)
+			.unwrap_or_else(|_| "Failed to serialize request".to_string());
+		debug!(
+			"📤 Sending quote request to solver {} at {}:\n{}",
+			config.solver_id,
+			quote_url,
+			request_json
+		);
+
 		let response = client
 			.post(quote_url)
 			.json(v0_request)
@@ -797,6 +806,16 @@ impl SolverAdapter for OifAdapter {
 			.ok_or_else(|| AdapterError::InvalidResponse {
 				reason: "OIF adapter only supports v0 orders".to_string(),
 			})?;
+
+		// DEBUG: Log the exact JSON being sent to the solver
+		let request_json = serde_json::to_string_pretty(v0_request)
+			.unwrap_or_else(|_| "Failed to serialize order request".to_string());
+		debug!(
+			"📤 Sending order submission to solver {} at {}:\n{}",
+			config.solver_id,
+			orders_url,
+			request_json
+		);
 
 		let response = client
 			.post(orders_url)

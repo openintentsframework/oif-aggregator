@@ -99,12 +99,34 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
         signerAddr = getSignerAddress(formattedKey as Hex);
         setSignerAddress(signerAddr);
 
+        // Get chain ID from the order payload to configure the correct RPC
+        const chainId = typeof eip712Data.domain.chainId === 'string' 
+          ? parseInt(eip712Data.domain.chainId) 
+          : Number(eip712Data.domain.chainId);
+        
+        // Determine RPC URL based on chain ID (same as wallet signing)
+        const getRpcUrlForChain = (chainId: number): string => {
+          const publicRpcs: Record<number, string> = {
+            1: 'https://eth.llamarpc.com',
+            10: 'https://optimism.llamarpc.com',
+            42161: 'https://arbitrum.llamarpc.com',
+            8453: 'https://base.llamarpc.com',
+            11155111: 'https://sepolia.llamarpc.com',
+            11155420: 'https://sepolia.optimism.io',
+            84532: 'https://sepolia.base.org',
+            421614: 'https://sepolia-rollup.arbitrum.io/rpc',
+          };
+          return publicRpcs[chainId] || `https://rpc.ankr.com/eth`;
+        };
+        
+        const rpcUrl = getRpcUrlForChain(chainId);
+
         // Sign the quote with private key using the EIP-712 data from the quote
         sig = await signQuote(
           selectedQuote as any, // Cast to Quote type from quoteSigner
           formattedKey as Hex,
           {
-            rpcUrl: import.meta.env.VITE_RPC_URL // Optional: for fetching domain separators
+            rpcUrl  // Pass RPC URL to fetch domain separator from contract!
           }
         );
       } else if (isConnected && address) {
