@@ -3,13 +3,21 @@
  * Handles checking and requesting token approvals for Permit2 contract
  */
 
-import { createPublicClient, http, type Address, type Hex } from 'viem';
+import { createPublicClient, http } from 'viem';
+import type { Address, Hex } from 'viem';
 import { optimismSepolia, baseSepolia } from 'viem/chains';
+
+const CANONICAL_PERMIT2_ADDRESS = '0x000000000022D473030F116dDEE9F6B43aC78BA3' as Address;
+
+const CHAIN_CONFIGS = {
+  [optimismSepolia.id]: optimismSepolia,
+  [baseSepolia.id]: baseSepolia,
+};
 
 // Permit2 contract addresses per chain
 const PERMIT2_ADDRESSES: Record<number, Address> = {
-  11155420: '0x000000000022D473030F116dDEE9F6B43aC78BA3', // Optimism Sepolia
-  84532: '0x000000000022D473030F116dDEE9F6B43aC78BA3', // Base Sepolia
+  11155420: CANONICAL_PERMIT2_ADDRESS, // Optimism Sepolia
+  84532: CANONICAL_PERMIT2_ADDRESS, // Base Sepolia
   // Add more chains as needed
 };
 
@@ -25,16 +33,12 @@ export async function checkPermit2Approval(
   chainId: number,
   rpcUrl?: string
 ): Promise<{ hasApproval: boolean; currentAllowance: bigint }> {
-  const permit2Address = PERMIT2_ADDRESSES[chainId];
-  
-  if (!permit2Address) {
-    throw new Error(`Permit2 not supported on chain ${chainId}`);
-  }
+  const permit2Address = getPermit2Address(chainId);
 
   // Create public client for reading
-  const chain = chainId === 11155420 ? optimismSepolia : baseSepolia;
+  const chain = CHAIN_CONFIGS[chainId];
   const publicClient = createPublicClient({
-    chain,
+    ...(chain ? { chain } : {}),
     transport: rpcUrl ? http(rpcUrl) : http(),
   });
 
@@ -74,11 +78,7 @@ export async function requestPermit2Approval(
   chainId: number,
   walletClient: any // From wagmi
 ): Promise<Hex> {
-  const permit2Address = PERMIT2_ADDRESSES[chainId];
-  
-  if (!permit2Address) {
-    throw new Error(`Permit2 not supported on chain ${chainId}`);
-  }
+  const permit2Address = getPermit2Address(chainId);
 
   try {
     // Send approve transaction (max uint256 for infinite approval)
@@ -108,7 +108,7 @@ export async function requestPermit2Approval(
 /**
  * Get Permit2 address for a chain
  */
-export function getPermit2Address(chainId: number): Address | undefined {
-  return PERMIT2_ADDRESSES[chainId];
+export function getPermit2Address(chainId: number): Address {
+  return PERMIT2_ADDRESSES[chainId] || CANONICAL_PERMIT2_ADDRESS;
 }
 
