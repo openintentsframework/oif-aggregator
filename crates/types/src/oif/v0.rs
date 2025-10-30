@@ -132,13 +132,12 @@ impl GetQuoteRequest {
 			if self
 				.supported_types
 				.contains(&"oif-resource-lock-v0".to_string())
+				&& input.lock.is_none()
 			{
-				if input.lock.is_none() {
-					return Err(format!(
-						"inputs[{}].lock field is required when supportedTypes includes 'oif-resource-lock-v0'",
-						i
-					));
-				}
+				return Err(format!(
+   						"inputs[{}].lock field is required when supportedTypes includes 'oif-resource-lock-v0'",
+   						i
+   					));
 			}
 		}
 
