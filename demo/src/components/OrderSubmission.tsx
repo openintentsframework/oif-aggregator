@@ -1,6 +1,7 @@
 import type { OrderRequest, QuoteResponse } from '../types/api';
 import { formatInteropAddress, fromInteropAddress } from '../utils/interopAddress';
 import { getSignerAddress, signQuote } from '../utils/quoteSigner';
+import { getRpcUrlForChain } from '../utils/chainUtils';
 import { useWallet } from '../contexts/WalletContext';
 import { useEffect, useState } from 'react';
 
@@ -104,21 +105,6 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
           ? parseInt(eip712Data.domain.chainId) 
           : Number(eip712Data.domain.chainId);
         
-        // Determine RPC URL based on chain ID (same as wallet signing)
-        const getRpcUrlForChain = (chainId: number): string => {
-          const publicRpcs: Record<number, string> = {
-            1: 'https://eth.llamarpc.com',
-            10: 'https://optimism.llamarpc.com',
-            42161: 'https://arbitrum.llamarpc.com',
-            8453: 'https://base.llamarpc.com',
-            11155111: 'https://sepolia.llamarpc.com',
-            11155420: 'https://sepolia.optimism.io',
-            84532: 'https://sepolia.base.org',
-            421614: 'https://sepolia-rollup.arbitrum.io/rpc',
-          };
-          return publicRpcs[chainId] || `https://rpc.ankr.com/eth`;
-        };
-        
         const rpcUrl = getRpcUrlForChain(chainId);
 
         // Sign the quote with private key using the EIP-712 data from the quote
@@ -138,24 +124,6 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
         const chainId = typeof eip712Data.domain.chainId === 'string' 
           ? parseInt(eip712Data.domain.chainId) 
           : Number(eip712Data.domain.chainId);
-        
-        // Determine RPC URL based on chain ID
-        const getRpcUrlForChain = (chainId: number): string => {
-          // Use chain-specific RPC URLs for correct network
-          const publicRpcs: Record<number, string> = {
-            1: 'https://eth.llamarpc.com',
-            10: 'https://optimism.llamarpc.com',
-            42161: 'https://arbitrum.llamarpc.com',
-            8453: 'https://base.llamarpc.com',
-            11155111: 'https://sepolia.llamarpc.com',
-            11155420: 'https://sepolia.optimism.io',
-            84532: 'https://sepolia.base.org',
-            421614: 'https://sepolia-rollup.arbitrum.io/rpc',
-          };
-          
-          // Return chain-specific RPC or fallback to env var
-          return publicRpcs[chainId] || import.meta.env.VITE_RPC_URL || `https://rpc.ankr.com/eth`;
-        };
         
         const rpcUrl = getRpcUrlForChain(chainId);
         

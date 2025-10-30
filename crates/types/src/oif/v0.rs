@@ -559,10 +559,6 @@ mod tests {
 		// Serialize to JSON
 		let json = serde_json::to_value(&order).unwrap();
 
-		// Print the serialized JSON for verification
-		println!("Serialized Order JSON:");
-		println!("{}", serde_json::to_string_pretty(&json).unwrap());
-
 		// Verify the "type" field is present and correct
 		assert_eq!(json["type"], "oif-resource-lock-v0");
 		assert!(json["payload"].is_object());
@@ -668,9 +664,6 @@ mod tests {
 
 		// Serialize to JSON
 		let json = serde_json::to_string_pretty(&request).unwrap();
-		println!("PostOrderRequest JSON:");
-		println!("{}", json);
-
 		// Parse back and verify structure
 		let value: serde_json::Value = serde_json::from_str(&json).unwrap();
 
@@ -679,7 +672,5 @@ mod tests {
 		assert!(value["order"]["payload"].is_object());
 		assert_eq!(value["signature"], "0x000000...");
 		assert_eq!(value["quoteId"], "c27076e9-389e-47e8-8270-148c6b4f99c0");
-
-		println!("\n✓ PostOrderRequest correctly includes order.type field!");
 	}
 }
