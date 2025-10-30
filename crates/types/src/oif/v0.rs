@@ -129,7 +129,10 @@ impl GetQuoteRequest {
 			}
 
 			// Validate lock field requirement for resource-lock order types
-			if self.supported_types.contains(&"oif-resource-lock-v0".to_string()) {
+			if self
+				.supported_types
+				.contains(&"oif-resource-lock-v0".to_string())
+			{
 				if input.lock.is_none() {
 					return Err(format!(
 						"inputs[{}].lock field is required when supportedTypes includes 'oif-resource-lock-v0'",
@@ -203,7 +206,7 @@ impl GetQuoteRequest {
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub enum Order {
 	#[serde(rename = "oif-escrow-v0")]
-	OifEscrowV0 { payload: OrderPayload, },
+	OifEscrowV0 { payload: OrderPayload },
 	#[serde(rename = "oif-resource-lock-v0")]
 	OifResourceLockV0 { payload: OrderPayload },
 	#[serde(rename = "oif-3009-v0")]
@@ -431,9 +434,9 @@ mod tests {
 		// Should fail validation
 		let result = request.validate();
 		assert!(result.is_err());
-		assert!(result
-			.unwrap_err()
-			.contains("lock field is required when supportedTypes includes 'oif-resource-lock-v0'"));
+		assert!(result.unwrap_err().contains(
+			"lock field is required when supportedTypes includes 'oif-resource-lock-v0'"
+		));
 	}
 
 	#[test]
@@ -593,7 +596,7 @@ mod tests {
 		match order {
 			Order::OifResourceLockV0 { .. } => {
 				assert_eq!(order.order_type(), "oif-resource-lock-v0");
-			}
+			},
 			_ => panic!("Expected OifResourceLockV0 variant"),
 		}
 	}
@@ -670,13 +673,13 @@ mod tests {
 
 		// Parse back and verify structure
 		let value: serde_json::Value = serde_json::from_str(&json).unwrap();
-		
+
 		// Verify the order has the type field
 		assert_eq!(value["order"]["type"], "oif-resource-lock-v0");
 		assert!(value["order"]["payload"].is_object());
 		assert_eq!(value["signature"], "0x000000...");
 		assert_eq!(value["quoteId"], "c27076e9-389e-47e8-8270-148c6b4f99c0");
-		
+
 		println!("\n✓ PostOrderRequest correctly includes order.type field!");
 	}
 }
