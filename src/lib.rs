@@ -482,6 +482,7 @@ where
 			Arc::clone(&storage_arc),
 			Arc::clone(&adapter_registry),
 			Some(Arc::clone(&job_scheduler)),
+			Arc::clone(&circuit_breaker),
 		)) as Arc<dyn SolverServiceTrait>;
 
 		// Create the order service with the upgradable scheduler
@@ -654,7 +655,7 @@ where
 		// Schedule health checks for all solvers every 5 minutes (run immediately on startup)
 		if let Err(e) = job_processor
 			.schedule_job(
-				5, // 5 minutes
+				1,
 				BackgroundJob::AllSolversHealthCheck,
 				"Periodic health check for all solvers".to_string(),
 				Some("health-check-all-solvers".to_string()), // ID used for both scheduling and deduplication

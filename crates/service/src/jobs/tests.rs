@@ -5,8 +5,9 @@ use std::time::Duration;
 use tokio::time::sleep;
 
 use crate::{
-	AggregatorService, AggregatorTrait, IntegrityService, IntegrityTrait, OrderService,
-	OrderServiceTrait, SolverFilterService, SolverFilterTrait, SolverService, SolverServiceTrait,
+	circuit_breaker, AggregatorService, AggregatorTrait, CircuitBreakerTrait, IntegrityService,
+	IntegrityTrait, OrderService, OrderServiceTrait, SolverFilterService, SolverFilterTrait,
+	SolverService, SolverServiceTrait,
 };
 use oif_adapters::AdapterRegistry;
 use oif_storage::{MemoryStore, Storage};
@@ -22,15 +23,18 @@ fn create_test_services(
 	storage: Arc<dyn Storage>,
 	adapter_registry: Arc<AdapterRegistry>,
 	_order_service: Arc<dyn OrderServiceTrait>,
+	circuit_breaker_service: Arc<dyn CircuitBreakerTrait>,
 ) -> (
 	Arc<dyn SolverServiceTrait>,
 	Arc<dyn AggregatorTrait>,
 	Arc<dyn IntegrityTrait>,
+	Arc<dyn CircuitBreakerTrait>,
 ) {
 	let solver_service = Arc::new(SolverService::new(
 		Arc::clone(&storage),
 		Arc::clone(&adapter_registry),
 		None,
+		Arc::clone(&circuit_breaker_service),
 	)) as Arc<dyn SolverServiceTrait>;
 
 	let integrity_service = Arc::new(IntegrityService::new(
@@ -51,7 +55,12 @@ fn create_test_services(
 		None,
 	)) as Arc<dyn AggregatorTrait>;
 
-	(solver_service, aggregator_service, integrity_service)
+	(
+		solver_service,
+		aggregator_service,
+		integrity_service,
+		circuit_breaker_service,
+	)
 }
 
 #[tokio::test]
@@ -89,10 +98,13 @@ async fn test_job_processor_basic_functionality() {
 	)) as Arc<dyn OrderServiceTrait>;
 
 	// Create job handler with all required services
-	let (solver_service, aggregator_service, _) = create_test_services(
+	let circuit_breaker_service =
+		Arc::new(crate::MockCircuitBreakerTrait::new()) as Arc<dyn CircuitBreakerTrait>;
+	let (solver_service, aggregator_service, _, _) = create_test_services(
 		storage.clone(),
 		adapter_registry.clone(),
 		order_service.clone(),
+		circuit_breaker_service.clone(),
 	);
 	let handler = Arc::new(BackgroundJobHandler::new(
 		storage.clone(),
@@ -165,11 +177,14 @@ async fn test_job_processor_queue_capacity() {
 		Arc::clone(&job_scheduler),
 		Arc::new(crate::MockCircuitBreakerTrait::new()),
 	)) as Arc<dyn OrderServiceTrait>;
+	let circuit_breaker_service =
+		Arc::new(crate::MockCircuitBreakerTrait::new()) as Arc<dyn CircuitBreakerTrait>;
 
-	let (solver_service, aggregator_service, _) = create_test_services(
+	let (solver_service, aggregator_service, _, _) = create_test_services(
 		storage.clone(),
 		adapter_registry.clone(),
 		order_service.clone(),
+		circuit_breaker_service.clone(),
 	);
 	let handler = Arc::new(BackgroundJobHandler::new(
 		storage,
@@ -263,11 +278,15 @@ async fn test_solver_maintenance_handler() {
 	// Store the solver
 	storage.create_solver(solver.clone()).await.unwrap();
 
+	let circuit_breaker_service =
+		Arc::new(crate::MockCircuitBreakerTrait::new()) as Arc<dyn CircuitBreakerTrait>;
+
 	// Create handler
-	let (solver_service, aggregator_service, _) = create_test_services(
+	let (solver_service, aggregator_service, _, _) = create_test_services(
 		storage.clone(),
 		adapter_registry.clone(),
 		order_service.clone(),
+		circuit_breaker_service.clone(),
 	);
 	let handler = BackgroundJobHandler::new(
 		storage.clone(),
@@ -362,12 +381,15 @@ async fn test_job_scheduling() {
 		Arc::clone(&job_scheduler),
 		Arc::new(crate::MockCircuitBreakerTrait::new()),
 	)) as Arc<dyn OrderServiceTrait>;
+	let circuit_breaker_service =
+		Arc::new(crate::MockCircuitBreakerTrait::new()) as Arc<dyn CircuitBreakerTrait>;
 
 	// Create job handler with all required services
-	let (solver_service, aggregator_service, _) = create_test_services(
+	let (solver_service, aggregator_service, _, _) = create_test_services(
 		storage.clone(),
 		adapter_registry.clone(),
 		order_service.clone(),
+		circuit_breaker_service.clone(),
 	);
 	let handler = Arc::new(BackgroundJobHandler::new(
 		storage.clone(),
@@ -572,10 +594,14 @@ async fn test_job_memory_management() {
 		Arc::new(crate::MockCircuitBreakerTrait::new()),
 	)) as Arc<dyn OrderServiceTrait>;
 
-	let (solver_service, aggregator_service, _) = create_test_services(
+	let circuit_breaker_service =
+		Arc::new(crate::MockCircuitBreakerTrait::new()) as Arc<dyn CircuitBreakerTrait>;
+
+	let (solver_service, aggregator_service, _, _) = create_test_services(
 		storage.clone(),
 		adapter_registry.clone(),
 		order_service.clone(),
+		circuit_breaker_service.clone(),
 	);
 
 	let handler = Arc::new(BackgroundJobHandler::new(
@@ -710,12 +736,15 @@ async fn test_orders_cleanup_job() {
 		Arc::clone(&job_scheduler),
 		Arc::new(crate::MockCircuitBreakerTrait::new()),
 	)) as Arc<dyn OrderServiceTrait>;
+	let circuit_breaker_service =
+		Arc::new(crate::MockCircuitBreakerTrait::new()) as Arc<dyn CircuitBreakerTrait>;
 
 	// Create job handler
-	let (solver_service, aggregator_service, _) = create_test_services(
+	let (solver_service, aggregator_service, _, _) = create_test_services(
 		storage.clone(),
 		adapter_registry.clone(),
 		order_service.clone(),
+		circuit_breaker_service.clone(),
 	);
 	let handler = BackgroundJobHandler::new(
 		storage.clone(),

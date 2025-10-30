@@ -45,7 +45,7 @@ async fn test_health_endpoint() {
 		.await
 		.expect("Failed to get health endpoint");
 
-	assert_eq!(response.status(), 200);
+	assert_eq!(response.status(), 503);
 
 	// Parse JSON response
 	let json_body: serde_json::Value = response

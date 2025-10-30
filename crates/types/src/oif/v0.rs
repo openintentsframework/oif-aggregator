@@ -127,6 +127,19 @@ impl GetQuoteRequest {
 					return Err(format!("inputs[{}].amount must be greater than zero", i));
 				}
 			}
+
+			// Validate lock field requirement for resource-lock order types
+			if self
+				.supported_types
+				.iter()
+				.any(|t| t == "oif-resource-lock-v0")
+				&& input.lock.is_none()
+			{
+				return Err(format!(
+   						"inputs[{}].lock field is required when supportedTypes includes 'oif-resource-lock-v0'",
+   						i
+   					));
+			}
 		}
 
 		// Validate all outputs
@@ -207,6 +220,29 @@ pub enum Order {
 	},
 	/// TODO Across order type
 	Across { payload: serde_json::Value },
+}
+
+impl Order {
+	/// Returns the order type as a string
+	pub fn order_type(&self) -> &'static str {
+		match self {
+			Order::OifEscrowV0 { .. } => "oif-escrow-v0",
+			Order::OifResourceLockV0 { .. } => "oif-resource-lock-v0",
+			Order::Oif3009V0 { .. } => "oif-3009-v0",
+			Order::OifGenericV0 { .. } => "oif-generic-v0",
+			Order::Across { .. } => "across",
+		}
+	}
+
+	/// Returns the payload for orders that have a standard OrderPayload structure
+	pub fn payload(&self) -> Option<&OrderPayload> {
+		match self {
+			Order::OifEscrowV0 { payload } => Some(payload),
+			Order::OifResourceLockV0 { payload } => Some(payload),
+			Order::Oif3009V0 { payload, .. } => Some(payload),
+			_ => None,
+		}
+	}
 }
 
 /// Standard order payload structure for most order types
@@ -345,4 +381,296 @@ pub struct GetOrderResponse {
 	/// Transaction details if order has been executed
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub fill_transaction: Option<serde_json::Value>,
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use crate::oif::common::{AssetLockReference, LockKind};
+
+	#[test]
+	fn test_validate_resource_lock_requires_lock_field() {
+		// Create a request with resource-lock in supported types but no lock field in input
+		let request = GetQuoteRequest {
+			user: InteropAddress::from_text("eip155:1:0x742d35Cc6634C0532925a3b844D400c9569c9D3B")
+				.unwrap(),
+			intent: IntentRequest {
+				intent_type: IntentType::OifSwap,
+				inputs: vec![Input {
+					user: InteropAddress::from_text(
+						"eip155:1:0x742d35Cc6634C0532925a3b844D400c9569c9D3B",
+					)
+					.unwrap(),
+					asset: InteropAddress::from_text(
+						"eip155:1:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+					)
+					.unwrap(),
+					amount: Some(crate::U256::new("1000000".to_string())),
+					lock: None, // Missing lock field!
+				}],
+				outputs: vec![Output {
+					receiver: InteropAddress::from_text(
+						"eip155:10:0x742d35Cc6634C0532925a3b844D400c9569c9D3B",
+					)
+					.unwrap(),
+					asset: InteropAddress::from_text(
+						"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+					)
+					.unwrap(),
+					amount: Some(crate::U256::new("1000000".to_string())),
+					calldata: None,
+				}],
+				swap_type: Some(SwapType::ExactInput),
+				min_valid_until: None,
+				preference: None,
+				origin_submission: None,
+				failure_handling: None,
+				partial_fill: None,
+				metadata: None,
+			},
+			supported_types: vec!["oif-resource-lock-v0".to_string()],
+		};
+
+		// Should fail validation
+		let result = request.validate();
+		assert!(result.is_err());
+		assert!(result.unwrap_err().contains(
+			"lock field is required when supportedTypes includes 'oif-resource-lock-v0'"
+		));
+	}
+
+	#[test]
+	fn test_validate_resource_lock_with_lock_field_succeeds() {
+		// Create a request with resource-lock in supported types AND lock field in input
+		let request = GetQuoteRequest {
+			user: InteropAddress::from_text("eip155:1:0x742d35Cc6634C0532925a3b844D400c9569c9D3B")
+				.unwrap(),
+			intent: IntentRequest {
+				intent_type: IntentType::OifSwap,
+				inputs: vec![Input {
+					user: InteropAddress::from_text(
+						"eip155:1:0x742d35Cc6634C0532925a3b844D400c9569c9D3B",
+					)
+					.unwrap(),
+					asset: InteropAddress::from_text(
+						"eip155:1:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+					)
+					.unwrap(),
+					amount: Some(crate::U256::new("1000000".to_string())),
+					lock: Some(AssetLockReference {
+						kind: LockKind::TheCompact,
+						params: None,
+					}),
+				}],
+				outputs: vec![Output {
+					receiver: InteropAddress::from_text(
+						"eip155:10:0x742d35Cc6634C0532925a3b844D400c9569c9D3B",
+					)
+					.unwrap(),
+					asset: InteropAddress::from_text(
+						"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+					)
+					.unwrap(),
+					amount: Some(crate::U256::new("1000000".to_string())),
+					calldata: None,
+				}],
+				swap_type: Some(SwapType::ExactInput),
+				min_valid_until: None,
+				preference: None,
+				origin_submission: None,
+				failure_handling: None,
+				partial_fill: None,
+				metadata: None,
+			},
+			supported_types: vec!["oif-resource-lock-v0".to_string()],
+		};
+
+		// Should pass validation
+		let result = request.validate();
+		assert!(result.is_ok());
+	}
+
+	#[test]
+	fn test_validate_without_resource_lock_no_lock_field_required() {
+		// Create a request without resource-lock in supported types and no lock field
+		let request = GetQuoteRequest {
+			user: InteropAddress::from_text("eip155:1:0x742d35Cc6634C0532925a3b844D400c9569c9D3B")
+				.unwrap(),
+			intent: IntentRequest {
+				intent_type: IntentType::OifSwap,
+				inputs: vec![Input {
+					user: InteropAddress::from_text(
+						"eip155:1:0x742d35Cc6634C0532925a3b844D400c9569c9D3B",
+					)
+					.unwrap(),
+					asset: InteropAddress::from_text(
+						"eip155:1:0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+					)
+					.unwrap(),
+					amount: Some(crate::U256::new("1000000".to_string())),
+					lock: None, // No lock field, but that's OK since we're not using resource-lock
+				}],
+				outputs: vec![Output {
+					receiver: InteropAddress::from_text(
+						"eip155:10:0x742d35Cc6634C0532925a3b844D400c9569c9D3B",
+					)
+					.unwrap(),
+					asset: InteropAddress::from_text(
+						"eip155:10:0x7F5c764cBc14f9669B88837ca1490cCa17c31607",
+					)
+					.unwrap(),
+					amount: Some(crate::U256::new("1000000".to_string())),
+					calldata: None,
+				}],
+				swap_type: Some(SwapType::ExactInput),
+				min_valid_until: None,
+				preference: None,
+				origin_submission: None,
+				failure_handling: None,
+				partial_fill: None,
+				metadata: None,
+			},
+			supported_types: vec!["oif-escrow-v0".to_string()],
+		};
+
+		// Should pass validation
+		let result = request.validate();
+		assert!(result.is_ok());
+	}
+
+	#[test]
+	fn test_order_type_serialization() {
+		// Test that Order serializes with correct "type" field
+		let order = Order::OifResourceLockV0 {
+			payload: OrderPayload {
+				signature_type: SignatureType::Eip712,
+				domain: serde_json::json!({
+					"name": "TestDomain",
+					"version": "1"
+				}),
+				primary_type: "TestType".to_string(),
+				message: serde_json::json!({
+					"test": "value"
+				}),
+				types: std::collections::HashMap::new(),
+			},
+		};
+
+		// Serialize to JSON
+		let json = serde_json::to_value(&order).unwrap();
+
+		// Verify the "type" field is present and correct
+		assert_eq!(json["type"], "oif-resource-lock-v0");
+		assert!(json["payload"].is_object());
+
+		// Verify order_type() method returns correct value
+		assert_eq!(order.order_type(), "oif-resource-lock-v0");
+	}
+
+	#[test]
+	fn test_order_type_deserialization() {
+		// Test that Order deserializes correctly from JSON with "type" field
+		let json = serde_json::json!({
+			"type": "oif-resource-lock-v0",
+			"payload": {
+				"signatureType": "eip712",
+				"domain": {
+					"name": "TestDomain",
+					"version": "1"
+				},
+				"primaryType": "TestType",
+				"message": {
+					"test": "value"
+				},
+				"types": {}
+			}
+		});
+
+		let order: Order = serde_json::from_value(json).unwrap();
+
+		// Verify it deserialized to the correct variant
+		match order {
+			Order::OifResourceLockV0 { .. } => {
+				assert_eq!(order.order_type(), "oif-resource-lock-v0");
+			},
+			_ => panic!("Expected OifResourceLockV0 variant"),
+		}
+	}
+
+	#[test]
+	fn test_all_order_types() {
+		// Test all order type strings
+		let escrow = Order::OifEscrowV0 {
+			payload: OrderPayload {
+				signature_type: SignatureType::Eip712,
+				domain: serde_json::json!({}),
+				primary_type: "Test".to_string(),
+				message: serde_json::json!({}),
+				types: std::collections::HashMap::new(),
+			},
+		};
+		assert_eq!(escrow.order_type(), "oif-escrow-v0");
+
+		let resource_lock = Order::OifResourceLockV0 {
+			payload: OrderPayload {
+				signature_type: SignatureType::Eip712,
+				domain: serde_json::json!({}),
+				primary_type: "Test".to_string(),
+				message: serde_json::json!({}),
+				types: std::collections::HashMap::new(),
+			},
+		};
+		assert_eq!(resource_lock.order_type(), "oif-resource-lock-v0");
+
+		let oif_3009 = Order::Oif3009V0 {
+			payload: OrderPayload {
+				signature_type: SignatureType::Eip712,
+				domain: serde_json::json!({}),
+				primary_type: "Test".to_string(),
+				message: serde_json::json!({}),
+				types: std::collections::HashMap::new(),
+			},
+			metadata: serde_json::json!({}),
+		};
+		assert_eq!(oif_3009.order_type(), "oif-3009-v0");
+	}
+
+	#[test]
+	fn test_post_order_request_serialization() {
+		// Test complete PostOrderRequest matches expected format
+		let request = PostOrderRequest {
+			order: Order::OifResourceLockV0 {
+				payload: OrderPayload {
+					signature_type: SignatureType::Eip712,
+					domain: serde_json::json!({
+						"chainId": "11155420",
+						"name": "TheCompact",
+						"verifyingContract": "0x00000000000000171ede64904551eedf3c6c9788",
+						"version": "1"
+					}),
+					primary_type: "BatchCompact".to_string(),
+					message: serde_json::json!({
+						"arbiter": "0x19593e48e7bff482244e31048cef9cd9547d6099",
+						"sponsor": "0xde3e1d42253bc63be5085057132de89262b14237"
+					}),
+					types: std::collections::HashMap::new(),
+				},
+			},
+			signature: "0x000000...".to_string(),
+			quote_id: Some("c27076e9-389e-47e8-8270-148c6b4f99c0".to_string()),
+			origin_submission: None,
+			metadata: None,
+		};
+
+		// Serialize to JSON
+		let json = serde_json::to_string_pretty(&request).unwrap();
+		// Parse back and verify structure
+		let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+		// Verify the order has the type field
+		assert_eq!(value["order"]["type"], "oif-resource-lock-v0");
+		assert!(value["order"]["payload"].is_object());
+		assert_eq!(value["signature"], "0x000000...");
+		assert_eq!(value["quoteId"], "c27076e9-389e-47e8-8270-148c6b4f99c0");
+	}
 }

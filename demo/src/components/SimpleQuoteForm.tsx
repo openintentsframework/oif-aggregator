@@ -125,7 +125,8 @@ export default function SimpleQuoteForm({ onSubmit, isLoading }: SimpleQuoteForm
     }
 
     try {
-      const request = convertFormToQuoteRequest(formData, swapType);
+      // Simple quote form uses only oif-escrow-v0 (Permit2-based)
+      const request = convertFormToQuoteRequest(formData, swapType, ["oif-escrow-v0"]);
       if (showSolverOptions) {
         request.solverOptions = solverOptions;
       }

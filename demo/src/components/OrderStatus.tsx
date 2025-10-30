@@ -11,9 +11,138 @@ interface OrderStatusProps {
   onOrderUpdate: (order: OrderResponse) => void;
 }
 
+// Status steps configuration with descriptions for tooltips
+const STATUS_STEPS = [
+  { key: 'created', label: 'Created', description: 'Order received and queued' },
+  { key: 'pending', label: 'Pending', description: 'Order is being validated' },
+  { key: 'executing', label: 'Executing', description: 'Order is being processed' },
+  { key: 'executed', label: 'Executed', description: 'Transaction completed' },
+  { key: 'settling', label: 'Settling', description: 'Awaiting confirmation' },
+  { key: 'settled', label: 'Settled', description: 'Confirmation received' },
+  { key: 'finalized', label: 'Finalized', description: 'Order successfully completed' },
+] as const;
+
+type StepStatus = 'completed' | 'current' | 'failed' | 'pending';
+
+interface StatusStepProps {
+  label: string;
+  description: string;
+  status: StepStatus;
+  isLast: boolean;
+  isHovered: boolean;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+}
+
+// Individual step component
+function StatusStep({ label, description, status, isLast, isHovered, onMouseEnter, onMouseLeave }: StatusStepProps) {
+  // Determine colors based on step status
+  let circleColor = 'bg-slate-300 dark:bg-slate-600';
+  let textColor = 'text-slate-500 dark:text-slate-400';
+  let lineColor = 'bg-slate-300 dark:bg-slate-600';
+  
+  if (status === 'completed') {
+    circleColor = 'bg-green-500';
+    textColor = 'text-green-600 dark:text-green-400';
+    lineColor = 'bg-green-500';
+  } else if (status === 'current') {
+    circleColor = 'bg-orange-500';
+    textColor = 'text-orange-600 dark:text-orange-400';
+  } else if (status === 'failed') {
+    circleColor = 'bg-red-500';
+    textColor = 'text-red-600 dark:text-red-400';
+    lineColor = 'bg-red-500';
+  }
+
+  return (
+    <>
+      {/* Step circle and label */}
+      <div className="flex flex-col items-center relative flex-shrink-0">
+        {/* Circle with info icon */}
+        <div
+          className="relative"
+          onMouseEnter={onMouseEnter}
+          onMouseLeave={onMouseLeave}
+        >
+          <div className={`w-10 h-10 rounded-full ${circleColor} flex items-center justify-center transition-all duration-200 cursor-help`}>
+            <span className="text-white text-xs font-bold">ℹ</span>
+          </div>
+          
+          {/* Tooltip */}
+          {isHovered && (
+            <div className="absolute z-10 px-3 py-2 text-sm text-white bg-slate-900 rounded-lg shadow-lg -top-16 left-1/2 transform -translate-x-1/2 whitespace-nowrap">
+              <div className="font-semibold">{label}</div>
+              <div className="text-xs text-slate-300">{description}</div>
+              {/* Tooltip arrow */}
+              <div className="absolute w-2 h-2 bg-slate-900 transform rotate-45 -bottom-1 left-1/2 -translate-x-1/2"></div>
+            </div>
+          )}
+        </div>
+        
+        {/* Label */}
+        <span className={`mt-2 text-xs font-medium ${textColor} text-center whitespace-nowrap`}>
+          {label}
+        </span>
+      </div>
+
+      {/* Connecting line (not for last item) */}
+      {!isLast && (
+        <div className={`flex-1 h-1 ${lineColor} mx-2 transition-all duration-200 min-w-[40px]`}></div>
+      )}
+    </>
+  );
+}
+
 export default function OrderStatus({ order, onStartOver, onOrderUpdate }: OrderStatusProps): JSX.Element {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isPolling, setIsPolling] = useState(true);
+  const [hoveredStep, setHoveredStep] = useState<string | null>(null);
+
+  // Get the current status as a string (handling complex failed status)
+  const getCurrentStatusKey = (status: OrderStatusType): string => {
+    if (typeof status === 'object' && 'failed' in status) {
+      return 'failed';
+    }
+    return status;
+  };
+
+  // Determine the status of a given step: 'completed', 'current', 'failed', or 'pending'
+  const getStepStatus = (stepKey: string): 'completed' | 'current' | 'failed' | 'pending' => {
+    const currentStatus = getCurrentStatusKey(order.status);
+    
+    // If current status is failed, mark the executing step as red, previous steps as completed
+    if (currentStatus === 'failed') {
+      // Typically orders fail during execution
+      const failedStepIndex = STATUS_STEPS.findIndex(s => s.key === 'executing');
+      const stepIndex = STATUS_STEPS.findIndex(s => s.key === stepKey);
+      
+      if (stepIndex < failedStepIndex) {
+        return 'completed'; // Steps before failure are completed (green)
+      } else if (stepIndex === failedStepIndex) {
+        return 'failed'; // The step where it failed (red)
+      } else {
+        return 'pending'; // Steps after failure remain gray
+      }
+    }
+    
+    // Find indices
+    const currentStepIndex = STATUS_STEPS.findIndex(s => s.key === currentStatus);
+    const stepIndex = STATUS_STEPS.findIndex(s => s.key === stepKey);
+    
+    if (stepIndex < 0) return 'pending';
+    
+    if (stepIndex < currentStepIndex) {
+      return 'completed';
+    } else if (stepIndex === currentStepIndex) {
+      // If this is the finalized step and we're at it, mark as completed (green) not current (orange)
+      if (currentStatus === 'finalized' && stepKey === 'finalized') {
+        return 'completed';
+      }
+      return 'current';
+    } else {
+      return 'pending';
+    }
+  };
 
   const getStatusColor = (status: OrderStatusType): string => {
     // Handle complex failed status
@@ -71,7 +200,7 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
       return false; // Failed orders should not poll
     }
     
-    return ['created', 'pending', 'executing', 'settling'].includes(status);
+    return ['created', 'pending', 'executing', 'executed', 'settling', 'settled'].includes(status);
   };
 
   // Check if status is failed (handles both simple and complex failed status)
@@ -81,7 +210,7 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
 
   // Check if status is successful final state
   const isSuccessful = (status: OrderStatusType): boolean => {
-    return status === 'finalized' || status === 'settled' || status === 'executed';
+    return status === 'finalized';
   };
 
   // Get error message from failed status
@@ -148,6 +277,63 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
     return `${str.substring(0, maxLength)}...`;
   };
 
+  // Render the status stepper component
+  const renderStatusStepper = () => {
+    const currentStatus = getCurrentStatusKey(order.status);
+    const isFailedStatus = currentStatus === 'failed';
+    const isRefundedStatus = currentStatus === 'refunded';
+
+    return (
+      <div className="mb-6 w-full">
+        {/* Main stepper row */}
+        <div className="flex items-center w-full mb-4 px-2">
+          {STATUS_STEPS.map((step, index) => (
+            <StatusStep
+              key={step.key}
+              label={step.label}
+              description={step.description}
+              status={getStepStatus(step.key)}
+              isLast={index === STATUS_STEPS.length - 1}
+              isHovered={hoveredStep === step.key}
+              onMouseEnter={() => setHoveredStep(step.key)}
+              onMouseLeave={() => setHoveredStep(null)}
+            />
+          ))}
+        </div>
+
+        {/* Refunded branch (shown if order is refunded) */}
+        {isRefundedStatus && (
+          <div className="flex items-center mt-4 ml-12">
+            <div className="w-px h-8 bg-orange-500 mb-2"></div>
+            <div className="flex flex-col items-center ml-4">
+              <div className="w-10 h-10 rounded-full bg-orange-500 flex items-center justify-center">
+                <span className="text-white text-xs font-bold">ℹ</span>
+              </div>
+              <span className="mt-2 text-xs font-medium text-orange-600 dark:text-orange-400">
+                Refunded
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Error message (shown if order failed) */}
+        {isFailedStatus && getErrorMessage(order.status) && (
+          <div className="p-4 mt-4 rounded-lg border border-red-700 bg-red-900/20">
+            <div className="flex gap-3 items-start">
+              <span className="flex-shrink-0 text-lg text-red-400">⚠️</span>
+              <div className="flex-1">
+                <h3 className="mb-2 font-medium text-red-300">Error Details</h3>
+                <p className="text-sm leading-relaxed text-red-200 break-words">
+                  {getErrorMessage(order.status)}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   return (
     <div className="mx-auto space-y-4 max-w-4xl">
       <div className="py-4 card">
@@ -158,21 +344,18 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
           </button>
         </div>
 
-        {/* Status Badge */}
-        <div className="flex flex-wrap gap-4 items-center mb-6">
-          <span className={`${getStatusColor(order.status)} text-white px-4 py-2 rounded-lg font-semibold uppercase text-sm`}>
-            {getStatusText(order.status)}
-          </span>
+        {/* Control Buttons */}
+        <div className="flex flex-wrap gap-3 items-center mb-6">
           <button
             onClick={handleRefresh}
             disabled={isRefreshing}
-            className="px-3 py-1 text-sm btn-secondary"
+            className="px-3 py-2 text-sm btn-secondary"
           >
             {isRefreshing ? '⟳ Refreshing...' : '🔄 Refresh Status'}
           </button>
           <button
             onClick={() => setIsPolling(!isPolling)}
-            className={`text-sm py-1 px-3 rounded transition-colors ${
+            className={`text-sm py-2 px-3 rounded transition-colors ${
               isPolling 
                 ? 'text-white bg-green-600 hover:bg-green-700' 
                 : 'text-white bg-slate-600 hover:bg-slate-700'
@@ -188,44 +371,15 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
           )}
         </div>
 
-        {/* Status Notification */}
-        {!shouldPoll(order.status) && (
-          <div className={`rounded-lg p-4 mb-6 ${
-            isSuccessful(order.status)
-              ? 'border border-green-700'
-              : isFailed(order.status)
-              ? 'bg-red-900/20 border border-red-700'
-              : 'bg-blue-900/20 border border-blue-700'
-          }`}>
-            <p className={`text-sm ${
-              isSuccessful(order.status)
-                ? 'text-green-400'
-                : isFailed(order.status)
-                ? 'text-red-400'
-                : 'text-blue-400'
-            }`}>
-              {isSuccessful(order.status)
-                ? '✓ Order completed successfully. Auto-refresh has stopped.'
-                : isFailed(order.status)
-                ? '✗ Order failed. Auto-refresh has stopped.'
-                : `Order is in final state: ${getStatusText(order.status)}. Auto-refresh has stopped.`
-              }
-            </p>
-          </div>
-        )}
+        {/* Status Stepper */}
+        {renderStatusStepper()}
 
-        {/* Error Details - Show detailed error message for failed orders */}
-        {isFailed(order.status) && getErrorMessage(order.status) && (
-          <div className="p-4 mb-6 rounded-lg border border-red-700 bg-red-900/20">
-            <div className="flex gap-3 items-start">
-              <span className="flex-shrink-0 text-lg text-red-400">⚠️</span>
-              <div className="flex-1">
-                <h3 className="mb-2 font-medium text-red-300">Error Details</h3>
-                <p className="text-sm leading-relaxed text-red-200 break-words">
-                  {getErrorMessage(order.status)}
-                </p>
-              </div>
-            </div>
+        {/* Success Notification */}
+        {!shouldPoll(order.status) && isSuccessful(order.status) && (
+          <div className="rounded-lg p-4 mb-6 border border-green-700 bg-green-900/20">
+            <p className="text-sm text-green-400">
+              ✓ Order completed successfully. Auto-refresh has stopped.
+            </p>
           </div>
         )}
 
@@ -337,18 +491,6 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
           </div>
         )}
 
-        {/* Status Helper */}
-        <div className="p-4 rounded-lg border bg-primary-100 dark:bg-primary-900/20 border-primary-300 dark:border-primary-700">
-          <p className="text-sm text-primary-700 dark:text-primary-400">
-            💡 <strong>Status Guide:</strong><br />
-            • <strong>created/pending</strong>: Order received and queued<br />
-            • <strong>executing</strong>: Order is being processed<br />
-            • <strong>executed/settling</strong>: Transaction completed, awaiting confirmation<br />
-            • <strong>settled/finalized</strong>: Order successfully completed<br />
-            • <strong>failed</strong>: Order execution failed<br />
-            • <strong>refunded</strong>: Funds returned to user
-          </p>
-        </div>
       </div>
     </div>
   );

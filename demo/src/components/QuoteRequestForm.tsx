@@ -37,14 +37,14 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
   const [showSolverOptions, setShowSolverOptions] = useState(false);
   const [showRecentSearches, setShowRecentSearches] = useState(false);
   const [inputs, setInputs] = useState<FormInput[]>([
-    { userAddress: '', userChainId: '1', asset: '', assetChainId: '1', amount: '' }
+    { userAddress: '', userChainId: '11155420', asset: '0x191688b2ff5be8f0a5bcab3e819c900a810faaf6', assetChainId: '11155420', amount: '500000' }
   ]);
   const [outputs, setOutputs] = useState<FormOutput[]>([
-    { receiverAddress: '', receiverChainId: '1', asset: '', assetChainId: '1', amount: '' }
+    { receiverAddress: '', receiverChainId: '84532', asset: '0x73c83dacc74bb8a704717ac09703b959e74b9705', assetChainId: '84532', amount: '' }
   ]);
 
   const [swapType, setSwapType] = useState<'exact-input' | 'exact-output'>('exact-input');
-  const [supportedTypes, setSupportedTypes] = useState<string[]>(['oif-escrow-v0']);
+  const [supportedTypes, setSupportedTypes] = useState<string[]>(['oif-escrow-v0', 'oif-3009-v0', 'oif-resource-lock-v0']);
   
   // Solver options state
   const [solverOptions, setSolverOptions] = useState<Partial<SolverOptions>>({
@@ -56,7 +56,7 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
     excludeSolvers: [] as string[],
   });
 
-  // Auto-fill user address when wallet connects
+  // Auto-fill user address and receiver address when wallet connects
   useEffect(() => {
     if (isConnected && address) {
       setInputs(prev => prev.map(input => ({
@@ -64,16 +64,20 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
         userAddress: address,
         userChainId: chainId?.toString() || input.userChainId,
       })));
+      setOutputs(prev => prev.map(output => ({
+        ...output,
+        receiverAddress: address,
+      })));
     }
   }, [isConnected, address, chainId]);
 
   const addInput = () => {
     setInputs([...inputs, { 
       userAddress: isConnected && address ? address : '', 
-      userChainId: isConnected && chainId ? chainId.toString() : '1', 
-      asset: '', 
-      assetChainId: '1', 
-      amount: '' 
+      userChainId: isConnected && chainId ? chainId.toString() : '11155420', 
+      asset: '0x191688b2ff5be8f0a5bcab3e819c900a810faaf6', 
+      assetChainId: '11155420', 
+      amount: '500000' 
     }]);
   };
 
@@ -84,7 +88,13 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
   };
 
   const addOutput = () => {
-    setOutputs([...outputs, { receiverAddress: '', receiverChainId: '1', asset: '', assetChainId: '1', amount: '' }]);
+    setOutputs([...outputs, { 
+      receiverAddress: isConnected && address ? address : '', 
+      receiverChainId: '84532', 
+      asset: '0x73c83dacc74bb8a704717ac09703b959e74b9705', 
+      assetChainId: '84532', 
+      amount: '' 
+    }]);
   };
 
   const removeOutput = (index: number) => {
@@ -107,6 +117,7 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
 
   const handleFormSubmit = () => {
     try {
+      
       // Validate and convert inputs
       const apiInputs: Input[] = inputs.map((input) => {
         if (!isValidAddress(input.userAddress)) {
@@ -119,11 +130,18 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
           throw new Error(`Invalid chain ID: ${input.userChainId}`);
         }
 
-        return {
+        const convertedInput: Input = {
           user: toInteropAddress(input.userAddress, parseInt(input.userChainId)),
           asset: toInteropAddress(input.asset, parseInt(input.assetChainId)),
           amount: input.amount || undefined
         };
+        
+        // Add lock field if resource-lock is supported
+        if (supportedTypes.includes('oif-resource-lock-v0')) {
+          convertedInput.lock = { kind: 'the-compact' };
+        }
+        
+        return convertedInput;
       });
 
       // Validate and convert outputs
@@ -138,12 +156,31 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
           throw new Error(`Invalid chain ID: ${output.receiverChainId}`);
         }
 
-        return {
+        const convertedOutput = {
           receiver: toInteropAddress(output.receiverAddress, parseInt(output.receiverChainId)),
           asset: toInteropAddress(output.asset, parseInt(output.assetChainId)),
           amount: output.amount || undefined
         };
+        return convertedOutput;
       });
+
+      // Build originSubmission for escrow (Permit2) or EIP-3009
+      let originSubmission;
+      const schemes: Array<'permit2' | 'eip3009'> = [];
+      
+      if (supportedTypes.includes('oif-escrow-v0')) {
+        schemes.push('permit2');
+      }
+      if (supportedTypes.includes('oif-3009-v0')) {
+        schemes.push('eip3009');
+      }
+      
+      if (schemes.length > 0) {
+        originSubmission = {
+          mode: 'user' as const,
+          schemes,
+        };
+      }
 
       // Use first input's user as the request user
       const request: QuoteRequest = {
@@ -153,10 +190,7 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
           inputs: apiInputs,
           outputs: apiOutputs,
           swapType,
-          originSubmission: {
-            mode: 'user',
-            schemes: supportedTypes.includes('oif-3009-v0') ? ['eip3009'] : ['permit2']
-          }
+          ...(originSubmission && { originSubmission }),
         },
         supportedTypes,
         solverOptions: showSolverOptions ? solverOptions : undefined
@@ -175,7 +209,7 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
       setSwapType(request.intent.swapType || 'exact-input');
       
       // Load supported types
-      setSupportedTypes(request.supportedTypes || ['oif-escrow-v0']);
+      setSupportedTypes(request.supportedTypes || ['oif-escrow-v0', 'oif-3009-v0', 'oif-resource-lock-v0']);
       
       // Load inputs
       const loadedInputs: FormInput[] = request.intent.inputs.map(input => {
