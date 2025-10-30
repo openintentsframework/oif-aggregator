@@ -1,5 +1,5 @@
 import { createContext, useContext, ReactNode, useEffect } from 'react';
-import { useAccount, useSignTypedData, useDisconnect, useChainId } from 'wagmi';
+import { useAccount, useSignTypedData, useSignMessage, useDisconnect, useChainId } from 'wagmi';
 import type { Address, Hex } from 'viem';
 
 interface WalletContextType {
@@ -16,6 +16,7 @@ interface WalletContextType {
     primaryType: string;
     message: any;
   }) => Promise<Hex>;
+  signMessage: (message: string | Hex) => Promise<Hex>;
   isSigning: boolean;
   
   // Connection management
@@ -50,17 +51,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     fallbackChainId = undefined;
   }
 
-  const { signTypedDataAsync, isPending: isSigning } = useSignTypedData();
+  const { signTypedDataAsync, isPending: isSigningTypedData } = useSignTypedData();
+  const { signMessageAsync, isPending: isSigningMessage } = useSignMessage();
   const { disconnect } = useDisconnect();
 
   // Use chainId from account or fallback to useChainId
   const safeChainId = chainId || fallbackChainId || undefined;
+  
+  // Combine signing states
+  const isSigning = isSigningTypedData || isSigningMessage;
 
   // Handle wallet disconnection gracefully
   useEffect(() => {
     if (!isConnected && address) {
-      // Wallet was disconnected, you could add cleanup logic here
-      console.log('Wallet disconnected');
+      // Wallet was disconnected, cleanup logic can be added here if needed
     }
   }, [isConnected, address]);
 
@@ -92,12 +96,31 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const signMessage = async (message: string | Hex): Promise<Hex> => {
+    if (!isConnected) {
+      throw new Error('Wallet not connected');
+    }
+    
+    try {
+      const messageParam = typeof message === 'string' ? message : { raw: message };
+      return await signMessageAsync({ message: messageParam });
+    } catch (error: any) {
+      // Handle specific errors
+      if (error.message?.includes('User rejected')) {
+        throw new Error('Signature was rejected by user');
+      }
+      // Re-throw other errors
+      throw error;
+    }
+  };
+
   const value: WalletContextType = {
     isConnected,
     isConnecting,
     address,
     chainId: safeChainId,
     signTypedData,
+    signMessage,
     isSigning,
     disconnect,
   };

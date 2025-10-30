@@ -23,9 +23,9 @@ import {
   keccak256,
   concat,
   toHex,
+  toBytes,
   encodeAbiParameters as encode,
   hexToBytes,
-  bytesToHex,
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 
@@ -85,6 +85,8 @@ export interface SignerConfig {
   rpcUrl?: string;
   /** Custom public client for provider operations (optional) */
   publicClient?: PublicClient;
+  /** Wallet signing function for EIP-712 (optional - if not provided, uses private key) */
+  walletSignTypedData?: (args: { domain: any; types: any; primaryType: string; message: any }) => Promise<Hex>;
 }
 
 // ============================================================================
@@ -103,15 +105,6 @@ const PERMIT2_TYPES = {
     { name: 'deadline', type: 'uint256' },
     { name: 'witness', type: 'Permit2Witness' },
   ],
-  TokenPermissions: [
-    { name: 'token', type: 'address' },
-    { name: 'amount', type: 'uint256' },
-  ],
-  Permit2Witness: [
-    { name: 'expires', type: 'uint32' },
-    { name: 'inputOracle', type: 'address' },
-    { name: 'outputs', type: 'MandateOutput[]' },
-  ],
   MandateOutput: [
     { name: 'oracle', type: 'bytes32' },
     { name: 'settler', type: 'bytes32' },
@@ -119,8 +112,17 @@ const PERMIT2_TYPES = {
     { name: 'token', type: 'bytes32' },
     { name: 'amount', type: 'uint256' },
     { name: 'recipient', type: 'bytes32' },
-    { name: 'call', type: 'bytes' },
+    { name: 'callbackData', type: 'bytes' },
     { name: 'context', type: 'bytes' },
+  ],
+  Permit2Witness: [
+    { name: 'expires', type: 'uint32' },
+    { name: 'inputOracle', type: 'address' },
+    { name: 'outputs', type: 'MandateOutput[]' },
+  ],
+  TokenPermissions: [
+    { name: 'token', type: 'address' },
+    { name: 'amount', type: 'uint256' },
   ],
 };
 
@@ -155,16 +157,57 @@ const EIP3009_TYPES = {
 // Helper Functions
 // ============================================================================
 
+function normalizeTypedDataValue(value: any): any {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeTypedDataValue(item));
+  }
+
+  if (value !== null && typeof value === 'object') {
+    const normalized: Record<string, any> = {};
+    for (const [key, nestedValue] of Object.entries(value)) {
+      normalized[key] = normalizeTypedDataValue(nestedValue);
+    }
+    return normalized;
+  }
+
+  if (typeof value === 'string') {
+    if (value.startsWith('0x') || value.startsWith('0X')) {
+      return value as Hex;
+    }
+
+    if (/^\d+$/.test(value)) {
+      try {
+        return BigInt(value);
+      } catch {
+        return value;
+      }
+    }
+  }
+
+  return value;
+}
+
+function normalizeTypedDataMessage(message: Record<string, any>): Record<string, any> {
+  return normalizeTypedDataValue(message);
+}
+
 /**
- * Extract and normalize domain from payload
+ * Extract and normalize domain from payload for viem signing
+ * Only includes fields that are defined to avoid viem encoding issues
  */
 function extractDomain(payload: OrderPayload) {
-  return {
+  const domain: any = {
     name: payload.domain.name,
-    version: payload.domain.version,
     chainId: BigInt(payload.domain.chainId),
     verifyingContract: payload.domain.verifyingContract as Address,
   };
+  
+  // Only include version if it exists in the payload
+  if (payload.domain.version !== undefined && payload.domain.version !== null) {
+    domain.version = payload.domain.version;
+  }
+  
+  return domain;
 }
 
 /**
@@ -199,12 +242,7 @@ async function fetchDomainSeparator(
  * Get or build EIP-712 types from payload
  */
 function getTypesForPayload(payload: OrderPayload): Record<string, Array<{ name: string; type: string }>> {
-  // If types are provided in payload, use them
-  if (payload.types) {
-    return payload.types;
-  }
-
-  // Otherwise, construct based on primaryType
+  // Always use canonical type definitions based on primaryType to ensure consistent ordering
   switch (payload.primaryType) {
     case 'PermitBatchWitnessTransferFrom':
     case 'PermitWitnessTransferFrom':
@@ -218,6 +256,18 @@ function getTypesForPayload(payload: OrderPayload): Record<string, Array<{ name:
       };
 
     default:
+      // For unknown types, fall back to payload types if provided
+      if (payload.types) {
+        // Filter out EIP712Domain - wallets add this automatically
+        const filteredTypes: Record<string, Array<{ name: string; type: string }>> = {};
+        for (const [typeName, typeFields] of Object.entries(payload.types)) {
+          if (typeName !== 'EIP712Domain') {
+            filteredTypes[typeName] = typeFields;
+          }
+        }
+        return filteredTypes;
+      }
+      
       throw new Error(`Unknown primary type: ${payload.primaryType}. Please provide types in payload.`);
   }
 }
@@ -269,30 +319,200 @@ function computeEip712Digest(domainSeparator: Hex, structHash: Hex): Hex {
   return keccak256(digestInput);
 }
 
+// ============================================================================
+// Manual ABI Encoding Helpers (for Permit2 digest reconstruction)
+// ============================================================================
+
 /**
- * Reconstruct Permit2 digest using viem's native EIP-712 support
- * For Permit2, viem's implementation should match the standard
+ * Encode a 32-byte value for EIP-712 struct hashing
  */
-async function reconstructPermit2Digest(
-  payload: OrderPayload,
-  account: PrivateKeyAccount
-): Promise<Hex> {
-  const domain = extractDomain(payload);
-  const types = getTypesForPayload(payload);
+function encodeBytes32(value: Hex): Uint8Array {
+  const bytes = hexToBytes(value);
+  if (bytes.length !== 32) {
+    throw new Error(`Expected 32 bytes, got ${bytes.length}`);
+  }
+  return bytes;
+}
 
-  // Viem doesn't expose hashTypedData directly, so we need to sign and extract
-  // For Permit2, the standard EIP-712 implementation should be correct
-  const signature = await account.signTypedData({
-    domain,
-    types,
-    primaryType: payload.primaryType,
-    message: payload.message,
-  });
+/**
+ * Encode an address for EIP-712 struct hashing (right-aligned in 32 bytes)
+ */
+function encodeAddress(address: Address): Uint8Array {
+  const result = new Uint8Array(32);
+  const addressBytes = hexToBytes(address);
+  // Address is right-aligned: 12 zero bytes + 20 address bytes
+  result.set(addressBytes, 12);
+  return result;
+}
 
-  // We actually need the hash, not the signature
-  // Use viem's internal utilities via signTypedData then compute hash
-  // For now, rely on viem's implementation being correct for Permit2
-  return signature; // This will be used differently below
+/**
+ * Encode a uint256 for EIP-712 struct hashing (big-endian 32 bytes)
+ */
+function encodeUint256(value: bigint): Uint8Array {
+  const result = new Uint8Array(32);
+  let v = value;
+  for (let i = 31; i >= 0; i--) {
+    result[i] = Number(v & 0xFFn);
+    v >>= 8n;
+  }
+  return result;
+}
+
+/**
+ * Encode a uint32 for EIP-712 struct hashing (right-aligned in 32 bytes)
+ */
+function encodeUint32(value: number): Uint8Array {
+  const result = new Uint8Array(32);
+  // uint32 is right-aligned: 28 zero bytes + 4 value bytes
+  result[28] = (value >> 24) & 0xFF;
+  result[29] = (value >> 16) & 0xFF;
+  result[30] = (value >> 8) & 0xFF;
+  result[31] = value & 0xFF;
+  return result;
+}
+
+/**
+ * Concatenate multiple Uint8Arrays
+ */
+function concatBytes(...arrays: Uint8Array[]): Uint8Array {
+  const totalLength = arrays.reduce((sum, arr) => sum + arr.length, 0);
+  const result = new Uint8Array(totalLength);
+  let offset = 0;
+  for (const arr of arrays) {
+    result.set(arr, offset);
+    offset += arr.length;
+  }
+  return result;
+}
+
+/**
+ * Parse a bytes32 hex string to Uint8Array
+ */
+function parseBytes32(hexStr: string): Uint8Array {
+  const hex = hexStr.startsWith('0x') ? hexStr.slice(2) : hexStr;
+  if (hex.length !== 64) {
+    throw new Error(`Expected 64 hex chars for bytes32, got ${hex.length}`);
+  }
+  return hexToBytes(`0x${hex}` as Hex);
+}
+
+/**
+ * Manually reconstruct Permit2 digest for exact byte-for-byte encoding
+ * Based on: solver-types/src/utils/eip712.rs::reconstruct_permit2_digest
+ */
+function reconstructPermit2Digest(payload: OrderPayload): Hex {
+  const domain = payload.domain as any;
+  const message = payload.message as any;
+
+  // 1. Compute domain hash
+  const chainId = BigInt(domain.chainId);
+  const name = domain.name;
+  const verifyingContract = domain.verifyingContract as Address;
+
+  const domainTypeHash = keccak256(toBytes('EIP712Domain(string name,uint256 chainId,address verifyingContract)'));
+  const nameHash = keccak256(toBytes(name));
+
+  const domainEncoded = concatBytes(
+    encodeBytes32(domainTypeHash),
+    encodeBytes32(nameHash),
+    encodeUint256(chainId),
+    encodeAddress(verifyingContract)
+  );
+  const domainHash = keccak256(domainEncoded);
+
+  // 2. Build type hash for PermitBatchWitnessTransferFrom
+  const permitType = 'PermitBatchWitnessTransferFrom(TokenPermissions[] permitted,address spender,uint256 nonce,uint256 deadline,Permit2Witness witness)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)Permit2Witness(uint32 expires,address inputOracle,MandateOutput[] outputs)TokenPermissions(address token,uint256 amount)';
+  const typeHash = keccak256(toBytes(permitType));
+
+  // 3. Extract message fields
+  const spender = message.spender as Address;
+  const nonce = BigInt(message.nonce);
+  const deadline = BigInt(message.deadline);
+
+  // 4. Build permitted array hash (TokenPermissions[])
+  const permitted = message.permitted as Array<{ token: string; amount: string }>;
+  const tokenTypeHash = keccak256(toBytes('TokenPermissions(address token,uint256 amount)'));
+  const tokenHashes: Uint8Array[] = [];
+
+  for (const perm of permitted) {
+    const token = perm.token as Address;
+    const amount = BigInt(perm.amount);
+
+    const tokenEncoded = concatBytes(
+      encodeBytes32(tokenTypeHash),
+      encodeAddress(token),
+      encodeUint256(amount)
+    );
+    tokenHashes.push(encodeBytes32(keccak256(tokenEncoded)));
+  }
+
+  const permittedHash = keccak256(concatBytes(...tokenHashes));
+
+  // 5. Build witness hash
+  const witness = message.witness as any;
+  const expires = witness.expires as number;
+  const inputOracle = witness.inputOracle as Address;
+  const outputs = witness.outputs as Array<any>;
+
+  // Build outputs array hash (MandateOutput[])
+  const outputTypeHash = keccak256(toBytes('MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)'));
+  const outputHashes: Uint8Array[] = [];
+
+  for (const output of outputs) {
+    const oracle = parseBytes32(output.oracle);
+    const settler = parseBytes32(output.settler);
+    const outputChainId = BigInt(output.chainId);
+    const token = parseBytes32(output.token);
+    const amount = BigInt(output.amount);
+    const recipient = parseBytes32(output.recipient);
+    
+    // Hash call and context data
+    const callStr = output.callbackData || '0x';
+    const contextStr = output.context || '0x';
+    const callBytes = callStr === '0x' ? new Uint8Array(0) : hexToBytes(callStr as Hex);
+    const contextBytes = contextStr === '0x' ? new Uint8Array(0) : hexToBytes(contextStr as Hex);
+    const callHash = encodeBytes32(keccak256(callBytes));
+    const contextHash = encodeBytes32(keccak256(contextBytes));
+
+    const outputEncoded = concatBytes(
+      encodeBytes32(outputTypeHash),
+      oracle,
+      settler,
+      encodeUint256(outputChainId),
+      token,
+      encodeUint256(amount),
+      recipient,
+      callHash,
+      contextHash
+    );
+    outputHashes.push(encodeBytes32(keccak256(outputEncoded)));
+  }
+
+  const outputsHash = keccak256(concatBytes(...outputHashes));
+
+  // Build witness struct hash
+  const witnessTypeHash = keccak256(toBytes('Permit2Witness(uint32 expires,address inputOracle,MandateOutput[] outputs)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)'));
+  const witnessEncoded = concatBytes(
+    encodeBytes32(witnessTypeHash),
+    encodeUint32(expires),
+    encodeAddress(inputOracle),
+    encodeBytes32(outputsHash)
+  );
+  const witnessHash = keccak256(witnessEncoded);
+
+  // 6. Build final struct hash
+  const structEncoded = concatBytes(
+    encodeBytes32(typeHash),
+    encodeBytes32(permittedHash),
+    encodeAddress(spender),
+    encodeUint256(nonce),
+    encodeUint256(deadline),
+    encodeBytes32(witnessHash)
+  );
+  const structHash = keccak256(structEncoded);
+
+  // 7. Compute final EIP-712 digest
+  return computeEip712Digest(domainHash, structHash);
 }
 
 /**
@@ -305,7 +525,7 @@ async function reconstructEip3009Digest(
 ): Promise<Hex> {
   const domain = extractDomain(payload);
 
-  // Try to get domain separator from metadata first (signing.rs:414-427)
+  // Try to get domain separator from metadata first
   let domainSeparator: Hex;
 
   if (metadata.domain_separator) {
@@ -320,17 +540,14 @@ async function reconstructEip3009Digest(
       );
     }
   } else if (client) {
-    // Fetch domain separator from token contract (signing.rs:429-461)
+    // Fetch domain separator from token contract
     domainSeparator = await fetchDomainSeparator(domain.verifyingContract, client);
-    console.log('Retrieved domain separator from contract:', domainSeparator);
   } else {
     // Fallback: compute domain separator (may not match contract's actual value!)
-    console.warn('No domain separator provided and no client available - computing locally');
     domainSeparator = computeDomainSeparator(domain);
   }
 
   // Get the struct hash for the message
-  // For EIP-3009, we need to properly encode the struct
   const types = getTypesForPayload(payload);
   const primaryTypeFields = types[payload.primaryType];
 
@@ -360,55 +577,145 @@ async function reconstructEip3009Digest(
 }
 
 /**
- * Reconstruct Compact digest
+ * Reconstruct Compact digest with manual encoding
+ * 
+ * Based on: solver-types/src/utils/eip712.rs::reconstruct_compact_digest
  */
 async function reconstructCompactDigest(
   payload: OrderPayload,
   client?: PublicClient
 ): Promise<Hex> {
-  const domain = extractDomain(payload);
+  const domain = payload.domain as any;
+  const message = payload.message as any;
 
+  const normalizedDomain = {
+    name: domain.name as string,
+    chainId: BigInt(domain.chainId),
+    verifyingContract: domain.verifyingContract as Address,
+    version: domain.version ?? '1',
+  };
+
+  // 1. Compute domain separator
   let domainSeparator: Hex;
-
   if (client) {
-    domainSeparator = await fetchDomainSeparator(domain.verifyingContract, client);
-    console.log(
-      `Retrieved domain separator from Compact contract ${domain.verifyingContract}:`,
-      domainSeparator
-    );
+    domainSeparator = await fetchDomainSeparator(normalizedDomain.verifyingContract, client);
   } else {
-    // Fallback: compute domain separator
-    console.warn('No client available - computing domain separator locally');
-    domainSeparator = computeDomainSeparator(domain);
+    console.warn('⚠️  WARNING: Computing domain separator locally (no client provided)');
+    console.warn('   This may not match the on-chain domain separator!');
+    console.warn('   Domain:', normalizedDomain);
+    domainSeparator = computeDomainSeparator(normalizedDomain);
+    console.warn('   Computed domain separator:', domainSeparator);
   }
 
-  // Get the struct hash for the message
-  const types = getTypesForPayload(payload);
-  const primaryTypeFields = types[payload.primaryType];
+  // 2. Extract message fields
+  const arbiter = message.arbiter as Address;
+  const sponsor = message.sponsor as Address;
+  const nonce = BigInt(message.nonce);
+  const expires = BigInt(message.expires);
 
-  if (!primaryTypeFields) {
-    throw new Error(`Missing type definition for ${payload.primaryType}`);
+  // 3. Build commitments (Lock[]) hash
+  const lockTypeHash = keccak256(toBytes('Lock(bytes12 lockTag,address token,uint256 amount)'));
+  const commitments = message.commitments as Array<any>;
+  const lockHashes: Hex[] = [];
+
+  for (const commitment of commitments) {
+    const lockTagStr = commitment.lockTag as string;
+    const token = commitment.token as Address;
+    const amount = BigInt(commitment.amount);
+
+    // Parse lock tag as bytes12 (left-aligned in 32-byte word)
+    const lockTagBytes = hexToBytes(lockTagStr as Hex);
+    if (lockTagBytes.length !== 12) {
+      throw new Error(`Invalid lockTag length: ${lockTagBytes.length}`);
+    }
+    const lockTagWord = new Uint8Array(32);
+    lockTagWord.set(lockTagBytes, 0); // Left-aligned
+
+    const lockEncoded = concatBytes(
+      encodeBytes32(lockTypeHash),
+      lockTagWord,
+      encodeAddress(token),
+      encodeUint256(amount)
+    );
+    lockHashes.push(keccak256(lockEncoded));
   }
 
-  // Compute type hash
-  const typeString = `${payload.primaryType}(${primaryTypeFields
-    .map((f) => `${f.type} ${f.name}`)
-    .join(',')})`;
-  const typeHash = keccak256(toHex(typeString));
+  // Hash all lock hashes together
+  const commitmentsHash = lockHashes.length > 0
+    ? keccak256(concatBytes(...lockHashes.map(h => encodeBytes32(h))))
+    : keccak256('0x');
 
-  // Encode the struct fields
-  const fieldTypes = primaryTypeFields.map((f) => ({ type: f.type }));
-  const fieldValues = primaryTypeFields.map((f) => payload.message[f.name]);
+  // 4. Build mandate hash
+  const mandate = message.mandate as any;
+  const fillDeadline = Number(mandate.fillDeadline);
+  const inputOracle = mandate.inputOracle as Address;
+  const outputs = mandate.outputs as Array<any>;
 
-  const structEncoded = encode(
-    [{ type: 'bytes32' }, ...fieldTypes],
-    [typeHash, ...fieldValues]
+  // Build outputs (MandateOutput[]) hash
+  const outputTypeHash = keccak256(toBytes('MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)'));
+  const outputHashes: Hex[] = [];
+
+  for (const output of outputs) {
+    const oracle = parseBytes32(output.oracle);
+    const settler = parseBytes32(output.settler);
+    const outputChainId = BigInt(output.chainId);
+    const token = parseBytes32(output.token);
+    const amount = BigInt(output.amount);
+    const recipient = parseBytes32(output.recipient);
+
+    // Hash call and context data
+    const callStr = output.callbackData || '0x';
+    const contextStr = output.context || '0x';
+    const callBytes = callStr === '0x' ? new Uint8Array(0) : hexToBytes(callStr as Hex);
+    const contextBytes = contextStr === '0x' ? new Uint8Array(0) : hexToBytes(contextStr as Hex);
+    const callHash = encodeBytes32(keccak256(callBytes));
+    const contextHash = encodeBytes32(keccak256(contextBytes));
+
+    const outputEncoded = concatBytes(
+      encodeBytes32(outputTypeHash),
+      oracle,
+      settler,
+      encodeUint256(outputChainId),
+      token,
+      encodeUint256(amount),
+      recipient,
+      callHash,
+      contextHash
+    );
+    outputHashes.push(keccak256(outputEncoded));
+  }
+
+  const outputsHash = outputHashes.length > 0
+    ? keccak256(concatBytes(...outputHashes.map(h => encodeBytes32(h))))
+    : keccak256('0x');
+
+  // Build mandate struct hash
+  const mandateTypeHash = keccak256(toBytes('Mandate(uint32 fillDeadline,address inputOracle,MandateOutput[] outputs)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)'));
+  const mandateEncoded = concatBytes(
+    encodeBytes32(mandateTypeHash),
+    encodeUint32(fillDeadline),
+    encodeAddress(inputOracle),
+    encodeBytes32(outputsHash)
   );
+  const mandateHash = keccak256(mandateEncoded);
 
+  // 5. Build final BatchCompact struct hash
+  const batchCompactTypeHash = keccak256(toBytes('BatchCompact(address arbiter,address sponsor,uint256 nonce,uint256 expires,Lock[] commitments,Mandate mandate)Lock(bytes12 lockTag,address token,uint256 amount)Mandate(uint32 fillDeadline,address inputOracle,MandateOutput[] outputs)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)'));
+  const structEncoded = concatBytes(
+    encodeBytes32(batchCompactTypeHash),
+    encodeAddress(arbiter),
+    encodeAddress(sponsor),
+    encodeUint256(nonce),
+    encodeUint256(expires),
+    encodeBytes32(commitmentsHash),
+    encodeBytes32(mandateHash)
+  );
   const structHash = keccak256(structEncoded);
 
-  // Compute final EIP-712 digest
-  return computeEip712Digest(domainSeparator, structHash);
+  // 6. Compute final EIP-712 digest
+  const finalDigest = computeEip712Digest(domainSeparator, structHash);
+  
+  return finalDigest;
 }
 
 // ============================================================================
@@ -418,27 +725,41 @@ async function reconstructCompactDigest(
 /**
  * Sign Permit2 order (oif-escrow-v0)
  * Implements Permit2 batch witness transfer signature with 0x00 prefix
+ * 
+ * @param payload - The EIP-712 order payload
+ * @param account - Private key account for private key signing
+ * @param walletSignTypedDataFn - Wallet signing function for wallet signing
  */
-async function signPermit2(payload: OrderPayload, account: PrivateKeyAccount): Promise<Hex> {
-  const domain = extractDomain(payload);
-  const types = getTypesForPayload(payload);
+async function signPermit2(
+  payload: OrderPayload, 
+  account?: PrivateKeyAccount,
+  walletSignTypedDataFn?: (args: { domain: any; types: any; primaryType: string; message: any }) => Promise<Hex>
+): Promise<Hex> {
+  let signature: Hex;
 
-  // For Permit2, we can use viem's standard EIP-712 signing
-  // as it follows the standard specification exactly
-  const signature = await account.signTypedData({
-    domain,
-    types,
-    primaryType: payload.primaryType,
-    message: payload.message,
-  });
+  if (walletSignTypedDataFn && !account) {
+    const domain = extractDomain(payload);
+    const types = getTypesForPayload(payload);
+    const { version, ...cleanDomain } = domain as any;
+    
+    // Normalize message to convert string values to proper types (BigInt, Hex, etc.)
+    const normalizedMessage = normalizeTypedDataMessage(payload.message as Record<string, any>);
+    
+    signature = await walletSignTypedDataFn({ 
+      domain: cleanDomain, 
+      types,
+      primaryType: payload.primaryType, 
+      message: normalizedMessage 
+    });
+  } else if (account) {
+    const digest = reconstructPermit2Digest(payload);
+    signature = await account.sign({ hash: digest });
+  } else {
+    throw new Error('Either account or walletSignTypedDataFn must be provided');
+  }
 
-  console.log('Generated Permit2 signature, length:', signature.length);
-
-  // Add Permit2 prefix (0x00) - matches signing.rs:220-223
-  const prefixed = `0x00${signature.slice(2)}` as Hex;
-  console.log('Applied Permit2 prefix: 0x00');
-
-  return prefixed;
+  // Add Permit2 prefix (0x00) and return
+  return `0x00${signature.slice(2)}` as Hex;
 }
 
 /**
@@ -450,36 +771,73 @@ async function signPermit2(payload: OrderPayload, account: PrivateKeyAccount): P
 async function signEip3009(
   payload: OrderPayload,
   metadata: Record<string, any>,
-  account: PrivateKeyAccount,
-  config?: SignerConfig
+  account?: PrivateKeyAccount,
+  config?: SignerConfig,
+  walletSignFn?: (args: { domain: any; types: any; primaryType: string; message: any }) => Promise<Hex>
 ): Promise<Hex> {
-  console.log('Processing EIP-3009 signature for', payload.primaryType);
+  let signature: Hex;
 
-  const digest = await reconstructEip3009Digest(
-    payload,
-    metadata,
-    config?.publicClient
-  );
-
-  console.log('Signing EIP-3009 digest:', digest);
-
-  // Sign the digest directly
-  const signature = await account.sign({ hash: digest });
-
-  console.log('Generated EIP-3009 signature, length:', signature.length);
+  if (walletSignFn) {
+    // Wallet signing: use signTypedData with cleaned types
+    const payloadDomain = extractDomain(payload);
+    let types = getTypesForPayload(payload);
+    
+    // Remove EIP712Domain from types if present
+    if (types.EIP712Domain) {
+      const { EIP712Domain, ...typesWithoutDomain } = types;
+      types = typesWithoutDomain;
+    }
+    
+    // Verify domain separator if possible
+    if (metadata.domain_separator && config?.publicClient) {
+      const payloadDomainSep = computeDomainSeparator(payloadDomain);
+      const metadataDomainSep = metadata.domain_separator.startsWith('0x')
+        ? metadata.domain_separator
+        : `0x${metadata.domain_separator}`;
+      
+      if (payloadDomainSep !== metadataDomainSep) {
+        throw new Error('EIP-3009 domain mismatch: Please use Private Key Override.');
+      }
+      
+      // Verify against token contract
+      const contractDomainSep = await fetchDomainSeparator(
+        payloadDomain.verifyingContract as Address,
+        config.publicClient
+      );
+      
+      if (contractDomainSep !== payloadDomainSep) {
+        throw new Error('EIP-3009 domain mismatch: Please use Private Key Override.');
+      }
+    }
+    
+    // Ensure domain has version field
+    const domainForSigning = {
+      ...payloadDomain,
+      version: payloadDomain.version || '1',
+    };
+    
+    signature = await walletSignFn({
+      domain: domainForSigning,
+      types,
+      primaryType: payload.primaryType,
+      message: payload.message,
+    });
+  } else {
+    // Private key signing: reconstruct and sign digest
+    const digest = await reconstructEip3009Digest(payload, metadata, config?.publicClient);
+    signature = await account!.sign({ hash: digest });
+  }
 
   // Add EIP-3009 prefix (0x01)
   const prefixed = `0x01${signature.slice(2)}` as Hex;
-  console.log('Applied EIP-3009 prefix: 0x01');
 
   const maybeInputs = metadata?.inputs ?? payload.message?.inputs ?? [];
   if (Array.isArray(maybeInputs) && maybeInputs.length > 1) {
-    console.log(`Multiple inputs detected (${maybeInputs.length}), encoding as bytes[]`);
     const encoded = encodeAbiParameters([{ type: 'bytes[]' }], [[prefixed]]);
     return encoded as Hex;
   }
 
-return prefixed;
+  return prefixed;
 }
 
 /**
@@ -491,39 +849,38 @@ return prefixed;
  */
 async function signCompact(
   payload: OrderPayload,
-  account: PrivateKeyAccount,
-  config?: SignerConfig
+  account?: PrivateKeyAccount,
+  config?: SignerConfig,
+  walletSignFn?: (args: { domain: any; types: any; primaryType: string; message: any }) => Promise<Hex>
 ): Promise<Hex> {
-  console.log('Processing Compact signature for', payload.primaryType);
+  let signature: Hex;
 
-  // Reconstruct the digest using TheCompact contract's domain separator
-  // This matches signing.rs:505-567
-  const digest = await reconstructCompactDigest(payload, config?.publicClient);
-
-  console.log('Signing Compact digest:', digest);
-
-  // Sign the digest directly
-  const signature = await account.sign({ hash: digest });
-
-  console.log('Generated Compact signature, length:', signature.length);
+  if (walletSignFn) {
+    // Wallet signing: use standard EIP-712
+    const domain = extractDomain(payload);
+    const types = getTypesForPayload(payload);
+    const normalizedMessage = normalizeTypedDataMessage(payload.message as Record<string, any>);
+    
+    signature = await walletSignFn({
+      domain,
+      types,
+      primaryType: payload.primaryType,
+      message: normalizedMessage,
+    });
+  } else {
+    // Private key signing: reconstruct and sign digest
+    const digest = await reconstructCompactDigest(payload, config?.publicClient);
+    signature = await account!.sign({ hash: digest });
+  }
 
   // Compact signatures require special ABI encoding: (bytes, bytes)
-  // sponsorSig = actual signature, allocatorSig = empty for basic flows
-  // This matches signing.rs:591-646
   const sponsorSig = signature;
   const allocatorSig = '0x' as Hex;
 
-  console.log(
-    `Encoding Compact signature tuple: sponsor ${sponsorSig.length} bytes, allocator ${allocatorSig.length} bytes`
-  );
-
-  // ABI encode as tuple: (bytes sponsorSig, bytes allocatorSig)
   const encoded = encodeAbiParameters(
     [{ type: 'bytes' }, { type: 'bytes' }],
     [sponsorSig, allocatorSig]
   );
-
-  console.log('Final ABI-encoded Compact signature length:', encoded.length);
 
   return encoded;
 }
@@ -569,36 +926,55 @@ async function signGenericEip712(payload: OrderPayload, account: PrivateKeyAccou
 
 export async function signQuote(
   quote: Quote,
-  privateKey: Hex,
+  privateKey?: Hex,
   config?: SignerConfig
 ): Promise<Hex> {
-  console.log('Starting quote signature process for quote:', quote.quoteId);
+  // Parse private key into account if provided
+  const account = privateKey ? privateKeyToAccount(privateKey) : undefined;
+  const walletSignTypedDataFn = config?.walletSignTypedData;
 
-  // Parse private key into account
-  const account = privateKeyToAccount(privateKey);
+  // Require either private key or wallet signing function
+  if (!account && !walletSignTypedDataFn) {
+    throw new Error('Either privateKey or config.walletSignTypedData must be provided');
+  }
 
   // Setup public client if RPC URL provided and not already configured
   let effectiveConfig = config;
   if (config?.rpcUrl && !config.publicClient) {
+    // Get chain ID from the order payload domain
+    const payloadDomain = quote.order.payload.domain as any;
+    const chainId = typeof payloadDomain.chainId === 'string' 
+      ? parseInt(payloadDomain.chainId) 
+      : Number(payloadDomain.chainId);
+    
     effectiveConfig = {
       ...config,
       publicClient: createPublicClient({
+        chain: {
+          id: chainId,
+          name: `Chain ${chainId}`,
+          nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+          rpcUrls: {
+            default: { http: [config.rpcUrl] },
+            public: { http: [config.rpcUrl] },
+          },
+        },
         transport: http(config.rpcUrl),
       }),
     };
   }
 
   // Route to appropriate signing function based on order type
-  // This matches the switch statement in signing.rs:115-131
   switch (quote.order.type) {
     case 'oif-escrow-v0':
-      return signPermit2(quote.order.payload, account);
+      // Permit2: Supports both wallet and private key signing
+      return signPermit2(quote.order.payload, account, walletSignTypedDataFn);
 
     case 'oif-resource-lock-v0':
-      return signCompact(quote.order.payload, account, effectiveConfig);
+      return signCompact(quote.order.payload, account, effectiveConfig, walletSignTypedDataFn);
 
     case 'oif-3009-v0':
-      return signEip3009(quote.order.payload, quote.order.metadata, account, effectiveConfig);
+      return signEip3009(quote.order.payload, quote.order.metadata, account, effectiveConfig, walletSignTypedDataFn);
 
     case 'oif-generic-v0':
       throw new Error('Generic orders (oif-generic-v0) are not supported for signing');
@@ -627,12 +1003,27 @@ export async function signOrderPayload(
 ): Promise<Hex> {
   const account = privateKeyToAccount(privateKey);
 
-  // Setup public client if needed
+  // Setup public client if needed (extract chain ID from payload)
   let effectiveConfig = config;
   if (config?.rpcUrl && !config.publicClient) {
+    // Get chain ID from the order payload domain
+    const payloadDomain = payload.domain as any;
+    const chainId = typeof payloadDomain.chainId === 'string' 
+      ? parseInt(payloadDomain.chainId) 
+      : Number(payloadDomain.chainId);
+    
     effectiveConfig = {
       ...config,
       publicClient: createPublicClient({
+        chain: {
+          id: chainId,
+          name: `Chain ${chainId}`,
+          nativeCurrency: { name: 'ETH', symbol: 'ETH', decimals: 18 },
+          rpcUrls: {
+            default: { http: [config.rpcUrl] },
+            public: { http: [config.rpcUrl] },
+          },
+        },
         transport: http(config.rpcUrl),
       }),
     };
@@ -679,6 +1070,7 @@ export {
   signEip3009,
   signCompact,
   signGenericEip712,
+  reconstructPermit2Digest,
   reconstructEip3009Digest,
   reconstructCompactDigest,
   fetchDomainSeparator,

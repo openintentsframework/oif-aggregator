@@ -1,6 +1,7 @@
 import type { OrderRequest, QuoteResponse } from '../types/api';
 import { formatInteropAddress, fromInteropAddress } from '../utils/interopAddress';
 import { getSignerAddress, signQuote } from '../utils/quoteSigner';
+import { getRpcUrlForChain } from '../utils/chainUtils';
 import { useWallet } from '../contexts/WalletContext';
 import { useEffect, useState } from 'react';
 
@@ -99,12 +100,19 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
         signerAddr = getSignerAddress(formattedKey as Hex);
         setSignerAddress(signerAddr);
 
+        // Get chain ID from the order payload to configure the correct RPC
+        const chainId = typeof eip712Data.domain.chainId === 'string' 
+          ? parseInt(eip712Data.domain.chainId) 
+          : Number(eip712Data.domain.chainId);
+        
+        const rpcUrl = getRpcUrlForChain(chainId);
+
         // Sign the quote with private key using the EIP-712 data from the quote
         sig = await signQuote(
           selectedQuote as any, // Cast to Quote type from quoteSigner
           formattedKey as Hex,
           {
-            rpcUrl: import.meta.env.VITE_RPC_URL // Optional: for fetching domain separators
+            rpcUrl  // Pass RPC URL to fetch domain separator from contract!
           }
         );
       } else if (isConnected && address) {
@@ -112,25 +120,34 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
         signerAddr = address;
         setSignerAddress(signerAddr);
 
-        // Sign with wallet using the EIP-712 data from the quote
-        sig = await signTypedData({
-          domain: eip712Data.domain,
-          types: eip712Data.types,
-          primaryType: eip712Data.primaryType,
-          message: eip712Data.message,
-        });
+        // Get the chain ID from the order payload to configure the correct RPC
+        const chainId = typeof eip712Data.domain.chainId === 'string' 
+          ? parseInt(eip712Data.domain.chainId) 
+          : Number(eip712Data.domain.chainId);
+        
+        const rpcUrl = getRpcUrlForChain(chainId);
+        
+        // Use unified signQuote with wallet signing function
+        sig = await signQuote(
+          selectedQuote as any,
+          undefined, // No private key
+          {
+            rpcUrl,
+            walletSignTypedData: signTypedData
+          }
+        );
       } else {
         throw new Error('Please connect a wallet or enter a private key');
       }
 
       setSignature(sig);
       setSigningError('');
-    } catch (error) {
-      console.error('Signing error:', error);
-      setSigningError(error instanceof Error ? error.message : 'Failed to sign quote');
-      setSignature('');
-      setSignerAddress('');
-    } finally {
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : 'Failed to sign quote';
+        setSigningError(errorMsg);
+        setSignature('');
+        setSignerAddress('');
+      } finally {
       setIsSigning(false);
     }
   };

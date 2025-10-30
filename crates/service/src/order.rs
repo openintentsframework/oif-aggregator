@@ -229,13 +229,23 @@ impl OrderServiceTrait for OrderService {
 		{
 			Ok(scheduled_id) => {
 				tracing::info!(
+					target: TRACING_TARGET,
+					order_id = %order_id,
+					scheduled_id = %scheduled_id,
 					"Started monitoring for order '{}' (job ID: {})",
 					order_id,
 					scheduled_id
 				);
 			},
 			Err(e) => {
-				tracing::warn!("Failed to start monitoring for order '{}': {}", order_id, e);
+				tracing::warn!(
+					target: TRACING_TARGET,
+					order_id = %order_id,
+					error = %e,
+					"Failed to start monitoring for order '{}': {}",
+					order_id,
+					e
+				);
 				// Don't fail the order submission if monitoring fails to start
 			},
 		}
