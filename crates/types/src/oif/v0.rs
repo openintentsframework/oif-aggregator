@@ -131,7 +131,8 @@ impl GetQuoteRequest {
 			// Validate lock field requirement for resource-lock order types
 			if self
 				.supported_types
-				.contains(&"oif-resource-lock-v0".to_string())
+				.iter()
+				.any(|t| t == "oif-resource-lock-v0")
 				&& input.lock.is_none()
 			{
 				return Err(format!(
