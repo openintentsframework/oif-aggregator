@@ -745,9 +745,7 @@ impl SolverAdapter for OifAdapter {
 			.unwrap_or_else(|_| "Failed to serialize request".to_string());
 		debug!(
 			"📤 Sending quote request to solver {} at {}:\n{}",
-			config.solver_id,
-			quote_url,
-			request_json
+			config.solver_id, quote_url, request_json
 		);
 
 		let response = client
@@ -812,9 +810,7 @@ impl SolverAdapter for OifAdapter {
 			.unwrap_or_else(|_| "Failed to serialize order request".to_string());
 		debug!(
 			"📤 Sending order submission to solver {} at {}:\n{}",
-			config.solver_id,
-			orders_url,
-			request_json
+			config.solver_id, orders_url, request_json
 		);
 
 		let response = client

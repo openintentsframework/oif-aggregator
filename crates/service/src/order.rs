@@ -122,7 +122,6 @@ impl OrderServiceTrait for OrderService {
 		let submit_order_request = oif_types::OifPostOrderRequest::try_from(request)
 			.map_err(|e| OrderServiceError::Validation(format!("Invalid order request: {}", e)))?;
 
-
 		// 4. Check circuit breaker before submitting order
 		// Get solver info for circuit breaker check
 		let solver = self
@@ -158,8 +157,6 @@ impl OrderServiceTrait for OrderService {
 		.await?;
 
 		let order_response = solver_adapter.submit_order(&submit_order_request).await?;
-
-
 
 		let order_id = order_response
 			.order_id()
