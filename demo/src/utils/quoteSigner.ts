@@ -105,15 +105,6 @@ const PERMIT2_TYPES = {
     { name: 'deadline', type: 'uint256' },
     { name: 'witness', type: 'Permit2Witness' },
   ],
-  TokenPermissions: [
-    { name: 'token', type: 'address' },
-    { name: 'amount', type: 'uint256' },
-  ],
-  Permit2Witness: [
-    { name: 'expires', type: 'uint32' },
-    { name: 'inputOracle', type: 'address' },
-    { name: 'outputs', type: 'MandateOutput[]' },
-  ],
   MandateOutput: [
     { name: 'oracle', type: 'bytes32' },
     { name: 'settler', type: 'bytes32' },
@@ -121,8 +112,17 @@ const PERMIT2_TYPES = {
     { name: 'token', type: 'bytes32' },
     { name: 'amount', type: 'uint256' },
     { name: 'recipient', type: 'bytes32' },
-    { name: 'call', type: 'bytes' },
+    { name: 'call', type: 'bytes' }, // TODO: check if we need to change this to callbackData
     { name: 'context', type: 'bytes' },
+  ],
+  Permit2Witness: [
+    { name: 'expires', type: 'uint32' },
+    { name: 'inputOracle', type: 'address' },
+    { name: 'outputs', type: 'MandateOutput[]' },
+  ],
+  TokenPermissions: [
+    { name: 'token', type: 'address' },
+    { name: 'amount', type: 'uint256' },
   ],
 };
 
@@ -242,19 +242,7 @@ async function fetchDomainSeparator(
  * Get or build EIP-712 types from payload
  */
 function getTypesForPayload(payload: OrderPayload): Record<string, Array<{ name: string; type: string }>> {
-  // If types are provided in payload, use them
-  if (payload.types) {
-    // Filter out EIP712Domain - wallets add this automatically
-    const filteredTypes: Record<string, Array<{ name: string; type: string }>> = {};
-    for (const [typeName, typeFields] of Object.entries(payload.types)) {
-      if (typeName !== 'EIP712Domain') {
-        filteredTypes[typeName] = typeFields;
-      }
-    }
-    return filteredTypes;
-  }
-
-  // Otherwise, construct based on primaryType
+  // Always use canonical type definitions based on primaryType to ensure consistent ordering
   switch (payload.primaryType) {
     case 'PermitBatchWitnessTransferFrom':
     case 'PermitWitnessTransferFrom':
@@ -268,6 +256,18 @@ function getTypesForPayload(payload: OrderPayload): Record<string, Array<{ name:
       };
 
     default:
+      // For unknown types, fall back to payload types if provided
+      if (payload.types) {
+        // Filter out EIP712Domain - wallets add this automatically
+        const filteredTypes: Record<string, Array<{ name: string; type: string }>> = {};
+        for (const [typeName, typeFields] of Object.entries(payload.types)) {
+          if (typeName !== 'EIP712Domain') {
+            filteredTypes[typeName] = typeFields;
+          }
+        }
+        return filteredTypes;
+      }
+      
       throw new Error(`Unknown primary type: ${payload.primaryType}. Please provide types in payload.`);
   }
 }
@@ -398,14 +398,6 @@ function parseBytes32(hexStr: string): Uint8Array {
 
 /**
  * Manually reconstruct Permit2 digest for exact byte-for-byte encoding
- * 
- * This function uses M,T,P (MandateOutput, TokenPermissions, Permit2Witness) ordering
- * to match the currently deployed InputSettlerEscrow contract. This is used for private
- * key signing with the existing contract.
- * 
- * Note: Once the contract is updated to use alphabetical ordering (M,P,T) per EIP-712 spec,
- * this manual reconstruction will no longer be needed as viem's signTypedData will match.
- * 
  * Based on: solver-types/src/utils/eip712.rs::reconstruct_permit2_digest
  */
 function reconstructPermit2Digest(payload: OrderPayload): Hex {
@@ -429,8 +421,7 @@ function reconstructPermit2Digest(payload: OrderPayload): Hex {
   const domainHash = keccak256(domainEncoded);
 
   // 2. Build type hash for PermitBatchWitnessTransferFrom
-  // NOTE: Contract uses M,T,P ordering (not EIP-712 alphabetical M,P,T)
-  const permitType = 'PermitBatchWitnessTransferFrom(TokenPermissions[] permitted,address spender,uint256 nonce,uint256 deadline,Permit2Witness witness)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes call,bytes context)TokenPermissions(address token,uint256 amount)Permit2Witness(uint32 expires,address inputOracle,MandateOutput[] outputs)';
+  const permitType = 'PermitBatchWitnessTransferFrom(TokenPermissions[] permitted,address spender,uint256 nonce,uint256 deadline,Permit2Witness witness)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes call,bytes context)Permit2Witness(uint32 expires,address inputOracle,MandateOutput[] outputs)TokenPermissions(address token,uint256 amount)';
   const typeHash = keccak256(toBytes(permitType));
 
   // 3. Extract message fields
@@ -464,7 +455,7 @@ function reconstructPermit2Digest(payload: OrderPayload): Hex {
   const outputs = witness.outputs as Array<any>;
 
   // Build outputs array hash (MandateOutput[])
-  const outputTypeHash = keccak256(toBytes('MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes call,bytes context)'));
+  const outputTypeHash = keccak256(toBytes('MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)'));
   const outputHashes: Uint8Array[] = [];
 
   for (const output of outputs) {
@@ -476,7 +467,7 @@ function reconstructPermit2Digest(payload: OrderPayload): Hex {
     const recipient = parseBytes32(output.recipient);
     
     // Hash call and context data
-    const callStr = output.call || '0x';
+    const callStr = output.callbackData || '0x';
     const contextStr = output.context || '0x';
     const callBytes = callStr === '0x' ? new Uint8Array(0) : hexToBytes(callStr as Hex);
     const contextBytes = contextStr === '0x' ? new Uint8Array(0) : hexToBytes(contextStr as Hex);
@@ -662,7 +653,7 @@ async function reconstructCompactDigest(
   const outputs = mandate.outputs as Array<any>;
 
   // Build outputs (MandateOutput[]) hash
-  const outputTypeHash = keccak256(toBytes('MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes call,bytes context)'));
+  const outputTypeHash = keccak256(toBytes('MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)'));
   const outputHashes: Hex[] = [];
 
   for (const output of outputs) {
@@ -674,7 +665,7 @@ async function reconstructCompactDigest(
     const recipient = parseBytes32(output.recipient);
 
     // Hash call and context data
-    const callStr = output.call || '0x';
+    const callStr = output.callbackData || '0x';
     const contextStr = output.context || '0x';
     const callBytes = callStr === '0x' ? new Uint8Array(0) : hexToBytes(callStr as Hex);
     const contextBytes = contextStr === '0x' ? new Uint8Array(0) : hexToBytes(contextStr as Hex);
@@ -751,12 +742,29 @@ async function signPermit2(
     const domain = extractDomain(payload);
     const types = getTypesForPayload(payload);
     const { version, ...cleanDomain } = domain as any;
-
+    
+    // Transform message: rename 'callbackData' to 'call' to match PERMIT2_TYPES field name
+    // The API returns 'callbackData' but our type definition uses 'call' to match reconstructPermit2Digest
+    // TODO: Check if we need to do this or keep it callbackData
+    const transformedMessage = {
+      ...payload.message,
+      witness: {
+        ...(payload.message.witness as any),
+        outputs: (payload.message.witness as any).outputs.map((output: any) => {
+          const { callbackData, ...rest } = output;
+          return { ...rest, call: callbackData };
+        })
+      }
+    };
+    
+    // Normalize message to convert string values to proper types (BigInt, Hex, etc.)
+    const normalizedMessage = normalizeTypedDataMessage(transformedMessage as Record<string, any>);
+    
     signature = await walletSignTypedDataFn({ 
       domain: cleanDomain, 
-      types, 
+      types,
       primaryType: payload.primaryType, 
-      message: payload.message 
+      message: normalizedMessage 
     });
   } else if (account) {
     const digest = reconstructPermit2Digest(payload);
