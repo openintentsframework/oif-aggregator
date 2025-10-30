@@ -36,6 +36,9 @@ impl GenericJobHandler<SolverFetchAssetsParams> for SolverFetchAssetsHandler {
 				crate::solver_repository::SolverServiceError::NotFound(msg) => {
 					JobError::InvalidConfig(msg)
 				},
+				crate::solver_repository::SolverServiceError::Adapter(msg) => {
+					JobError::Adapter(msg)
+				},
 			})?;
 
 		debug!("Route fetch completed for solver: {}", params.solver_id);
@@ -47,6 +50,7 @@ impl GenericJobHandler<SolverFetchAssetsParams> for SolverFetchAssetsHandler {
 mod tests {
 	use super::*;
 	use crate::solver_repository::SolverService;
+	use crate::CircuitBreakerTrait;
 	use oif_adapters::AdapterRegistry;
 	use oif_storage::{MemoryStore, Storage};
 	use oif_types::solvers::{AssetSource, SolverMetadata, SolverMetrics, SupportedAssets};
@@ -88,16 +92,28 @@ mod tests {
 	}
 
 	/// Helper to create test services
-	async fn create_test_solver_service() -> (Arc<dyn Storage>, Arc<SolverService>) {
+	async fn create_test_solver_service() -> (
+		Arc<dyn Storage>,
+		Arc<SolverService>,
+		Arc<dyn CircuitBreakerTrait>,
+	) {
 		let storage = Arc::new(MemoryStore::new());
 		let adapter_registry = Arc::new(AdapterRegistry::with_defaults());
-		let solver_service = Arc::new(SolverService::new(storage.clone(), adapter_registry, None));
-		(storage, solver_service)
+		let circuit_breaker_service =
+			Arc::new(crate::MockCircuitBreakerTrait::new()) as Arc<dyn CircuitBreakerTrait>;
+
+		let solver_service = Arc::new(SolverService::new(
+			storage.clone(),
+			adapter_registry,
+			None,
+			circuit_breaker_service.clone(),
+		));
+		(storage, solver_service, circuit_breaker_service)
 	}
 
 	#[tokio::test]
 	async fn test_fetch_assets_handler_creation() {
-		let (_, solver_service) = create_test_solver_service().await;
+		let (_, solver_service, _) = create_test_solver_service().await;
 
 		let handler = SolverFetchAssetsHandler::new(solver_service);
 
@@ -107,7 +123,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_fetch_assets_solver_not_found() {
-		let (_, solver_service) = create_test_solver_service().await;
+		let (_, solver_service, _) = create_test_solver_service().await;
 		let handler = SolverFetchAssetsHandler::new(solver_service);
 
 		let params = SolverFetchAssetsParams {
@@ -125,7 +141,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_fetch_assets_with_existing_solver() {
-		let (storage, solver_service) = create_test_solver_service().await;
+		let (storage, solver_service, _) = create_test_solver_service().await;
 		let handler = SolverFetchAssetsHandler::new(solver_service);
 
 		// Create and store a test solver
@@ -152,7 +168,7 @@ mod tests {
 	async fn test_fetch_assets_handles_partial_failures() {
 		// This test would ideally use a mock adapter that fails asset fetch but succeeds network fetch
 		// For now, we just verify the handler doesn't panic with valid input
-		let (storage, solver_service) = create_test_solver_service().await;
+		let (storage, solver_service, _) = create_test_solver_service().await;
 		let handler = SolverFetchAssetsHandler::new(solver_service);
 
 		let test_solver = create_test_solver();
@@ -168,7 +184,7 @@ mod tests {
 
 	#[tokio::test]
 	async fn test_fetch_assets_empty_solver_id() {
-		let (_, solver_service) = create_test_solver_service().await;
+		let (_, solver_service, _) = create_test_solver_service().await;
 		let handler = SolverFetchAssetsHandler::new(solver_service);
 
 		let params = SolverFetchAssetsParams {

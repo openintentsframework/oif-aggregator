@@ -34,7 +34,8 @@ pub async fn health(State(state): State<AppState>) -> (StatusCode, Json<HealthRe
 		});
 
 	// Determine overall health
-	let solvers_healthy = solver_stats.healthy == solver_stats.total || solver_stats.total == 0;
+	// Service is healthy if storage is healthy AND at least one solver is healthy
+	let solvers_healthy = solver_stats.healthy > 0;
 	let overall_healthy = storage_healthy && solvers_healthy;
 
 	let status = if overall_healthy {
@@ -56,7 +57,8 @@ pub async fn health(State(state): State<AppState>) -> (StatusCode, Json<HealthRe
 	let status_code = if overall_healthy {
 		StatusCode::OK
 	} else {
-		StatusCode::SERVICE_UNAVAILABLE
+		// We are returning StatusCode::OK instead of StatusCode::SERVICE_UNAVAILABLE because of simple handling with AWS ALB target group health checks
+		StatusCode::OK
 	};
 
 	(status_code, Json(response))

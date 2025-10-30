@@ -34,6 +34,9 @@ pub trait CircuitBreakerTrait: Send + Sync {
 
 	/// Record the result of a request to update circuit state
 	async fn record_request_result(&self, solver_id: &str, success: bool);
+
+	/// Fast evaluation using existing SolverMetrics
+	fn should_open_primary(&self, solver: &Solver) -> CircuitDecision;
 }
 
 /// Core circuit breaker service implementation
@@ -217,85 +220,6 @@ impl CircuitBreakerService {
 		}
 	}
 
-	/// PRIMARY DECISION LOGIC: Fast evaluation using existing SolverMetrics
-	///
-	/// This method implements the core circuit breaker logic without async operations
-	/// for maximum performance during request filtering.
-	pub fn should_open_primary(&self, solver: &Solver) -> CircuitDecision {
-		let metrics = &solver.metrics;
-
-		// Check if metrics are fresh enough for decision making
-		let metrics_age = match self.are_metrics_fresh(metrics) {
-			Some(age) => age,
-			None => {
-				debug!(
-					"Skipping metrics-based checks for solver '{}' - metrics are {} minutes old (max: {})",
-                solver.solver_id,
-					Utc::now().signed_duration_since(metrics.last_updated).num_minutes(),
-                self.config.metrics_max_age_minutes
-            );
-				return CircuitDecision::Inconclusive; // Can't decide with stale data
-			},
-		};
-
-		// 1. Consecutive failures threshold (immediate danger check)
-		if metrics.consecutive_failures >= self.config.failure_threshold {
-			return CircuitDecision::Open {
-				reason: format!(
-					"consecutive_failures: {} (metrics age: {}min)",
-					metrics.consecutive_failures,
-					metrics_age.num_minutes()
-				),
-			};
-		}
-
-		// Only examine historical rates when there are signs of trouble (consecutive failures)
-		if !self.should_check_rates(metrics.consecutive_failures) {
-			debug!(
-				"Skipping rate checks for solver '{}' - no consecutive failures ({})",
-				solver.solver_id, metrics.consecutive_failures
-			);
-			return CircuitDecision::Closed;
-		}
-
-		// 2. Success rate check (when consecutive failures indicate potential issues)
-		let success_result = self.calculate_success_rate(metrics);
-		if success_result.total_requests > 0
-			&& success_result.rate < self.config.success_rate_threshold
-		{
-			return CircuitDecision::Open {
-				reason: format!(
-					"success_rate_{}: {:.2} (over {} requests, window: {}min, metrics age: {}min)",
-					success_result.data_source,
-					success_result.rate,
-					success_result.total_requests,
-					self.config.metrics_window_duration_minutes,
-					metrics_age.num_minutes()
-				),
-			};
-		}
-
-		// 3. Service error rate check (when consecutive failures indicate potential issues)
-		let error_result = self.calculate_service_error_rate(metrics);
-		if error_result.total_requests > 0
-			&& error_result.rate > self.config.service_error_threshold
-		{
-			return CircuitDecision::Open {
-				reason: format!(
-					"service_error_rate_{}: {:.2} (over {} requests, window: {}min, metrics age: {}min)",
-					error_result.data_source,
-					error_result.rate,
-					error_result.total_requests,
-					self.config.metrics_window_duration_minutes,
-						metrics_age.num_minutes()
-					),
-			};
-		}
-
-		// All checks passed - circuit should remain closed
-		CircuitDecision::Closed
-	}
-
 	/// Calculate exponential backoff timeout duration based on recovery attempts
 	fn calculate_timeout_duration(&self, recovery_attempts: u32) -> Duration {
 		let base = self.config.base_timeout_seconds;
@@ -471,6 +395,85 @@ impl CircuitBreakerTrait for CircuitBreakerService {
 	/// Check if the circuit breaker is enabled in configuration
 	fn is_enabled(&self) -> bool {
 		self.config.enabled
+	}
+
+	/// PRIMARY DECISION LOGIC: Fast evaluation using existing SolverMetrics
+	///
+	/// This method implements the core circuit breaker logic without async operations
+	/// for maximum performance during request filtering.
+	fn should_open_primary(&self, solver: &Solver) -> CircuitDecision {
+		let metrics = &solver.metrics;
+
+		// Check if metrics are fresh enough for decision making
+		let metrics_age = match self.are_metrics_fresh(metrics) {
+			Some(age) => age,
+			None => {
+				debug!(
+					"Skipping metrics-based checks for solver '{}' - metrics are {} minutes old (max: {})",
+                solver.solver_id,
+					Utc::now().signed_duration_since(metrics.last_updated).num_minutes(),
+                self.config.metrics_max_age_minutes
+            );
+				return CircuitDecision::Inconclusive; // Can't decide with stale data
+			},
+		};
+
+		// 1. Consecutive failures threshold (immediate danger check)
+		if metrics.consecutive_failures >= self.config.failure_threshold {
+			return CircuitDecision::Open {
+				reason: format!(
+					"consecutive_failures: {} (metrics age: {}min)",
+					metrics.consecutive_failures,
+					metrics_age.num_minutes()
+				),
+			};
+		}
+
+		// Only examine historical rates when there are signs of trouble (consecutive failures)
+		if !self.should_check_rates(metrics.consecutive_failures) {
+			debug!(
+				"Skipping rate checks for solver '{}' - no consecutive failures ({})",
+				solver.solver_id, metrics.consecutive_failures
+			);
+			return CircuitDecision::Closed;
+		}
+
+		// 2. Success rate check (when consecutive failures indicate potential issues)
+		let success_result = self.calculate_success_rate(metrics);
+		if success_result.total_requests > 0
+			&& success_result.rate < self.config.success_rate_threshold
+		{
+			return CircuitDecision::Open {
+				reason: format!(
+					"success_rate_{}: {:.2} (over {} requests, window: {}min, metrics age: {}min)",
+					success_result.data_source,
+					success_result.rate,
+					success_result.total_requests,
+					self.config.metrics_window_duration_minutes,
+					metrics_age.num_minutes()
+				),
+			};
+		}
+
+		// 3. Service error rate check (when consecutive failures indicate potential issues)
+		let error_result = self.calculate_service_error_rate(metrics);
+		if error_result.total_requests > 0
+			&& error_result.rate > self.config.service_error_threshold
+		{
+			return CircuitDecision::Open {
+				reason: format!(
+					"service_error_rate_{}: {:.2} (over {} requests, window: {}min, metrics age: {}min)",
+					error_result.data_source,
+					error_result.rate,
+					error_result.total_requests,
+					self.config.metrics_window_duration_minutes,
+						metrics_age.num_minutes()
+					),
+			};
+		}
+
+		// All checks passed - circuit should remain closed
+		CircuitDecision::Closed
 	}
 
 	/// Main request filtering logic - determines if requests should be allowed
