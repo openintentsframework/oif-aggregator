@@ -112,7 +112,7 @@ const PERMIT2_TYPES = {
     { name: 'token', type: 'bytes32' },
     { name: 'amount', type: 'uint256' },
     { name: 'recipient', type: 'bytes32' },
-    { name: 'call', type: 'bytes' }, // TODO: check if we need to change this to callbackData
+    { name: 'callbackData', type: 'bytes' },
     { name: 'context', type: 'bytes' },
   ],
   Permit2Witness: [
@@ -421,7 +421,7 @@ function reconstructPermit2Digest(payload: OrderPayload): Hex {
   const domainHash = keccak256(domainEncoded);
 
   // 2. Build type hash for PermitBatchWitnessTransferFrom
-  const permitType = 'PermitBatchWitnessTransferFrom(TokenPermissions[] permitted,address spender,uint256 nonce,uint256 deadline,Permit2Witness witness)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes call,bytes context)Permit2Witness(uint32 expires,address inputOracle,MandateOutput[] outputs)TokenPermissions(address token,uint256 amount)';
+  const permitType = 'PermitBatchWitnessTransferFrom(TokenPermissions[] permitted,address spender,uint256 nonce,uint256 deadline,Permit2Witness witness)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)Permit2Witness(uint32 expires,address inputOracle,MandateOutput[] outputs)TokenPermissions(address token,uint256 amount)';
   const typeHash = keccak256(toBytes(permitType));
 
   // 3. Extract message fields
@@ -491,7 +491,7 @@ function reconstructPermit2Digest(payload: OrderPayload): Hex {
   const outputsHash = keccak256(concatBytes(...outputHashes));
 
   // Build witness struct hash
-  const witnessTypeHash = keccak256(toBytes('Permit2Witness(uint32 expires,address inputOracle,MandateOutput[] outputs)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes call,bytes context)'));
+  const witnessTypeHash = keccak256(toBytes('Permit2Witness(uint32 expires,address inputOracle,MandateOutput[] outputs)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)'));
   const witnessEncoded = concatBytes(
     encodeBytes32(witnessTypeHash),
     encodeUint32(expires),
@@ -605,7 +605,6 @@ async function reconstructCompactDigest(
     console.warn('   Domain:', normalizedDomain);
     domainSeparator = computeDomainSeparator(normalizedDomain);
     console.warn('   Computed domain separator:', domainSeparator);
-    console.warn('   Expected from solver:', '0xc521956382ee2d10650715bb8cfd09c6d2fec7e3e32da559068ba06354306ad3');
   }
 
   // 2. Extract message fields
@@ -691,7 +690,7 @@ async function reconstructCompactDigest(
     : keccak256('0x');
 
   // Build mandate struct hash
-  const mandateTypeHash = keccak256(toBytes('Mandate(uint32 fillDeadline,address inputOracle,MandateOutput[] outputs)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes call,bytes context)'));
+  const mandateTypeHash = keccak256(toBytes('Mandate(uint32 fillDeadline,address inputOracle,MandateOutput[] outputs)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)'));
   const mandateEncoded = concatBytes(
     encodeBytes32(mandateTypeHash),
     encodeUint32(fillDeadline),
@@ -701,7 +700,7 @@ async function reconstructCompactDigest(
   const mandateHash = keccak256(mandateEncoded);
 
   // 5. Build final BatchCompact struct hash
-  const batchCompactTypeHash = keccak256(toBytes('BatchCompact(address arbiter,address sponsor,uint256 nonce,uint256 expires,Lock[] commitments,Mandate mandate)Lock(bytes12 lockTag,address token,uint256 amount)Mandate(uint32 fillDeadline,address inputOracle,MandateOutput[] outputs)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes call,bytes context)'));
+  const batchCompactTypeHash = keccak256(toBytes('BatchCompact(address arbiter,address sponsor,uint256 nonce,uint256 expires,Lock[] commitments,Mandate mandate)Lock(bytes12 lockTag,address token,uint256 amount)Mandate(uint32 fillDeadline,address inputOracle,MandateOutput[] outputs)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)'));
   const structEncoded = concatBytes(
     encodeBytes32(batchCompactTypeHash),
     encodeAddress(arbiter),
@@ -743,22 +742,8 @@ async function signPermit2(
     const types = getTypesForPayload(payload);
     const { version, ...cleanDomain } = domain as any;
     
-    // Transform message: rename 'callbackData' to 'call' to match PERMIT2_TYPES field name
-    // The API returns 'callbackData' but our type definition uses 'call' to match reconstructPermit2Digest
-    // TODO: Check if we need to do this or keep it callbackData
-    const transformedMessage = {
-      ...payload.message,
-      witness: {
-        ...(payload.message.witness as any),
-        outputs: (payload.message.witness as any).outputs.map((output: any) => {
-          const { callbackData, ...rest } = output;
-          return { ...rest, call: callbackData };
-        })
-      }
-    };
-    
     // Normalize message to convert string values to proper types (BigInt, Hex, etc.)
-    const normalizedMessage = normalizeTypedDataMessage(transformedMessage as Record<string, any>);
+    const normalizedMessage = normalizeTypedDataMessage(payload.message as Record<string, any>);
     
     signature = await walletSignTypedDataFn({ 
       domain: cleanDomain, 
