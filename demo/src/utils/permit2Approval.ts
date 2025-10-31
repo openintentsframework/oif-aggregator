@@ -24,6 +24,20 @@ const PERMIT2_ADDRESSES: Record<number, Address> = {
 // Minimum allowance threshold (if below this, consider it needs approval)
 const MIN_ALLOWANCE = BigInt('1000000000000'); // 1M tokens in smallest unit
 
+interface PublicClientConfig {
+  chainId: number;
+  rpcUrl?: string;
+}
+
+function createPermit2PublicClient({ chainId, rpcUrl }: PublicClientConfig) {
+  const chain = CHAIN_CONFIGS[chainId];
+
+  return createPublicClient({
+    ...(chain ? { chain } : {}),
+    transport: rpcUrl ? http(rpcUrl) : http(),
+  });
+}
+
 /**
  * Check if user has approved Permit2 to spend a token
  */
@@ -35,12 +49,7 @@ export async function checkPermit2Approval(
 ): Promise<{ hasApproval: boolean; currentAllowance: bigint }> {
   const permit2Address = getPermit2Address(chainId);
 
-  // Create public client for reading
-  const chain = CHAIN_CONFIGS[chainId];
-  const publicClient = createPublicClient({
-    ...(chain ? { chain } : {}),
-    transport: rpcUrl ? http(rpcUrl) : http(),
-  });
+  const publicClient = createPermit2PublicClient({ chainId, rpcUrl });
 
   try {
     // Call allowance(owner, spender) on the token contract
@@ -110,5 +119,16 @@ export async function requestPermit2Approval(
  */
 export function getPermit2Address(chainId: number): Address {
   return PERMIT2_ADDRESSES[chainId] || CANONICAL_PERMIT2_ADDRESS;
+}
+
+interface WaitForTxParams {
+  chainId: number;
+  rpcUrl?: string;
+  hash: Hex;
+}
+
+export async function waitForPermit2Transaction({ chainId, rpcUrl, hash }: WaitForTxParams) {
+  const publicClient = createPermit2PublicClient({ chainId, rpcUrl });
+  return publicClient.waitForTransactionReceipt({ hash });
 }
 
