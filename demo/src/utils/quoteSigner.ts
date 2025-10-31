@@ -733,33 +733,20 @@ async function reconstructCompactDigest(
 async function signPermit2(
   payload: OrderPayload, 
   account?: PrivateKeyAccount,
-  walletSignTypedDataFn?: (args: { domain: any; types: any; primaryType: string; message: any }) => Promise<Hex>
+  walletSignFn?: (args: { domain: any; types: any; primaryType: string; message: any }) => Promise<Hex>
 ): Promise<Hex> {
-  let signature: Hex;
+  const domain = extractDomain(payload);
+  const types = getTypesForPayload(payload);
 
-  if (walletSignTypedDataFn && !account) {
-    const domain = extractDomain(payload);
-    const types = getTypesForPayload(payload);
-    const { version, ...cleanDomain } = domain as any;
-    
-    // Normalize message to convert string values to proper types (BigInt, Hex, etc.)
-    const normalizedMessage = normalizeTypedDataMessage(payload.message as Record<string, any>);
-    
-    signature = await walletSignTypedDataFn({ 
-      domain: cleanDomain, 
-      types,
-      primaryType: payload.primaryType, 
-      message: normalizedMessage 
-    });
-  } else if (account) {
-    const digest = reconstructPermit2Digest(payload);
-    signature = await account.sign({ hash: digest });
-  } else {
-    throw new Error('Either account or walletSignTypedDataFn must be provided');
-  }
+  // Sign using wallet or private key
+  const signature = walletSignFn
+    ? await walletSignFn({ domain, types, primaryType: payload.primaryType, message: payload.message })
+    : await account!.signTypedData({ domain, types, primaryType: payload.primaryType, message: payload.message });
 
-  // Add Permit2 prefix (0x00) and return
-  return `0x00${signature.slice(2)}` as Hex;
+  // Add Permit2 prefix (0x00)
+  const prefixed = `0x00${signature.slice(2)}` as Hex;
+
+  return prefixed;
 }
 
 /**
