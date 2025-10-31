@@ -105,6 +105,8 @@ export async function requestPermit2Approval(
       }],
       functionName: 'approve',
       args: [permit2Address, BigInt('115792089237316195423570985008687907853269984665640564039457584007913129639935')], // max uint256
+      chain: walletClient.chain ?? undefined,
+      account: walletClient.account ?? null,
     });
 
     return hash as Hex;

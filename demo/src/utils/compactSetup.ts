@@ -139,6 +139,8 @@ export async function requestCompactApproval({
       abi: ERC20_ABI,
       functionName: 'approve',
       args: [contractAddress, amount],
+      chain: walletClient.chain ?? undefined,
+      account: walletClient.account ?? null,
     });
   } catch (error) {
     console.error('Failed to approve TheCompact contract:', error);
@@ -210,6 +212,8 @@ export async function requestCompactDeposit({
       abi: THE_COMPACT_ABI,
       functionName: 'depositERC20',
       args: [tokenAddress, lockTag, amount, recipient],
+      chain: walletClient.chain ?? undefined,
+      account: walletClient.account ?? null,
     });
   } catch (error) {
     console.error('Failed to deposit into TheCompact:', error);
