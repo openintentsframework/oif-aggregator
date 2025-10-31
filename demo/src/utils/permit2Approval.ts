@@ -4,12 +4,12 @@
  */
 
 import { createPublicClient, http } from 'viem';
-import type { Address, Hex } from 'viem';
+import type { Address, Hex, Chain } from 'viem';
 import { optimismSepolia, baseSepolia } from 'viem/chains';
 
 const CANONICAL_PERMIT2_ADDRESS = '0x000000000022D473030F116dDEE9F6B43aC78BA3' as Address;
 
-const CHAIN_CONFIGS = {
+const CHAIN_CONFIGS: Partial<Record<number, Chain>> = {
   [optimismSepolia.id]: optimismSepolia,
   [baseSepolia.id]: baseSepolia,
 };
