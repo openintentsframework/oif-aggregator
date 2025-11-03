@@ -89,6 +89,15 @@ impl OrderService {
 	}
 }
 
+/// Determine settlement type from order type
+fn settlement_type_from_order(quote: &Quote) -> SettlementType {
+	match quote.quote.order() {
+		oif_types::oif::v0::Order::OifResourceLockV0 { .. } => SettlementType::ResourceLock,
+		// All other order types use escrow settlement
+		_ => SettlementType::Escrow,
+	}
+}
+
 #[async_trait]
 impl OrderServiceTrait for OrderService {
 	/// Validate, persist and return the created order
@@ -193,9 +202,9 @@ impl OrderServiceTrait for OrderService {
 			input_amounts: vec![input_amount],
 			output_amounts: vec![output_amount],
 			settlement: Settlement {
-				settlement_type: SettlementType::Escrow,
+				settlement_type: settlement_type_from_order(&quote_domain),
 				data: serde_json::json!({}),
-			}, // Default settlement, will be updated by order monitoring
+			},
 			fill_transaction: None, // Will be populated by order monitoring
 		};
 
@@ -446,6 +455,17 @@ impl OrderServiceTrait for OrderService {
 			// Update the order in storage with complete details from solver
 			// Replace the entire OIF wrapper with the updated one
 			current_order.order = updated_order.order.clone();
+
+			// The solver doesn't know the correct settlement type, so we derive it from the quote
+			// and set it correctly based on the order type
+			if let Some(ref quote) = current_order.quote_details {
+				let correct_settlement_type = settlement_type_from_order(quote);
+				match &mut current_order.order {
+					OifGetOrderResponse::V0(ref mut response) => {
+						response.settlement.settlement_type = correct_settlement_type;
+					},
+				}
+			}
 
 			self.storage
 				.update_order(current_order.clone())
