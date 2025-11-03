@@ -214,7 +214,6 @@ export function useCompactSetup({
 
     const runAllowanceCheck = async () => {
       setIsCheckingCompactAllowance(true);
-      setCompactSetupError('');
       try {
         const allowanceResult = await checkCompactAllowance({
           owner: address as Address,

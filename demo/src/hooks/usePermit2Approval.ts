@@ -68,7 +68,8 @@ export function usePermit2Approval({
         setNeedsPermitApproval(!result.hasApproval);
       } catch (error) {
         console.error('Failed to check Permit2 approval:', error);
-        setNeedsPermitApproval(false);
+        setNeedsPermitApproval(true);
+        setApprovalError((error as Error).message);
       } finally {
         setIsCheckingPermitApproval(false);
       }
