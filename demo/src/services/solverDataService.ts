@@ -14,6 +14,10 @@ const CHAIN_NAMES: Record<number, string> = {
   8453: 'Base',
   56: 'BNB Chain',
   43114: 'Avalanche',
+  11155111: 'Ethereum Sepolia',
+  11155420: 'Optimism Sepolia',
+  84532: 'Base Sepolia',
+  421614: 'Arbitrum Sepolia',
 };
 
 class SolverDataService {
