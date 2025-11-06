@@ -113,76 +113,71 @@ export default function AssetSelect({
               <div className="p-3 text-slate-600 dark:text-slate-400 text-sm">No assets found</div>
             ) : (
               filteredAssets.map((asset) => (
-                <button
+                <div
                   key={`${asset.chainId}-${asset.address}`}
-                  type="button"
-                  onClick={() => handleSelect(asset)}
-                  className="w-full text-left px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors border-b border-slate-200 dark:border-slate-700 last:border-0"
+                  className="flex items-center gap-2 px-3 py-2.5 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors border-b border-slate-200 dark:border-slate-700 last:border-0"
                 >
-                  <div className="flex items-center justify-between">
-                    <div>
+                  <button
+                    type="button"
+                    onClick={() => handleSelect(asset)}
+                    className="flex-1 flex items-center gap-2 min-w-0 text-left"
+                  >
+                    <div className="flex items-center gap-2 flex-shrink-0">
                       <span className="text-slate-900 dark:text-white font-medium">{asset.symbol}</span>
-                      <span className="text-slate-600 dark:text-slate-400 text-sm ml-2">{asset.name}</span>
-                    </div>
-                    {showChain && (
-                      <span className="text-slate-500 dark:text-slate-500 text-xs">Chain {asset.chainId}</span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <div className="text-slate-500 dark:text-slate-500 text-xs truncate flex-1">
-                      {asset.address}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={(e) => handleCopyAddress(asset.address, e)}
-                      className="flex-shrink-0 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors group"
-                      title="Copy address"
-                    >
-                      {copiedAddress === asset.address ? (
-                        <CheckIcon className="w-3 h-3 text-green-600 dark:text-green-400" />
-                      ) : (
-                        <CopyIcon className="w-3 h-3 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200" />
+                      {showChain && (
+                        <span className="text-slate-500 dark:text-slate-500 text-xs">Chain {asset.chainId}</span>
                       )}
-                    </button>
-                  </div>
-                </button>
+                    </div>
+                    <span className="text-slate-500 dark:text-slate-500 text-xs font-mono truncate">
+                      {asset.address.slice(0, 4)}...{asset.address.slice(-4)}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => handleCopyAddress(asset.address, e)}
+                    className="flex-shrink-0 p-1 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors group"
+                    title="Copy address"
+                  >
+                    {copiedAddress === asset.address ? (
+                      <CheckIcon className="w-3 h-3 text-green-600 dark:text-green-400" />
+                    ) : (
+                      <CopyIcon className="w-3 h-3 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200" />
+                    )}
+                  </button>
+                </div>
               ))
             )}
           </div>
         </div>
       ) : (
-        <div className="input-field text-left flex items-center justify-between">
+        <div className="input-field text-left flex items-center justify-between gap-2">
           <button
             type="button"
             onClick={() => !disabled && setIsOpen(true)}
             disabled={disabled}
-            className="flex-1 flex items-center justify-between"
+            className="flex-1 flex items-center gap-2 min-w-0"
           >
             {value ? (
-              <div className="flex items-center justify-between w-full">
-                <div className="flex flex-col">
-                  <div>
-                    <span className="text-slate-900 dark:text-white font-medium">{value.symbol}</span>
-                    <span className="text-slate-600 dark:text-slate-400 text-sm ml-2">{value.name}</span>
-                    {showChain && (
-                      <span className="text-slate-500 dark:text-slate-500 text-xs ml-2">Chain {value.chainId}</span>
-                    )}
-                  </div>
-                  <div className="text-slate-500 dark:text-slate-500 text-xs mt-1 truncate">
-                    {value.address}
-                  </div>
+              <>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <span className="text-slate-900 dark:text-white font-medium">{value.symbol}</span>
+                  {showChain && (
+                    <span className="text-slate-500 dark:text-slate-500 text-xs">Chain {value.chainId}</span>
+                  )}
                 </div>
-              </div>
+                <span className="text-slate-500 dark:text-slate-500 text-xs font-mono truncate">
+                  {value.address.slice(0, 4)}...{value.address.slice(-4)}
+                </span>
+              </>
             ) : (
               <span className="text-slate-500 dark:text-slate-400">{placeholder}</span>
             )}
-            <span className="text-slate-500 dark:text-slate-400 ml-2">▼</span>
           </button>
           {value && (
             <button
               type="button"
               onClick={(e) => handleCopyAddress(value.address, e)}
-              className="ml-2 p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors group flex-shrink-0"
+              className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors group flex-shrink-0"
               title="Copy address"
             >
               {copiedAddress === value.address ? (
@@ -192,6 +187,14 @@ export default function AssetSelect({
               )}
             </button>
           )}
+          <button
+            type="button"
+            onClick={() => !disabled && setIsOpen(true)}
+            disabled={disabled}
+            className="flex-shrink-0 text-slate-500 dark:text-slate-400"
+          >
+            ▼
+          </button>
         </div>
       )}
     </div>
