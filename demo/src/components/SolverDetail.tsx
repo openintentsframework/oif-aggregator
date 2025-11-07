@@ -8,10 +8,51 @@ interface SolverDetailProps {
   onBack: () => void;
 }
 
+// SVG Copy Icon Component
+function CopyIcon({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={1.5}
+      stroke="currentColor"
+      className={className}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M15.666 3.888A2.25 2.25 0 0 0 13.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 0 1-.75.75H9a.75.75 0 0 1-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 0 1-2.25 2.25H6.75A2.25 2.25 0 0 1 4.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 0 1 1.927-.184"
+      />
+    </svg>
+  );
+}
+
+// SVG Check Icon Component
+function CheckIcon({ className = "w-4 h-4" }: { className?: string }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      fill="none"
+      viewBox="0 0 24 24"
+      strokeWidth={1.5}
+      stroke="currentColor"
+      className={className}
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4.5 12.75l6 6 9-13.5"
+      />
+    </svg>
+  );
+}
+
 export default function SolverDetail({ solverId, onBack }: SolverDetailProps) {
   const [solver, setSolver] = useState<SolverResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string>('');
+  const [copiedAddress, setCopiedAddress] = useState<string | null>(null);
 
   useEffect(() => {
     fetchSolver();
@@ -27,6 +68,16 @@ export default function SolverDetail({ solverId, onBack }: SolverDetailProps) {
       setError(err instanceof Error ? err.message : 'Failed to fetch solver details');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleCopyAddress = async (address: string) => {
+    try {
+      await navigator.clipboard.writeText(address);
+      setCopiedAddress(address);
+      setTimeout(() => setCopiedAddress(null), 2000); // Reset after 2 seconds
+    } catch (err) {
+      console.error('Failed to copy address:', err);
     }
   };
 
@@ -219,9 +270,23 @@ export default function SolverDetail({ solverId, onBack }: SolverDetailProps) {
                           <p className="text-slate-600 dark:text-slate-400 text-xs">{asset.name}</p>
                         </div>
                       </div>
-                      <div className="text-right">
-                        <p className="text-slate-700 dark:text-slate-300 text-xs font-mono">{asset.address.slice(0, 10)}...{asset.address.slice(-8)}</p>
-                        <p className="text-slate-500 dark:text-slate-500 text-xs">Decimals: {asset.decimals}</p>
+                      <div className="flex items-center gap-2">
+                        <div className="text-right">
+                          <p className="text-slate-700 dark:text-slate-300 text-xs font-mono">{asset.address.slice(0, 10)}...{asset.address.slice(-8)}</p>
+                          <p className="text-slate-500 dark:text-slate-500 text-xs">Decimals: {asset.decimals}</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyAddress(asset.address)}
+                          className="p-1.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors group flex-shrink-0"
+                          title="Copy address"
+                        >
+                          {copiedAddress === asset.address ? (
+                            <CheckIcon className="w-4 h-4 text-green-600 dark:text-green-400" />
+                          ) : (
+                            <CopyIcon className="w-4 h-4 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200" />
+                          )}
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -269,10 +334,34 @@ export default function SolverDetail({ solverId, onBack }: SolverDetailProps) {
                           <span className="text-slate-600 dark:text-slate-400 font-mono">
                             {route.originTokenAddress.slice(0, 8)}...
                           </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyAddress(route.originTokenAddress)}
+                            className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors group inline-flex"
+                            title="Copy origin token address"
+                          >
+                            {copiedAddress === route.originTokenAddress ? (
+                              <CheckIcon className="w-3 h-3 text-green-600 dark:text-green-400" />
+                            ) : (
+                              <CopyIcon className="w-3 h-3 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200" />
+                            )}
+                          </button>
                           <span className="text-slate-500 dark:text-slate-500">→</span>
                           <span className="text-slate-600 dark:text-slate-400 font-mono">
                             {route.destinationTokenAddress.slice(0, 8)}...
                           </span>
+                          <button
+                            type="button"
+                            onClick={() => handleCopyAddress(route.destinationTokenAddress)}
+                            className="p-0.5 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors group inline-flex"
+                            title="Copy destination token address"
+                          >
+                            {copiedAddress === route.destinationTokenAddress ? (
+                              <CheckIcon className="w-3 h-3 text-green-600 dark:text-green-400" />
+                            ) : (
+                              <CopyIcon className="w-3 h-3 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200" />
+                            )}
+                          </button>
                         </div>
                       </div>
                       <div className="text-right">
