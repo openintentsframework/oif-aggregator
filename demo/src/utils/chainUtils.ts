@@ -5,9 +5,9 @@
 export const getRpcUrlForChain = (chainId: number): string => {
   const publicRpcs: Record<number, string> = {
     1: 'https://eth.llamarpc.com',
-    10: 'https://optimism.llamarpc.com',
+    10: 'https://mainnet.optimism.io',
     42161: 'https://arbitrum.llamarpc.com',
-    8453: 'https://base.llamarpc.com',
+    8453: 'https://mainnet.base.org',
     11155111: 'https://sepolia.llamarpc.com',
     11155420: 'https://sepolia.optimism.io',
     84532: 'https://sepolia.base.org',

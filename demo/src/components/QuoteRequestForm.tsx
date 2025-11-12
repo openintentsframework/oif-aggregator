@@ -4,6 +4,7 @@ import { fromInteropAddress, isValidAddress, isValidChainId, toInteropAddress } 
 import RecentSearchesModal from './RecentSearchesModal';
 import SolverOptions from './SolverOptions';
 import { localStorageService } from '../services/localStorageService';
+import { solverDataService } from '../services/solverDataService';
 import { useWallet } from '../contexts/WalletContext';
 import { useForm } from 'react-hook-form';
 import { useState, useEffect } from 'react';
@@ -36,12 +37,42 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
   const { isConnected, address, chainId } = useWallet();
   const [showSolverOptions, setShowSolverOptions] = useState(false);
   const [showRecentSearches, setShowRecentSearches] = useState(false);
-  const [inputs, setInputs] = useState<FormInput[]>([
-    { userAddress: '', userChainId: '11155420', asset: '0x191688b2ff5be8f0a5bcab3e819c900a810faaf6', assetChainId: '11155420', amount: '500000' }
-  ]);
-  const [outputs, setOutputs] = useState<FormOutput[]>([
-    { receiverAddress: '', receiverChainId: '84532', asset: '0x73c83dacc74bb8a704717ac09703b959e74b9705', assetChainId: '84532', amount: '' }
-  ]);
+  
+  // Get default values from solver data cache
+  const cache = solverDataService.getCachedData();
+  const chains = cache?.chains || [];
+  
+  // Get default chains and assets from available data
+  const getDefaultInput = () => {
+    const defaultChain = chains[0]?.chainId || 8453; // Default to Base if available
+    const defaultAssets = solverDataService.getAssetsByChain(defaultChain);
+    const defaultAsset = defaultAssets[0];
+    
+    return {
+      userAddress: '',
+      userChainId: defaultChain.toString(),
+      asset: defaultAsset?.address || '',
+      assetChainId: defaultAsset?.chainId.toString() || defaultChain.toString(),
+      amount: '500000'
+    };
+  };
+  
+  const getDefaultOutput = () => {
+    const defaultChain = chains[1]?.chainId || chains[0]?.chainId || 84532; // Use second chain or fallback
+    const defaultAssets = solverDataService.getAssetsByChain(defaultChain);
+    const defaultAsset = defaultAssets[0];
+    
+    return {
+      receiverAddress: '',
+      receiverChainId: defaultChain.toString(),
+      asset: defaultAsset?.address || '',
+      assetChainId: defaultAsset?.chainId.toString() || defaultChain.toString(),
+      amount: ''
+    };
+  };
+  
+  const [inputs, setInputs] = useState<FormInput[]>([getDefaultInput()]);
+  const [outputs, setOutputs] = useState<FormOutput[]>([getDefaultOutput()]);
 
   const [swapType, setSwapType] = useState<'exact-input' | 'exact-output'>('exact-input');
   const [supportedTypes, setSupportedTypes] = useState<string[]>(['oif-escrow-v0', 'oif-3009-v0', 'oif-resource-lock-v0']);
@@ -72,12 +103,11 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
   }, [isConnected, address, chainId]);
 
   const addInput = () => {
+    const defaultInput = getDefaultInput();
     setInputs([...inputs, { 
-      userAddress: isConnected && address ? address : '', 
-      userChainId: isConnected && chainId ? chainId.toString() : '11155420', 
-      asset: '0x191688b2ff5be8f0a5bcab3e819c900a810faaf6', 
-      assetChainId: '11155420', 
-      amount: '500000' 
+      ...defaultInput,
+      userAddress: isConnected && address ? address : defaultInput.userAddress, 
+      userChainId: isConnected && chainId ? chainId.toString() : defaultInput.userChainId, 
     }]);
   };
 
@@ -88,12 +118,10 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
   };
 
   const addOutput = () => {
+    const defaultOutput = getDefaultOutput();
     setOutputs([...outputs, { 
-      receiverAddress: isConnected && address ? address : '', 
-      receiverChainId: '84532', 
-      asset: '0x73c83dacc74bb8a704717ac09703b959e74b9705', 
-      assetChainId: '84532', 
-      amount: '' 
+      ...defaultOutput,
+      receiverAddress: isConnected && address ? address : defaultOutput.receiverAddress, 
     }]);
   };
 
