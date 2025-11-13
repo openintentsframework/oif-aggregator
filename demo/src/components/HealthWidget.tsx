@@ -104,7 +104,7 @@ export default function HealthWidget() {
             {health.status.toUpperCase()}
           </span>
           <span className="text-xs text-slate-400 dark:text-slate-500">•</span>
-          <span className="text-xs text-slate-600 dark:text-slate-400">{health.solvers.active}/{health.solvers.total} solvers</span>
+          <span className="text-xs text-slate-600 dark:text-slate-400">{health.solvers.healthy}/{health.solvers.active} solvers</span>
         </div>
         <span className="text-xs text-slate-400 dark:text-slate-500">{isExpanded ? '▼' : '▲'}</span>
       </button>
