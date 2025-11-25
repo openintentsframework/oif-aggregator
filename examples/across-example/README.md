@@ -118,20 +118,20 @@ curl http://localhost:4000/v1/solvers
 curl -X POST http://localhost:4000/v1/quotes \
   -H "Content-Type: application/json" \
   -d '{
-  "user": "0x0100000314aa37dc742d35cc6634c0532925a3b8d38ba2297c33a9d7",
+  "user": "0x000100000314aa37dc742d35cc6634c0532925a3b8d38ba2297c33a9d7",
   "intent": {
     "intentType": "oif-swap",
     "inputs": [
       {
-        "user": "0x0100000314aa37dc742d35cc6634c0532925a3b8d38ba2297c33a9d7",
-        "asset": "0x0100000314aa37dc4200000000000000000000000000000000000006",
+        "user": "0x000100000314aa37dc742d35cc6634c0532925a3b8d38ba2297c33a9d7",
+        "asset": "0x000100000314aa37dc4200000000000000000000000000000000000006",
         "amount": "100000000000000"
       }
     ],
     "outputs": [
       {
-        "receiver": "0x010000031401f977742d35cc6634c0532925a3b8d38ba2297c33a9d7",
-        "asset": "0x010000031401f97717b8ee96e3bcb3b04b3e8334de4524520c51cab4",
+        "receiver": "0x00010000031401f977742d35cc6634c0532925a3b8d38ba2297c33a9d7",
+        "asset": "0x00010000031401f97717b8ee96e3bcb3b04b3e8334de4524520c51cab4",
         "amount": "100000000000000"
       }
     ],

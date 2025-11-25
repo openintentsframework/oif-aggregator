@@ -480,7 +480,7 @@ If you see "No solvers currently support this route" or empty solver lists:
 
 The UI automatically converts Ethereum addresses and chain IDs to ERC-7930 InteropAddress format (hex-encoded strings). If you're debugging API requests:
 
-- Addresses are sent as hex strings like `0x010000011401f39fd6...`, not as JSON objects
+- Addresses are sent as hex strings like `0x0001000001141f39fd6...`, not as JSON objects
 - Format: `[version][chain_type][chain_ref_len][addr_len][chain_reference][address]`
 - See `INTEROP_ADDRESS_FIX.md` for detailed format specification
 
