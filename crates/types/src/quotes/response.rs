@@ -58,8 +58,8 @@ pub struct AggregationMetadata {
             "primaryType": "Order",
             "message": {
                 "orderType": "swap",
-                "inputAsset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
-                "outputAsset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
+                "inputAsset": "0x0001000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                "outputAsset": "0x0001000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
                 "amount": "1000000000000000000"
             },
             "types": {}
@@ -73,15 +73,15 @@ pub struct AggregationMetadata {
     "preview": {
         "inputs": [
             {
-                "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8",
-                "asset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                "user": "0x0001000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8",
+                "asset": "0x0001000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
                 "amount": "1000000000000000000"
             }
         ],
         "outputs": [
             {
-                "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
-                "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
+                "receiver": "0x0001000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+                "asset": "0x0001000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
                 "amount": "1000000"
             }
         ]
@@ -140,8 +140,8 @@ pub struct QuoteResponse {
                     "primaryType": "Order",
                     "message": {
                         "orderType": "swap",
-                        "inputAsset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
-                        "outputAsset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
+                        "inputAsset": "0x0001000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                        "outputAsset": "0x0001000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
                         "amount": "1000000000000000000"
                     },
                     "types": {}
@@ -155,15 +155,15 @@ pub struct QuoteResponse {
             "preview": {
                 "inputs": [
                     {
-                        "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8",
-                        "asset": "0x01000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
+                        "user": "0x0001000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8",
+                        "asset": "0x0001000002147a695FbDB2315678afecb367f032d93F642f64180aa3",
                         "amount": "1000000000000000000"
                     }
                 ],
                 "outputs": [
                     {
-                        "receiver": "0x01000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
-                        "asset": "0x01000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
+                        "receiver": "0x0001000002147a6a3C44CdDdB6a900fa2b585dd299e03d12FA4293BC",
+                        "asset": "0x0001000002147a6a5FbDB2315678afecb367f032d93F642f64180aa3",
                         "amount": "1000000"
                     }
                 ]

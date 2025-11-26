@@ -3,7 +3,7 @@
  * and ERC-7930 interoperable address format
  * 
  * Note: The InteropAddress is serialized as a hex string in the API, not as a JSON object.
- * Format: 0x[version][chain_type][chain_ref_length][addr_length][chain_reference][address]
+ * Format: 0x[version(2 bytes)][chain_type(2 bytes)][chain_ref_length][addr_length][chain_reference][address]
  */
 
 // Type alias for InteropAddress - it's a hex-encoded string
@@ -62,15 +62,15 @@ function bytesToChainId(bytes: number[]): number {
 /**
  * Convert standard Ethereum address and chain ID to InteropAddress hex string
  * 
- * Format: 0x[version][chain_type][chain_ref_length][addr_length][chain_reference][address]
+ * Format: 0x[version(2 bytes)][chain_type(2 bytes)][chain_ref_length][addr_length][chain_reference][address]
  * 
  * @param address - Ethereum address (0x prefixed hex string)
  * @param chainId - Chain ID number
  * @returns InteropAddress as hex string
  */
 export function toInteropAddress(address: string, chainId: number): InteropAddress {
-  // Version byte
-  const version = '01';
+  // Version: 2 bytes big-endian (0x0001)
+  const version = '0001';
   
   // Chain type: EIP-155 (0x0000)
   const chainType = '0000';
@@ -101,27 +101,27 @@ export function fromInteropAddress(interopHex: InteropAddress): { address: strin
   
   let offset = 0;
   
-  // Parse version (1 byte) - skip for now
-  offset += 2;
+  // Parse version (2 bytes) - bytes[0:2]
+  offset += 4; // Skip version (4 hex chars = 2 bytes)
   
-  // Parse chain type (2 bytes)
+  // Parse chain type (2 bytes) - bytes[2:4]
   offset += 4; // Skip chain type
   
-  // Parse chain reference length (1 byte)
+  // Parse chain reference length (1 byte) - bytes[4]
   const chainRefLength = parseInt(hex.slice(offset, offset + 2), 16);
   offset += 2;
   
-  // Parse address length (1 byte)
+  // Parse address length (1 byte) - bytes[5]
   const addressLength = parseInt(hex.slice(offset, offset + 2), 16);
   offset += 2;
   
-  // Parse chain reference
+  // Parse chain reference - starts at byte 6
   const chainRefHex = hex.slice(offset, offset + chainRefLength * 2);
   const chainRefBytes = hexToBytes('0x' + chainRefHex);
   const chainId = bytesToChainId(chainRefBytes);
   offset += chainRefLength * 2;
   
-  // Parse address
+  // Parse address - follows after chain reference
   const addressHex = hex.slice(offset, offset + addressLength * 2);
   const address = '0x' + addressHex;
   

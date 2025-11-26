@@ -468,7 +468,7 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
           <h3 className="mb-3 text-lg font-semibold text-slate-900 dark:text-white">Settlement</h3>
           <div className="p-4 rounded-lg border bg-slate-100 dark:bg-slate-900 border-slate-300 dark:border-slate-700">
             <p className="mb-2 text-sm text-slate-600 dark:text-slate-400">
-              Type: <span className="font-medium text-slate-900 dark:text-white">{order.settlement.type}</span>
+              Type: <span className="font-medium text-slate-900 dark:text-white">{order.orderType}</span>
             </p>
             <details className="text-sm">
               <summary className="cursor-pointer text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white">Settlement Data (JSON)</summary>

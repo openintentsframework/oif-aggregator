@@ -40,7 +40,7 @@ The Across Adapter supports extensive customization through the `metadata.reques
 
 ```json
 {
-  "user": "0x01000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8",
+  "user": "0x0001000002147a6970997970C51812dc3A010C7d01b50e0d17dc79C8",
   "intent": {
     "intentType": "oif-swap",
     "inputs": [...],
