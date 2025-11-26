@@ -123,6 +123,26 @@ impl Order {
 	pub fn updated_at(&self) -> DateTime<Utc> {
 		self.order.updated_at()
 	}
+
+	/// Get the specific order type (e.g., "oif-escrow-v0", "oif-3009-v0", "oif-resource-lock-v0")
+	pub fn order_type(&self) -> &str {
+		// Try to get order type from quote details first
+		if let Some(quote) = &self.quote_details {
+			match quote.order() {
+				crate::oif::v0::Order::OifEscrowV0 { .. } => "oif-escrow-v0",
+				crate::oif::v0::Order::OifResourceLockV0 { .. } => "oif-resource-lock-v0",
+				crate::oif::v0::Order::Oif3009V0 { .. } => "oif-3009-v0",
+				crate::oif::v0::Order::OifGenericV0 { .. } => "oif-generic-v0",
+				crate::oif::v0::Order::Across { .. } => "across",
+			}
+		} else {
+			// Fallback: determine from settlement type if quote_details not available
+			match self.settlement().settlement_type {
+				crate::oif::common::SettlementType::Escrow => "oif-escrow-v0",
+				crate::oif::common::SettlementType::ResourceLock => "oif-resource-lock-v0",
+			}
+		}
+	}
 }
 
 impl TryFrom<(GetOrderResponse, Quote)> for Order {

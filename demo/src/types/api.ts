@@ -132,6 +132,7 @@ export interface OrderResponse {
   updatedAt: string;
   inputAmounts: AssetAmount[];
   outputAmounts: AssetAmount[];
+  orderType: string;
   settlement: Settlement;
   quoteId?: string;
   fillTransaction?: unknown;
