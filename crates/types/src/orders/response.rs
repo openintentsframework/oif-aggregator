@@ -41,6 +41,9 @@ pub struct OrderResponse {
 	/// Output amount
 	pub output_amounts: Vec<AssetAmount>,
 
+	/// Order type (e.g., "oif-escrow-v0", "oif-3009-v0", "oif-resource-lock-v0")
+	pub order_type: String,
+
 	/// Settlement information
 	pub settlement: Settlement,
 
@@ -145,6 +148,7 @@ impl TryFrom<&Order> for OrderResponse {
 			updated_at: order.updated_at(),
 			input_amounts: order.input_amounts().to_vec(),
 			output_amounts: order.output_amounts().to_vec(),
+			order_type: order.order_type().to_string(),
 			settlement: order.settlement().clone(),
 			fill_transaction: order.fill_transaction().cloned(),
 		})
