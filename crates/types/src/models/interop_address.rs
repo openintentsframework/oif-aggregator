@@ -8,14 +8,16 @@
 //!
 //! An ERC-7930 interoperable address is a binary-encoded string serialized as hex:
 //! ```text
-//! 0x0001000002147a6970997970c51812dc3a010c7d01b50e0d17dc79c8
-//! ^^^^-------------------------------- Version: 2 bytes big-endian (0x0001)
-//!     ^^^^---------------------------- ChainType: 2 bytes (CAIP namespace, e.g., eip155)
-//!         ^^-------------------------- ChainReferenceLength: 1 byte (decimal length)
-//!           ^^------------------------ AddressLength: 1 byte (decimal length)
-//!             ^^^^ ------------------ ChainReference: variable length (e.g., uint16 chain ID)
-//!                 ^^^^^^^^^^^^^^^^^^^^^^^^ Address: variable length (e.g., 20 bytes for Ethereum)
+//! 0x0001000002 7a69 14 70997970c51812dc3a010c7d01b50e0d17dc79c8
+//! ^^^^-------- Version: 2 bytes big-endian (0x0001)
+//!     ^^^^---- ChainType: 2 bytes (CAIP namespace, e.g., 0x0000 for eip155)
+//!         ^^-- ChainReferenceLength: 1 byte (0x02 = 2 bytes)
+//!            ^^^^-- ChainReference: variable length (0x7a69 = 31337)
+//!                ^^-- AddressLength: 1 byte (0x14 = 20 bytes)
+//!                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ Address: 20 bytes
 //! ```
+//!
+//! Per EIP-7930 spec, the order is: Version | ChainType | ChainRefLen | ChainRef | AddrLen | Address
 
 use crate::quotes::{QuoteValidationError, QuoteValidationResult};
 use hex;
@@ -69,7 +71,8 @@ impl InteropAddress {
 		Ok(out)
 	}
 
-	/// Parse an ERC-7930 address from a hex string (e.g., 0x0001000002147a...)
+	/// Parse an ERC-7930 address from a hex string (e.g., 0x0001000003aa37dc14...)
+	/// Format per EIP-7930: Version | ChainType | ChainRefLen | ChainRef | AddrLen | Address
 	pub fn from_hex(hex: &str) -> QuoteValidationResult<Self> {
 		if !hex.starts_with("0x") {
 			return Err(QuoteValidationError::InvalidTokenAddress {
@@ -82,10 +85,10 @@ impl InteropAddress {
 				field: "invalid hex".to_string(),
 			})?;
 
-		// Minimum header = 2 (ver) + 2 (type) + 1 (crl) + 1 (adl) = 6
-		if bytes.len() < 6 {
+		// Minimum header = 2 (ver) + 2 (type) + 1 (crl) = 5 bytes before we can read chain ref length
+		if bytes.len() < 5 {
 			return Err(QuoteValidationError::InvalidTokenAddress {
-				field: "insufficient length (< 6 bytes header)".to_string(),
+				field: "insufficient length (< 5 bytes header)".to_string(),
 			});
 		}
 
@@ -95,9 +98,20 @@ impl InteropAddress {
 		let chain_type = [bytes[2], bytes[3]];
 		// ChainRefLength: bytes[4]
 		let crl = bytes[4] as usize;
-		// AddressLength: bytes[5]
-		let adl = bytes[5] as usize;
 
+		// Now we need at least 5 + crl + 1 (for adl) bytes
+		if bytes.len() < 5 + crl + 1 {
+			return Err(QuoteValidationError::InvalidTokenAddress {
+				field: "insufficient length for chain reference and address length".to_string(),
+			});
+		}
+
+		// ChainReference: bytes[5..5+crl] (immediately after ChainRefLength per EIP-7930)
+		let chain_reference = bytes[5..5 + crl].to_vec();
+		// AddressLength: bytes[5+crl] (after ChainReference per EIP-7930)
+		let adl = bytes[5 + crl] as usize;
+
+		// Total expected: 5 (header) + crl + 1 (adl) + adl = 6 + crl + adl
 		let expected_total = 6usize
 			.checked_add(crl)
 			.and_then(|v| v.checked_add(adl))
@@ -115,9 +129,7 @@ impl InteropAddress {
 			});
 		}
 
-		// ChainReference: starts at byte 6
-		let chain_reference = bytes[6..6 + crl].to_vec();
-		// Address: follows after chain reference
+		// Address: bytes[6+crl..6+crl+adl]
 		let address = bytes[6 + crl..6 + crl + adl].to_vec();
 
 		let addr = Self {
@@ -131,7 +143,8 @@ impl InteropAddress {
 		Ok(addr)
 	}
 
-	/// Convert to hex string (e.g., 0x0001000002147a...)
+	/// Convert to hex string (e.g., 0x0001000003aa37dc14...)
+	/// Format per EIP-7930: Version | ChainType | ChainRefLen | ChainRef | AddrLen | Address
 	pub fn to_hex(&self) -> String {
 		let mut bytes = Vec::new();
 		// Version: 2 bytes big-endian
@@ -140,10 +153,10 @@ impl InteropAddress {
 		bytes.extend_from_slice(&self.chain_type);
 		// ChainRefLength: 1 byte
 		bytes.push(self.chain_reference.len() as u8);
-		// AddressLength: 1 byte
-		bytes.push(self.address.len() as u8);
-		// ChainReference: variable length
+		// ChainReference: variable length (immediately after ChainRefLength per EIP-7930)
 		bytes.extend_from_slice(&self.chain_reference);
+		// AddressLength: 1 byte (after ChainReference per EIP-7930)
+		bytes.push(self.address.len() as u8);
 		// Address: variable length
 		bytes.extend_from_slice(&self.address);
 		format!("0x{}", hex::encode(bytes))
@@ -350,8 +363,9 @@ mod tests {
 
 	#[test]
 	fn test_valid_binary_address() {
+		// EIP-7930 format: Version | ChainType | ChainRefLen | ChainRef | AddrLen | Address
 		let addr =
-			InteropAddress::from_hex("0x0001000002147a6970997970c51812dc3a010c7d01b50e0d17dc79c8")
+			InteropAddress::from_hex("0x00010000027a691470997970c51812dc3a010c7d01b50e0d17dc79c8")
 				.unwrap();
 		assert_eq!(addr.version, 1u16);
 		assert_eq!(addr.chain_type, [0x00, 0x00]);
@@ -359,7 +373,7 @@ mod tests {
 		assert_eq!(addr.address.len(), 20);
 		assert_eq!(
 			addr.to_hex(),
-			"0x0001000002147a6970997970c51812dc3a010c7d01b50e0d17dc79c8"
+			"0x00010000027a691470997970c51812dc3a010c7d01b50e0d17dc79c8"
 		);
 		assert!(addr.validate().is_ok());
 	}
@@ -383,9 +397,11 @@ mod tests {
 		let addr =
 			InteropAddress::from_chain_and_address(1, "0xD8DA6BF26964aF9D7eEd9e03E53415D37aA96045")
 				.unwrap();
+		// EIP-7930 format: Version | ChainType | ChainRefLen | ChainRef | AddrLen | Address
+		// 0001 | 0000 | 01 | 01 | 14 | d8da6bf26964af9d7eed9e03e53415d37aa96045
 		assert_eq!(
 			addr.to_hex(),
-			"0x00010000011401d8da6bf26964af9d7eed9e03e53415d37aa96045"
+			"0x00010000010114d8da6bf26964af9d7eed9e03e53415d37aa96045"
 		);
 		assert_eq!(addr.extract_chain_id().unwrap(), 1);
 		assert_eq!(
@@ -397,7 +413,7 @@ mod tests {
 	#[test]
 	fn test_is_on_chain() {
 		let addr =
-			InteropAddress::from_hex("0x00010000011401d8da6bf26964af9d7eed9e03e53415d37aa96045")
+			InteropAddress::from_hex("0x00010000010114d8da6bf26964af9d7eed9e03e53415d37aa96045")
 				.unwrap();
 		assert!(addr.is_on_chain(1));
 		assert!(!addr.is_on_chain(137));
@@ -422,17 +438,17 @@ mod tests {
 	#[test]
 	fn test_invalid_validation() {
 		let mut addr =
-			InteropAddress::from_hex("0x00010000011401d8da6bf26964af9d7eed9e03e53415d37aa96045")
+			InteropAddress::from_hex("0x00010000010114d8da6bf26964af9d7eed9e03e53415d37aa96045")
 				.unwrap();
 		addr.version = 2u16; // Invalid version
 		assert!(addr.validate().is_err());
 
-		addr = InteropAddress::from_hex("0x00010000011401d8da6bf26964af9d7eed9e03e53415d37aa96045")
+		addr = InteropAddress::from_hex("0x00010000010114d8da6bf26964af9d7eed9e03e53415d37aa96045")
 			.unwrap();
 		addr.chain_type = [0x00, 0x02]; // Invalid chain type
 		assert!(addr.validate().is_err());
 
-		addr = InteropAddress::from_hex("0x00010000011401d8da6bf26964af9d7eed9e03e53415d37aa96045")
+		addr = InteropAddress::from_hex("0x00010000010114d8da6bf26964af9d7eed9e03e53415d37aa96045")
 			.unwrap();
 		addr.address = vec![0; 19]; // Invalid address length
 		assert!(addr.validate().is_err());
@@ -441,15 +457,15 @@ mod tests {
 	#[test]
 	fn test_display_and_conversions() {
 		let addr =
-			InteropAddress::from_hex("0x00010000011401d8da6bf26964af9d7eed9e03e53415d37aa96045")
+			InteropAddress::from_hex("0x00010000010114d8da6bf26964af9d7eed9e03e53415d37aa96045")
 				.unwrap();
 		assert_eq!(
 			addr.to_string(),
-			"0x00010000011401d8da6bf26964af9d7eed9e03e53415d37aa96045"
+			"0x00010000010114d8da6bf26964af9d7eed9e03e53415d37aa96045"
 		);
 		// Test that from_hex works for same address
 		let addr_from_hex =
-			InteropAddress::from_hex("0x00010000011401d8da6bf26964af9d7eed9e03e53415d37aa96045")
+			InteropAddress::from_hex("0x00010000010114d8da6bf26964af9d7eed9e03e53415d37aa96045")
 				.unwrap();
 		assert_eq!(addr, addr_from_hex);
 	}
@@ -461,10 +477,11 @@ mod tests {
 				.unwrap();
 
 		// Test serialization to JSON string
+		// EIP-7930 format: Version | ChainType | ChainRefLen | ChainRef | AddrLen | Address
 		let json = serde_json::to_string(&addr).unwrap();
 		assert_eq!(
 			json,
-			"\"0x00010000011401d8da6bf26964af9d7eed9e03e53415d37aa96045\""
+			"\"0x00010000010114d8da6bf26964af9d7eed9e03e53415d37aa96045\""
 		);
 
 		// Test deserialization from JSON string
@@ -482,9 +499,10 @@ mod tests {
 	#[test]
 	fn test_serde_deserialization_from_api_request() {
 		// Simulate an API request JSON with binary format InteropAddress
+		// EIP-7930 format: Version | ChainType | ChainRefLen | ChainRef | AddrLen | Address
 		let json = r#"{
-            "user": "0x00010000011401d8da6bf26964af9d7eed9e03e53415d37aa96045",
-            "asset": "0x00010000011401a0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0"
+            "user": "0x00010000010114d8da6bf26964af9d7eed9e03e53415d37aa96045",
+            "asset": "0x00010000010114a0b86a33e6417a77c9a0c65f8e69b8b6e2b0c4a0"
         }"#;
 
 		#[derive(serde::Deserialize)]
@@ -509,8 +527,9 @@ mod tests {
 	#[test]
 	fn test_alternative_chain_type() {
 		// Test support for 0x0000 chain type (alternative EIP-155 implementation)
+		// EIP-7930 format: Version | ChainType | ChainRefLen | ChainRef | AddrLen | Address
 		let addr =
-			InteropAddress::from_hex("0x0001000002147a6970997970c51812dc3a010c7d01b50e0d17dc79c8")
+			InteropAddress::from_hex("0x00010000027a691470997970c51812dc3a010c7d01b50e0d17dc79c8")
 				.unwrap();
 		assert_eq!(addr.version, 1u16);
 		assert_eq!(addr.chain_type, [0x00, 0x00]); // Alternative chain type
