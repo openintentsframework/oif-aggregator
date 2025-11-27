@@ -1,9 +1,9 @@
 /**
  * InteropAddress utilities for converting between standard Ethereum addresses
  * and ERC-7930 interoperable address format
- * 
+ *
  * Note: The InteropAddress is serialized as a hex string in the API, not as a JSON object.
- * Format: 0x[version(2 bytes)][chain_type(2 bytes)][chain_ref_length][addr_length][chain_reference][address]
+ * Format per EIP-7930: 0x[version(2 bytes)][chain_type(2 bytes)][chain_ref_length][chain_reference][addr_length][address]
  */
 
 // Type alias for InteropAddress - it's a hex-encoded string
@@ -61,9 +61,9 @@ function bytesToChainId(bytes: number[]): number {
 
 /**
  * Convert standard Ethereum address and chain ID to InteropAddress hex string
- * 
- * Format: 0x[version(2 bytes)][chain_type(2 bytes)][chain_ref_length][addr_length][chain_reference][address]
- * 
+ *
+ * Format per EIP-7930: 0x[version(2 bytes)][chain_type(2 bytes)][chain_ref_length][chain_reference][addr_length][address]
+ *
  * @param address - Ethereum address (0x prefixed hex string)
  * @param chainId - Chain ID number
  * @returns InteropAddress as hex string
@@ -71,60 +71,62 @@ function bytesToChainId(bytes: number[]): number {
 export function toInteropAddress(address: string, chainId: number): InteropAddress {
   // Version: 2 bytes big-endian (0x0001)
   const version = '0001';
-  
+
   // Chain type: EIP-155 (0x0000)
   const chainType = '0000';
-  
+
   // Encode chain ID as minimal big-endian
   const chainRefBytes = chainIdToBytes(chainId);
   const chainRefHex = bytesToHex(chainRefBytes).slice(2); // Remove 0x prefix
   const chainRefLength = chainRefBytes.length.toString(16).padStart(2, '0');
-  
+
   // Address bytes
   const addressBytes = hexToBytes(address);
   const addressHex = bytesToHex(addressBytes).slice(2); // Remove 0x prefix
   const addressLength = addressBytes.length.toString(16).padStart(2, '0');
-  
-  // Combine all parts
-  return `0x${version}${chainType}${chainRefLength}${addressLength}${chainRefHex}${addressHex}`;
+
+  // Combine all parts per EIP-7930: ChainRefLen | ChainRef | AddrLen | Address
+  return `0x${version}${chainType}${chainRefLength}${chainRefHex}${addressLength}${addressHex}`;
 }
 
 /**
  * Convert InteropAddress hex string to standard Ethereum address and chain ID
- * 
+ *
+ * Format per EIP-7930: Version | ChainType | ChainRefLen | ChainRef | AddrLen | Address
+ *
  * @param interopHex - InteropAddress as hex string
  * @returns Object with address (hex string) and chainId (number)
  */
 export function fromInteropAddress(interopHex: InteropAddress): { address: string; chainId: number } {
   // Remove 0x prefix
   const hex = interopHex.startsWith('0x') ? interopHex.slice(2) : interopHex;
-  
+
   let offset = 0;
-  
+
   // Parse version (2 bytes) - bytes[0:2]
   offset += 4; // Skip version (4 hex chars = 2 bytes)
-  
+
   // Parse chain type (2 bytes) - bytes[2:4]
   offset += 4; // Skip chain type
-  
+
   // Parse chain reference length (1 byte) - bytes[4]
   const chainRefLength = parseInt(hex.slice(offset, offset + 2), 16);
   offset += 2;
-  
-  // Parse address length (1 byte) - bytes[5]
-  const addressLength = parseInt(hex.slice(offset, offset + 2), 16);
-  offset += 2;
-  
-  // Parse chain reference - starts at byte 6
+
+  // Parse chain reference - immediately follows ChainRefLen per EIP-7930
   const chainRefHex = hex.slice(offset, offset + chainRefLength * 2);
   const chainRefBytes = hexToBytes('0x' + chainRefHex);
   const chainId = bytesToChainId(chainRefBytes);
   offset += chainRefLength * 2;
-  
-  // Parse address - follows after chain reference
+
+  // Parse address length (1 byte) - follows after ChainRef per EIP-7930
+  const addressLength = parseInt(hex.slice(offset, offset + 2), 16);
+  offset += 2;
+
+  // Parse address - follows after AddrLen
   const addressHex = hex.slice(offset, offset + addressLength * 2);
   const address = '0x' + addressHex;
-  
+
   return { address, chainId };
 }
 
