@@ -30,6 +30,8 @@ interface FormOutput {
   asset: string;
   assetChainId: string;
   amount: string;
+  // Callback data - hex-encoded data passed to receiver contract
+  callbackData: string;
 }
 
 export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFormProps) {
@@ -61,13 +63,14 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
     const defaultChain = chains[1]?.chainId || chains[0]?.chainId || 84532; // Use second chain or fallback
     const defaultAssets = solverDataService.getAssetsByChain(defaultChain);
     const defaultAsset = defaultAssets[0];
-    
+
     return {
       receiverAddress: '',
       receiverChainId: defaultChain.toString(),
       asset: defaultAsset?.address || '',
       assetChainId: defaultAsset?.chainId.toString() || defaultChain.toString(),
-      amount: ''
+      amount: '',
+      callbackData: ''
     };
   };
   
@@ -184,10 +187,12 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
           throw new Error(`Invalid chain ID: ${output.receiverChainId}`);
         }
 
-        const convertedOutput = {
+        const convertedOutput: Output = {
           receiver: toInteropAddress(output.receiverAddress, parseInt(output.receiverChainId)),
           asset: toInteropAddress(output.asset, parseInt(output.assetChainId)),
-          amount: output.amount || undefined
+          amount: output.amount || undefined,
+          // Include calldata if callback data is provided
+          calldata: output.callbackData || undefined
         };
         return convertedOutput;
       });
@@ -262,7 +267,8 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
           receiverChainId: receiverInterop.chainId.toString(),
           asset: assetInterop.address,
           assetChainId: assetInterop.chainId.toString(),
-          amount: '' // Reset to empty - saved amount is already converted to smallest unit
+          amount: '', // Reset to empty - saved amount is already converted to smallest unit
+          callbackData: output.calldata || ''
         };
       });
       setOutputs(loadedOutputs);
@@ -485,6 +491,18 @@ export default function QuoteRequestForm({ onSubmit, isLoading }: QuoteRequestFo
                     placeholder="1000000"
                     className="input-field"
                   />
+                </div>
+                {/* Callback Data */}
+                <div className="col-span-2">
+                  <label className="label-text">Callback Data (Optional)</label>
+                  <input
+                    type="text"
+                    value={output.callbackData}
+                    onChange={(e) => updateOutput(index, 'callbackData', e.target.value)}
+                    placeholder="0x... (hex encoded calldata)"
+                    className="input-field"
+                  />
+                  <p className="text-xs text-slate-500 mt-1">Hex-encoded data passed to receiver contract on output delivery.</p>
                 </div>
               </div>
             </div>
