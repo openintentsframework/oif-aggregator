@@ -9,7 +9,7 @@
     "orders": [
         {
             "signatureType": "eip712",
-            "domain": "0x0001000002147a69000000000022d473030f116ddee9f6b43ac78ba3",
+            "domain": "0x00010000027a6914000000000022d473030f116ddee9f6b43ac78ba3",
             "primaryType": "PermitBatchWitnessTransferFrom",
             "message": {
                 "digest": "0x5840b8f7f3a809b0518c031aebd135ef6021ae0ba70f25acbb847d64a3833312",
@@ -57,16 +57,16 @@
     "details": {
         "requestedOutputs": [
             {
-                "receiver": "0x0001000002147a6a3c44cdddb6a900fa2b585dd299e03d12fa4293bc",
-                "asset": "0x0001000002147a6ae7f1725e7734ce288f8367e1bb143e90bb3f0512",
+                "receiver": "0x00010000027a6a143c44cdddb6a900fa2b585dd299e03d12fa4293bc",
+                "asset": "0x00010000027a6a14e7f1725e7734ce288f8367e1bb143e90bb3f0512",
                 "amount": "1000000000000000000",
                 "calldata": null
             }
         ],
         "availableInputs": [
             {
-                "user": "0x0001000002147a6970997970c51812dc3a010c7d01b50e0d17dc79c8",
-                "asset": "0x0001000002147a695fbdb2315678afecb367f032d93f642f64180aa3",
+                "user": "0x00010000027a691470997970c51812dc3a010c7d01b50e0d17dc79c8",
+                "asset": "0x00010000027a69145fbdb2315678afecb367f032d93f642f64180aa3",
                 "amount": "1000000000000000000",
                 "lock": null
             }
