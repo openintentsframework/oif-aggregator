@@ -1,6 +1,6 @@
 //! Quotes API E2E tests
 //!
-//! Tests for the /v1/quotes endpoint covering request validation,
+//! Tests for the /api/v1/quotes endpoint covering request validation,
 //! response structure, and core aggregation functionality.
 
 mod mocks;
@@ -17,7 +17,7 @@ async fn test_quotes_valid_request() {
 	let client = Client::new();
 
 	let resp = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.json(&ApiFixtures::valid_quote_request())
 		.send()
 		.await
@@ -43,7 +43,7 @@ async fn test_quotes_success_with_full_response_validation() {
 	let request = ApiFixtures::valid_quote_request();
 
 	let resp = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.json(&request)
 		.send()
 		.await
@@ -91,7 +91,7 @@ async fn test_quotes_invalid_empty_token() {
 	let client = Client::new();
 
 	let resp = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.json(&ApiFixtures::invalid_quote_request_missing_user())
 		.send()
 		.await
@@ -111,7 +111,7 @@ async fn test_quotes_malformed_json() {
 	let client = Client::new();
 
 	let resp = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.body("{ invalid json")
 		.header("content-type", "application/json")
 		.send()
@@ -131,7 +131,7 @@ async fn test_quotes_wrong_content_type() {
 	let client = Client::new();
 
 	let resp = client
-        .post(format!("{}/v1/quotes", server.base_url))
+        .post(format!("{}/api/v1/quotes", server.base_url))
         .body("token_in=ETH&token_out=USDC") // Form data instead of JSON
         .header("content-type", "application/x-www-form-urlencoded")
         .send()
@@ -157,7 +157,7 @@ async fn test_quotes_missing_required_fields() {
 	});
 
 	let resp = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.json(&incomplete_request)
 		.send()
 		.await
@@ -177,7 +177,7 @@ async fn test_quotes_wrong_http_method() {
 
 	// GET instead of POST
 	let resp = client
-		.get(format!("{}/v1/quotes", server.base_url))
+		.get(format!("{}/api/v1/quotes", server.base_url))
 		.send()
 		.await
 		.unwrap();

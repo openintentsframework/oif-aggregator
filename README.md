@@ -31,11 +31,11 @@ cargo run
 Once running, the following endpoints are available:
 
 - **`GET /health`** - Health check
-- **`POST /v1/quotes`** - Get quotes from multiple solvers
-- **`POST /v1/orders`** - Submit order for execution
-- **`GET /v1/orders/{id}`** - Get order
-- **`GET /v1/solvers`** - List all solvers
-- **`GET /v1/solvers/{id}`** - Get solver details
+- **`POST /api/v1/quotes`** - Get quotes from multiple solvers
+- **`POST /api/v1/orders`** - Submit order for execution
+- **`GET /api/v1/orders/{id}`** - Get order
+- **`GET /api/v1/solvers`** - List all solvers
+- **`GET /api/v1/solvers/{id}`** - Get solver details
 - **`GET /swagger-ui`** - Swagger UI - Available when run with openapi feature
 - **`GET /api-docs/openapi.json`** - OpenAPI specification - Available when run with openapi feature
 

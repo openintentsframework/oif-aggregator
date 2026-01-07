@@ -620,11 +620,11 @@ where
 		log_startup_complete(&bind_addr);
 		info!("API endpoints available:");
 		info!("  GET  /health");
-		info!("  POST /v1/quotes");
-		info!("  POST /v1/orders");
-		info!("  GET  /v1/orders/{{id}}");
-		info!("  GET  /v1/solvers");
-		info!("  GET  /v1/solvers/{{id}}");
+		info!("  POST /api/v1/quotes");
+		info!("  POST /api/v1/orders");
+		info!("  GET  /api/v1/orders/{{id}}");
+		info!("  GET  /api/v1/solvers");
+		info!("  GET  /api/v1/solvers/{{id}}");
 		if cfg!(feature = "openapi") {
 			info!("  GET  /swagger-ui");
 			info!("  GET  /api-docs/openapi.json");

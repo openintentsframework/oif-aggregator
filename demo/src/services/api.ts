@@ -66,7 +66,7 @@ export const quoteApi = {
    * Request quotes from multiple solvers
    */
   getQuotes: async (request: QuoteRequest): Promise<QuotesResponse> => {
-    const response = await api.post<QuotesResponse>('/v1/quotes', request);
+    const response = await api.post<QuotesResponse>('/api/v1/quotes', request);
     return response.data;
   }
 };
@@ -79,7 +79,7 @@ export const orderApi = {
    * Submit an order for execution
    */
   submitOrder: async (request: OrderRequest): Promise<OrderResponse> => {
-    const response = await api.post<OrderResponse>('/v1/orders', request);
+    const response = await api.post<OrderResponse>('/api/v1/orders', request);
     return response.data;
   },
 
@@ -87,7 +87,7 @@ export const orderApi = {
    * Get order status by ID
    */
   getOrder: async (id: string): Promise<OrderResponse> => {
-    const response = await api.get<OrderResponse>(`/v1/orders/${id}`);
+    const response = await api.get<OrderResponse>(`/api/v1/orders/${id}`);
     return response.data;
   }
 };

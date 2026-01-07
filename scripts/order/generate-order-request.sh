@@ -186,14 +186,14 @@ echo -e "${YELLOW}==============================================================
 echo
 echo -e "${BLUE}📤 Ready-to-use curl command:${NC}"
 echo -e "${YELLOW}=================================================================================${NC}"
-echo "curl -X POST http://localhost:4000/v1/orders \\"
+echo "curl -X POST http://localhost:4000/api/v1/orders \\"
 echo "  -H \"Content-Type: application/json\" \\"
 echo "  -d '$PAYLOAD'"
 echo -e "${YELLOW}=================================================================================${NC}"
 echo
 echo -e "${BLUE}📤 API Details:${NC}"
 echo -e "  Method: POST"
-echo -e "  URL: http://localhost:4000/v1/orders"
+echo -e "  URL: http://localhost:4000/api/v1/orders"
 echo -e "  Content-Type: application/json"
 echo
 echo -e "${GREEN}🎉 Copy the curl command above or use the payload in your API client${NC}"

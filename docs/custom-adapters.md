@@ -217,7 +217,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     
     // The app router is ready to handle HTTP requests
-    // Available endpoints: /health, /v1/quotes, /v1/orders, /v1/solvers
+    // Available endpoints: /health, /api/v1/quotes, /api/v1/orders, /api/v1/solvers
     
     Ok(())
 }
