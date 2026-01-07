@@ -9,7 +9,7 @@ use oif_types::quotes::response::QuotesResponse;
 /// Get quotes for a swap request using standard OIF format
 #[cfg_attr(feature = "openapi", utoipa::path(
     post,
-    path = "/v1/quotes",
+    path = "/api/v1/quotes",
     request_body = QuoteRequest,
     responses(
         (status = 200, description = "Quotes aggregated successfully", body = QuotesResponse),
@@ -18,7 +18,7 @@ use oif_types::quotes::response::QuotesResponse;
     ),
     tag = "quotes"
 ))]
-/// POST /v1/quotes - Get quotes
+/// POST /api/v1/quotes - Get quotes
 pub async fn post_quotes(
 	State(state): State<AppState>,
 	Json(request): Json<QuoteRequest>,

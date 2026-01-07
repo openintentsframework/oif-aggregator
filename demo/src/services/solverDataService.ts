@@ -39,7 +39,7 @@ class SolverDataService {
       }
 
       // Fetch fresh data
-      const response = await api.get('/v1/solvers');
+      const response = await api.get('/api/v1/solvers');
       const data = response.data;
 
       const cache = this.processSolverData(data);

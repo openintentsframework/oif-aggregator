@@ -17,7 +17,7 @@ async fn test_request_id_auto_generation() {
 	let client = Client::new();
 
 	let resp = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.json(&ApiFixtures::valid_quote_request())
 		.send()
 		.await
@@ -41,7 +41,7 @@ async fn test_request_id_propagation() {
 
 	let provided_id = "test-req-id-123";
 	let resp = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.header("x-request-id", provided_id)
 		.json(&ApiFixtures::valid_quote_request())
 		.send()
@@ -70,7 +70,7 @@ async fn test_cors_preflight() {
 	let resp = client
 		.request(
 			reqwest::Method::OPTIONS,
-			format!("{}/v1/quotes", server.base_url),
+			format!("{}/api/v1/quotes", server.base_url),
 		)
 		.header("Origin", "http://example.com")
 		.header("Access-Control-Request-Method", "POST")
@@ -97,7 +97,7 @@ async fn test_compression_headers() {
 	let client = Client::new();
 
 	let resp = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.header("Accept-Encoding", "gzip, br")
 		.json(&ApiFixtures::valid_quote_request())
 		.send()
@@ -125,7 +125,7 @@ async fn test_body_size_limit() {
 	let large_request = ApiFixtures::large_quote_request_with_payload(json!(large_payload));
 
 	let result = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.json(&large_request)
 		.send()
 		.await;
@@ -160,7 +160,7 @@ async fn test_rate_limiting_disabled() {
 		.expect("Failed to start test server");
 	let client = Client::new();
 
-	let endpoint = format!("{}/v1/solvers", server.base_url);
+	let endpoint = format!("{}/api/v1/solvers", server.base_url);
 
 	// Make multiple requests - all should succeed
 	for i in 1..=5 {

@@ -108,7 +108,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 	// To start a real server, you would do:
 	println!("   💡 To start a server: axum::serve(listener, app4).await?");
 	println!("   💡 The app4 router is ready to handle HTTP requests");
-	println!("   💡 Available endpoints: /health, /v1/quotes, /v1/orders, /v1/solvers");
+	println!("   💡 Available endpoints: /health, /api/v1/quotes, /api/v1/orders, /api/v1/solvers");
 
 	// Demo 5: Error handling showcase
 	println!("\n5. ⚠️  Error Handling Examples");

@@ -108,7 +108,7 @@ async fn test_post_quotes_invalid_request() {
 		.oneshot(
 			Request::builder()
 				.method("POST")
-				.uri("/v1/quotes")
+				.uri("/api/v1/quotes")
 				.header("content-type", "application/json")
 				.body(Body::from(invalid_request.to_string()))
 				.unwrap(),
@@ -133,7 +133,7 @@ async fn test_post_quotes_valid_request() {
 		.oneshot(
 			Request::builder()
 				.method("POST")
-				.uri("/v1/quotes")
+				.uri("/api/v1/quotes")
 				.header("content-type", "application/json")
 				.body(Body::from(valid_request.to_string()))
 				.unwrap(),
@@ -167,7 +167,7 @@ async fn test_post_orders_invalid_request() {
 		.oneshot(
 			Request::builder()
 				.method("POST")
-				.uri("/v1/orders")
+				.uri("/api/v1/orders")
 				.header("content-type", "application/json")
 				.body(Body::from(invalid_request.to_string()))
 				.unwrap(),
@@ -192,7 +192,7 @@ async fn test_post_orders_missing_quote() {
 		.oneshot(
 			Request::builder()
 				.method("POST")
-				.uri("/v1/orders")
+				.uri("/api/v1/orders")
 				.header("content-type", "application/json")
 				.body(Body::from(invalid_request.to_string()))
 				.unwrap(),
@@ -219,7 +219,7 @@ async fn test_post_orders_with_quote_response() {
 		.oneshot(
 			Request::builder()
 				.method("POST")
-				.uri("/v1/quotes")
+				.uri("/api/v1/quotes")
 				.header("content-type", "application/json")
 				.body(Body::from(quote_request.to_string()))
 				.unwrap(),
@@ -252,7 +252,7 @@ async fn test_post_orders_with_quote_response() {
 		.oneshot(
 			Request::builder()
 				.method("POST")
-				.uri("/v1/orders")
+				.uri("/api/v1/orders")
 				.header("content-type", "application/json")
 				.body(Body::from(order_request.to_string()))
 				.unwrap(),
@@ -278,7 +278,7 @@ async fn test_get_order_not_found() {
 	let response = app
 		.oneshot(
 			Request::builder()
-				.uri("/v1/orders/non-existent-order-id")
+				.uri("/api/v1/orders/non-existent-order-id")
 				.body(Body::empty())
 				.unwrap(),
 		)
@@ -295,7 +295,7 @@ async fn test_solvers_endpoint() {
 	let response = app
 		.oneshot(
 			Request::builder()
-				.uri("/v1/solvers")
+				.uri("/api/v1/solvers")
 				.body(Body::empty())
 				.unwrap(),
 		)
@@ -327,7 +327,7 @@ async fn test_order_workflow() {
 		.oneshot(
 			Request::builder()
 				.method("POST")
-				.uri("/v1/quotes")
+				.uri("/api/v1/quotes")
 				.header("content-type", "application/json")
 				.body(Body::from(quote_request.to_string()))
 				.unwrap(),
@@ -357,7 +357,7 @@ async fn test_order_workflow() {
 		.oneshot(
 			Request::builder()
 				.method("POST")
-				.uri("/v1/orders")
+				.uri("/api/v1/orders")
 				.header("content-type", "application/json")
 				.body(Body::from(order_request.to_string()))
 				.unwrap(),
@@ -383,7 +383,7 @@ async fn test_order_workflow() {
 	let status_response = app
 		.oneshot(
 			Request::builder()
-				.uri(format!("/v1/orders/{}", order_id))
+				.uri(format!("/api/v1/orders/{}", order_id))
 				.body(Body::empty())
 				.unwrap(),
 		)
@@ -416,7 +416,7 @@ async fn test_quote_and_order_workflow() {
 		.oneshot(
 			Request::builder()
 				.method("POST")
-				.uri("/v1/quotes")
+				.uri("/api/v1/quotes")
 				.header("content-type", "application/json")
 				.body(Body::from(quote_request.to_string()))
 				.unwrap(),
@@ -447,7 +447,7 @@ async fn test_quote_and_order_workflow() {
 		.oneshot(
 			Request::builder()
 				.method("POST")
-				.uri("/v1/orders")
+				.uri("/api/v1/orders")
 				.header("content-type", "application/json")
 				.body(Body::from(order_request.to_string()))
 				.unwrap(),

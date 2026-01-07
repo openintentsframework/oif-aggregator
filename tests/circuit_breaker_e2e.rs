@@ -39,7 +39,7 @@ async fn test_circuit_breaker_opens_on_consecutive_failures() {
 
 	// First request should work but failing-solver will fail
 	let response1 = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.json(&quote_request)
 		.send()
 		.await
@@ -59,7 +59,7 @@ async fn test_circuit_breaker_opens_on_consecutive_failures() {
 
 	// Second request - failing-solver fails again, should trigger circuit breaker
 	let response2 = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.json(&quote_request)
 		.send()
 		.await
@@ -70,7 +70,7 @@ async fn test_circuit_breaker_opens_on_consecutive_failures() {
 	// Third request should show circuit breaker is active
 	// The failing solver should be excluded from aggregation
 	let response3 = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.json(&quote_request)
 		.send()
 		.await
@@ -118,7 +118,7 @@ async fn test_circuit_breaker_opens_on_success_rate() {
 	// but slow solver timeouts should be recorded as failures affecting success rate
 	for i in 0..5 {
 		let response = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&quote_request)
 			.send()
 			.await
@@ -142,7 +142,7 @@ async fn test_circuit_breaker_opens_on_success_rate() {
 
 	// After several timeout failures, circuit breaker should start limiting the slow solver
 	let final_response = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.json(&quote_request)
 		.send()
 		.await
@@ -178,7 +178,7 @@ async fn test_circuit_breaker_recovery_timeout() {
 	// The fast solver should work, demonstrating the circuit breaker isn't incorrectly blocking
 	for i in 0..3 {
 		let response = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&quote_request)
 			.send()
 			.await
@@ -222,7 +222,7 @@ async fn test_circuit_breaker_recovery() {
 
 	// Initial request should work
 	let response1 = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.json(&quote_request)
 		.send()
 		.await
@@ -235,7 +235,7 @@ async fn test_circuit_breaker_recovery() {
 
 	// Follow-up request should also work (recovery)
 	let response2 = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.json(&quote_request)
 		.send()
 		.await
@@ -275,7 +275,7 @@ async fn test_circuit_breaker_mixed_solver_states() {
 	// Make multiple requests to establish different solver states
 	for i in 0..4 {
 		let response = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&quote_request)
 			.send()
 			.await
@@ -290,7 +290,7 @@ async fn test_circuit_breaker_mixed_solver_states() {
 	// - failing-solver should be circuit broken
 	// - slow-solver behavior depends on timeout config
 	let final_response = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.json(&quote_request)
 		.send()
 		.await
@@ -358,7 +358,7 @@ async fn test_circuit_breaker_order_flow() {
 	// Get quotes first
 	let quote_request = ApiFixtures::valid_quote_request();
 	let quote_response = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.json(&quote_request)
 		.send()
 		.await
@@ -384,7 +384,7 @@ async fn test_circuit_breaker_order_flow() {
 	});
 
 	let order_response = client
-		.post(format!("{}/v1/orders", server.base_url))
+		.post(format!("{}/api/v1/orders", server.base_url))
 		.json(&order_request)
 		.send()
 		.await

@@ -15,7 +15,7 @@ use crate::{
 
 use super::{Order, OrderStatus};
 
-/// Response body for /v1/orders endpoint (order submission)
+/// Response body for /api/v1/orders endpoint (order submission)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -51,7 +51,7 @@ pub struct OrderResponse {
 	pub fill_transaction: Option<serde_json::Value>,
 }
 
-/// Response body for /v1/orders endpoint (order submission)
+/// Response body for /api/v1/orders endpoint (order submission)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[cfg_attr(feature = "openapi", schema(example = json!({

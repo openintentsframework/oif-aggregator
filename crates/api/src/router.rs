@@ -55,16 +55,16 @@ pub fn create_router() -> Router<AppState> {
 	let base_router = Router::new()
 		.route("/health", get(health))
 		.route("/health/", get(health))
-		.route("/v1/quotes", post(post_quotes))
-		.route("/v1/quotes/", post(post_quotes))
-		.route("/v1/orders", post(post_orders))
-		.route("/v1/orders/", post(post_orders))
-		.route("/v1/orders/{id}", get(get_order))
-		.route("/v1/orders/{id}/", get(get_order))
-		.route("/v1/solvers", get(get_solvers))
-		.route("/v1/solvers/", get(get_solvers))
-		.route("/v1/solvers/{id}", get(get_solver_by_id))
-		.route("/v1/solvers/{id}/", get(get_solver_by_id));
+		.route("/api/v1/quotes", post(post_quotes))
+		.route("/api/v1/quotes/", post(post_quotes))
+		.route("/api/v1/orders", post(post_orders))
+		.route("/api/v1/orders/", post(post_orders))
+		.route("/api/v1/orders/{id}", get(get_order))
+		.route("/api/v1/orders/{id}/", get(get_order))
+		.route("/api/v1/solvers", get(get_solvers))
+		.route("/api/v1/solvers/", get(get_solvers))
+		.route("/api/v1/solvers/{id}", get(get_solver_by_id))
+		.route("/api/v1/solvers/{id}/", get(get_solver_by_id));
 	// Conditionally add OpenAPI endpoints
 	#[cfg(feature = "openapi")]
 	let router = {

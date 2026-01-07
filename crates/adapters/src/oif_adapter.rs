@@ -1180,7 +1180,7 @@ mod tests {
 		let adapter = OifAdapter::with_default_config().unwrap();
 		let _config = SolverRuntimeConfig::new(
 			"test-solver".to_string(),
-			"http://localhost:3000/api".to_string(),
+			"http://localhost:3000/api/v1".to_string(),
 		);
 
 		// Note: This test would need a mock server to actually work
@@ -1240,14 +1240,14 @@ mod tests {
 		assert_eq!(result, "https://api.example.com/orders/123");
 
 		// Test with path in base URL (the problematic case)
-		let base_with_path = "http://127.0.0.1:3000/api";
+		let base_with_path = "http://127.0.0.1:3000/api/v1";
 		let result = adapter.build_url(base_with_path, "tokens").unwrap();
-		assert_eq!(result, "http://127.0.0.1:3000/api/tokens");
+		assert_eq!(result, "http://127.0.0.1:3000/api/v1/tokens");
 
 		// Test with path in base URL and trailing slash
-		let base_with_path_slash = "http://127.0.0.1:3000/api/";
+		let base_with_path_slash = "http://127.0.0.1:3000/api/v1/";
 		let result = adapter.build_url(base_with_path_slash, "tokens").unwrap();
-		assert_eq!(result, "http://127.0.0.1:3000/api/tokens");
+		assert_eq!(result, "http://127.0.0.1:3000/api/v1/tokens");
 
 		// Test invalid URL
 		let result = adapter.build_url("invalid://::url", "tokens");

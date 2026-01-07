@@ -8,7 +8,7 @@ The OIF Aggregator collects quotes from multiple DeFi solvers and presents them 
 
 ## 📡 Quotes Endpoint
 
-### `POST /v1/quotes`
+### `POST /api/v1/quotes`
 
 Request quotes from multiple solvers.
 
@@ -251,7 +251,7 @@ sequenceDiagram
     participant Solver1 as OIF Solver
     participant Solver2 as Custom Solver
     
-    Client->>API: POST /v1/quotes
+    Client->>API: POST /api/v1/quotes
     API->>Aggregator: Process Quote Request
     
     Note over Aggregator: 1. Request Validation

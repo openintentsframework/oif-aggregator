@@ -1,6 +1,6 @@
 //! Orders API E2E tests
 //!
-//! Tests for the /v1/orders endpoint covering order submission,
+//! Tests for the /api/api/v1/orders endpoint covering order submission,
 //! validation, and processing.
 
 mod mocks;
@@ -19,7 +19,7 @@ async fn test_orders_stateless_flow() {
 	// Step 1: Get a real quote from the server first
 	let quote_request = ApiFixtures::valid_quote_request();
 	let quote_response = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.json(&quote_request)
 		.send()
 		.await
@@ -52,7 +52,7 @@ async fn test_orders_stateless_flow() {
 	});
 
 	let resp = client
-		.post(format!("{}/v1/orders", server.base_url))
+		.post(format!("{}/api/v1/orders", server.base_url))
 		.json(&order_request)
 		.send()
 		.await
@@ -68,7 +68,7 @@ async fn test_orders_stateless_flow() {
 
 	// Step 3: Query order status
 	let resp = client
-		.get(format!("{}/v1/orders/{}", server.base_url, order_id))
+		.get(format!("{}/api/v1/orders/{}", server.base_url, order_id))
 		.send()
 		.await
 		.expect("Failed to get order status");
@@ -81,7 +81,7 @@ async fn test_orders_stateless_flow() {
 
 	// retrieve the order
 	let order_resp = client
-		.get(format!("{}/v1/orders/{}", server.base_url, order_id))
+		.get(format!("{}/api/v1/orders/{}", server.base_url, order_id))
 		.send()
 		.await
 		.expect("Failed to get order");
@@ -102,7 +102,7 @@ async fn test_orders_missing_user_address() {
 	let client = Client::new();
 
 	let resp = client
-		.post(format!("{}/v1/orders", server.base_url))
+		.post(format!("{}/api/v1/orders", server.base_url))
 		.json(&ApiFixtures::invalid_order_request_missing_user())
 		.send()
 		.await
@@ -122,7 +122,7 @@ async fn test_orders_missing_quote_data() {
 	let client = Client::new();
 
 	let resp = client
-		.post(format!("{}/v1/orders", server.base_url))
+		.post(format!("{}/api/v1/orders", server.base_url))
 		.json(&ApiFixtures::invalid_order_request_missing_quote())
 		.send()
 		.await
@@ -145,7 +145,7 @@ async fn test_orders_quote_not_found() {
 	// Get a valid quote response
 	let quote_request = ApiFixtures::valid_quote_request();
 	let quote_resp = client
-		.post(format!("{}/v1/quotes", server_with_adapters.base_url))
+		.post(format!("{}/api/v1/quotes", server_with_adapters.base_url))
 		.json(&quote_request)
 		.send()
 		.await
@@ -176,7 +176,7 @@ async fn test_orders_quote_not_found() {
 	}
 
 	let resp = client
-		.post(format!("{}/v1/orders", server_no_adapters.base_url))
+		.post(format!("{}/api/v1/orders", server_no_adapters.base_url))
 		.json(&order_request)
 		.send()
 		.await
@@ -204,7 +204,7 @@ async fn test_orders_no_adapters_configured() {
 	// Get a valid quote response
 	let quote_request = ApiFixtures::valid_quote_request();
 	let quote_resp = client
-		.post(format!("{}/v1/quotes", server_with_adapters.base_url))
+		.post(format!("{}/api/v1/quotes", server_with_adapters.base_url))
 		.json(&quote_request)
 		.send()
 		.await
@@ -231,7 +231,7 @@ async fn test_orders_no_adapters_configured() {
 
 	// Submit order to server with no adapters
 	let resp = client
-		.post(format!("{}/v1/orders", server_no_adapters.base_url))
+		.post(format!("{}/api/v1/orders", server_no_adapters.base_url))
 		.json(&order_request)
 		.send()
 		.await
@@ -254,7 +254,7 @@ async fn test_orders_nonexistent_order_status() {
 
 	let resp = client
 		.get(format!(
-			"{}/v1/orders/nonexistent-order-id",
+			"{}/api/v1/orders/nonexistent-order-id",
 			server.base_url
 		))
 		.send()
@@ -278,7 +278,7 @@ async fn test_orders_invalid_order_id_format() {
 
 	for invalid_id in invalid_ids {
 		let resp = client
-			.get(format!("{}/v1/orders/{}", server.base_url, invalid_id))
+			.get(format!("{}/api/v1/orders/{}", server.base_url, invalid_id))
 			.send()
 			.await
 			.unwrap();
@@ -299,7 +299,7 @@ async fn test_orders_wrong_http_methods() {
 
 	// GET to orders creation endpoint
 	let resp = client
-		.get(format!("{}/v1/orders", server.base_url))
+		.get(format!("{}/api/v1/orders", server.base_url))
 		.send()
 		.await
 		.unwrap();
@@ -307,7 +307,7 @@ async fn test_orders_wrong_http_methods() {
 
 	// POST to order status endpoint
 	let resp = client
-		.post(format!("{}/v1/orders/some-id", server.base_url))
+		.post(format!("{}/api/v1/orders/some-id", server.base_url))
 		.json(&serde_json::json!({}))
 		.send()
 		.await

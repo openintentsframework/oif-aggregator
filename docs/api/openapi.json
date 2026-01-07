@@ -35,7 +35,7 @@
         }
       }
     },
-    "/v1/orders": {
+    "/api/v1/orders": {
       "post": {
         "tags": [
           "orders"
@@ -96,7 +96,7 @@
         }
       }
     },
-    "/v1/orders/{id}": {
+    "/api/v1/orders/{id}": {
       "get": {
         "tags": [
           "orders"
@@ -148,7 +148,7 @@
         }
       }
     },
-    "/v1/quotes": {
+    "/api/v1/quotes": {
       "post": {
         "tags": [
           "quotes"
@@ -199,7 +199,7 @@
         }
       }
     },
-    "/v1/solvers": {
+    "/api/v1/solvers": {
       "get": {
         "tags": [
           "solvers"
@@ -246,7 +246,7 @@
         }
       }
     },
-    "/v1/solvers/{id}": {
+    "/api/v1/solvers/{id}": {
       "get": {
         "tags": [
           "solvers"

@@ -62,7 +62,7 @@ curl http://localhost:4000/health
 
 ### Get Available Solvers
 ```bash
-curl http://localhost:4000/v1/solvers
+curl http://localhost:4000/api/v1/solvers
 ```
 
 ## 📚 Next Steps

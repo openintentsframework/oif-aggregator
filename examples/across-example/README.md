@@ -112,10 +112,10 @@ The aggregator is now running with Across Protocol integration:
 curl http://localhost:4000/health
 
 # Get available solvers (should show Across solver with auto-discovered routes)
-curl http://localhost:4000/v1/solvers
+curl http://localhost:4000/api/v1/solvers
 
 # Request quotes for cross-chain transfers
-curl -X POST http://localhost:4000/v1/quotes \
+curl -X POST http://localhost:4000/api/v1/quotes \
   -H "Content-Type: application/json" \
   -d '{
   "user": "0x000100000314aa37dc742d35cc6634c0532925a3b8d38ba2297c33a9d7",
@@ -165,17 +165,17 @@ At this point, you have:
 The aggregator exposes these endpoints:
 ```bash
 GET  /health                 # Service health
-GET  /v1/solvers            # Available solvers (shows Across with routes)
-POST /v1/quotes             # Request quotes (✅ Fully functional)
-POST /v1/orders/{id}        # Get order details (❌ Not implemented)
-POST /v1/orders             # Create orders (❌ Not implemented)
+GET  /api/v1/solvers            # Available solvers (shows Across with routes)
+POST /api/v1/quotes             # Request quotes (✅ Fully functional)
+POST /api/v1/orders/{id}        # Get order details (❌ Not implemented)
+POST /api/v1/orders             # Create orders (❌ Not implemented)
 ```
 
 ### 🚨 Current Limitations
 
 **Order Operations Not Supported:**
-- `POST /v1/orders` (submit order) - Returns "UnsupportedOperation"
-- `GET /v1/orders/{id}` (order details) - Returns "UnsupportedOperation"
+- `POST /api/v1/orders` (submit order) - Returns "UnsupportedOperation"
+- `GET /api/v1/orders/{id}` (order details) - Returns "UnsupportedOperation"
 
 **Why Order Operations Aren't Implemented:**
 1. **Frontend Integration**: Order submission will be handled by frontend applications
@@ -231,7 +231,7 @@ environment:
 
 Since order operations are not implemented in the aggregator, frontend applications should:
 
-1. **Get Quotes**: Use the aggregator's `/v1/quotes` endpoint
+1. **Get Quotes**: Use the aggregator's `/api/v1/quotes` endpoint
 2. **Direct Integration**: Implement Across Protocol SDK directly in frontend
 3. **User Signing**: Handle transaction signing in the user's wallet
 4. **Status Tracking**: Monitor transaction status via Across APIs
@@ -294,7 +294,7 @@ docker-compose exec oif-aggregator curl https://app.across.to/available-routes
 ```bash
 # This is expected behavior - order operations are not implemented
 # Use the quotes endpoint instead:
-curl -X POST http://localhost:4000/v1/quotes -H "Content-Type: application/json" -d '...'
+curl -X POST http://localhost:4000/api/v1/quotes -H "Content-Type: application/json" -d '...'
 ```
 
 **Need debug logs?**
@@ -308,7 +308,7 @@ docker-compose up -d
 **Want to test different routes?**
 ```bash
 # Check available routes first
-curl http://localhost:4000/v1/solvers
+curl http://localhost:4000/api/v1/solvers
 
 # Then test with supported asset pairs from the routes list
 ```

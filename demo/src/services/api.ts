@@ -66,7 +66,7 @@ export const quoteApi = {
    * Request quotes from multiple solvers
    */
   getQuotes: async (request: QuoteRequest): Promise<QuotesResponse> => {
-    const response = await api.post<QuotesResponse>('/v1/quotes', request);
+    const response = await api.post<QuotesResponse>('/api/v1/quotes', request);
     return response.data;
   }
 };
@@ -79,7 +79,7 @@ export const orderApi = {
    * Submit an order for execution
    */
   submitOrder: async (request: OrderRequest): Promise<OrderResponse> => {
-    const response = await api.post<OrderResponse>('/v1/orders', request);
+    const response = await api.post<OrderResponse>('/api/v1/orders', request);
     return response.data;
   },
 
@@ -87,7 +87,7 @@ export const orderApi = {
    * Get order status by ID
    */
   getOrder: async (id: string): Promise<OrderResponse> => {
-    const response = await api.get<OrderResponse>(`/v1/orders/${id}`);
+    const response = await api.get<OrderResponse>(`/api/v1/orders/${id}`);
     return response.data;
   }
 };
@@ -113,9 +113,9 @@ export const solverApi = {
     const params = new URLSearchParams();
     if (page) params.append('page', page.toString());
     if (pageSize) params.append('page_size', pageSize.toString());
-    
+
     const response = await api.get<SolversListResponse>(
-      `/v1/solvers${params.toString() ? `?${params.toString()}` : ''}`
+      `/api/v1/solvers${params.toString() ? `?${params.toString()}` : ''}`
     );
     return response.data;
   },
@@ -124,7 +124,7 @@ export const solverApi = {
    * Get details of a specific solver by ID
    */
   getSolverById: async (id: string): Promise<SolverResponse> => {
-    const response = await api.get<SolverResponse>(`/v1/solvers/${id}`);
+    const response = await api.get<SolverResponse>(`/api/v1/solvers/${id}`);
     return response.data;
   }
 };

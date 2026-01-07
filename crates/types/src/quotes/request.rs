@@ -23,7 +23,7 @@ pub enum SolverSelection {
 	Priority,
 }
 
-/// API request body for /v1/quotes endpoint
+/// API request body for /api/v1/quotes endpoint
 #[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[cfg_attr(feature = "openapi", schema(example = json!({
@@ -166,7 +166,7 @@ impl SolverOptions {
 	}
 }
 
-/// API request body for /v1/quotes endpoint
+/// API request body for /api/v1/quotes endpoint
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 #[cfg_attr(feature = "openapi", schema(example = json!({

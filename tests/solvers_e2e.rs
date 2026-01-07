@@ -1,6 +1,6 @@
 //! Solvers API E2E tests
 //!
-//! Tests for the /v1/solvers endpoints covering solver listing
+//! Tests for the /api/v1/solvers endpoints covering solver listing
 //! and individual solver retrieval.
 
 mod mocks;
@@ -16,7 +16,7 @@ async fn test_get_solvers() {
 	let client = Client::new();
 
 	let resp = client
-		.get(format!("{}/v1/solvers", server.base_url))
+		.get(format!("{}/api/v1/solvers", server.base_url))
 		.send()
 		.await
 		.unwrap();
@@ -38,7 +38,7 @@ async fn test_get_solver_by_id() {
 
 	// First get all solvers to find a valid ID
 	let solvers_resp = client
-		.get(format!("{}/v1/solvers", server.base_url))
+		.get(format!("{}/api/v1/solvers", server.base_url))
 		.send()
 		.await
 		.unwrap();
@@ -51,7 +51,7 @@ async fn test_get_solver_by_id() {
 		let solver_id = solvers[0]["solverId"].as_str().unwrap();
 
 		let resp = client
-			.get(format!("{}/v1/solvers/{}", server.base_url, solver_id))
+			.get(format!("{}/api/v1/solvers/{}", server.base_url, solver_id))
 			.send()
 			.await
 			.unwrap();
@@ -74,7 +74,7 @@ async fn test_get_solver_not_found() {
 
 	let resp = client
 		.get(format!(
-			"{}/v1/solvers/non-existent-solver",
+			"{}/api/v1/solvers/non-existent-solver",
 			server.base_url
 		))
 		.send()

@@ -13,7 +13,7 @@ use oif_types::{OrderRequest, OrderResponse};
 /// Submit a new order
 #[cfg_attr(feature = "openapi", utoipa::path(
     post,
-    path = "/v1/orders",
+    path = "/api/v1/orders",
     request_body = OrderRequest,
     responses(
         (status = 200, description = "Order created", body = OrderResponse),
@@ -23,7 +23,7 @@ use oif_types::{OrderRequest, OrderResponse};
     ),
     tag = "orders"
 ))]
-/// POST /v1/orders - Submit an order
+/// POST /api/v1/orders - Submit an order
 pub async fn post_orders(
 	State(state): State<AppState>,
 	Json(request): Json<OrderRequest>,
@@ -110,7 +110,7 @@ pub async fn post_orders(
 /// Get order status by ID
 #[cfg_attr(feature = "openapi", utoipa::path(
     get,
-    path = "/v1/orders/{id}",
+    path = "/api/v1/orders/{id}",
     params(("id" = String, Path, description = "Order ID")),
     responses(
         (status = 200, description = "Order details", body = OrderResponse),
@@ -119,7 +119,7 @@ pub async fn post_orders(
     ),
     tag = "orders"
 ))]
-/// GET /v1/orders/:id - Get order details by ID
+/// GET /api/v1/orders/:id - Get order details by ID
 pub async fn get_order(
 	State(state): State<AppState>,
 	Path(order_id): Path<String>,
