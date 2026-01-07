@@ -113,9 +113,9 @@ export const solverApi = {
     const params = new URLSearchParams();
     if (page) params.append('page', page.toString());
     if (pageSize) params.append('page_size', pageSize.toString());
-    
+
     const response = await api.get<SolversListResponse>(
-      `/v1/solvers${params.toString() ? `?${params.toString()}` : ''}`
+      `/api/v1/solvers${params.toString() ? `?${params.toString()}` : ''}`
     );
     return response.data;
   },
@@ -124,7 +124,7 @@ export const solverApi = {
    * Get details of a specific solver by ID
    */
   getSolverById: async (id: string): Promise<SolverResponse> => {
-    const response = await api.get<SolverResponse>(`/v1/solvers/${id}`);
+    const response = await api.get<SolverResponse>(`/api/v1/solvers/${id}`);
     return response.data;
   }
 };
