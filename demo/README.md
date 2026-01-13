@@ -99,7 +99,7 @@ Before using the UI, you need to have the OIF Aggregator and at least one solver
 2. **Configure and start the OIF Aggregator** with your solver(s)
    - Configure the aggregator to connect to your solver instances
    - Start the aggregator on port 4000 (or your preferred port)
-   - Verify solvers are registered: `GET http://localhost:4000/api/api/v1/solvers`
+   - Verify solvers are registered: `GET http://localhost:4000/api/v1/solvers`
 
    Note: The OIF Aggregator API uses `/api/v1` prefix for all API endpoints.
 

@@ -29,7 +29,7 @@ This example includes:
   "server": { "host": "0.0.0.0", "port": 4000 },
   "solvers": {
     "demo-solver": {
-      "endpoint": "http://127.0.0.1:3000/api",
+      "endpoint": "http://127.0.0.1:3000/api/v1",
       "enabled": true
     }
   }
@@ -95,7 +95,7 @@ The aggregator exposes these endpoints:
 GET  /health                 # Service health
 GET  /api/v1/solvers            # Available solvers
 POST /api/v1/quotes             # Request quotes
-POST /api/v1/orders/{id}        # Get order details
+GET /api/v1/orders/{id}        # Get order details
 POST /api/v1/orders             # Create orders
 ```
 
@@ -157,7 +157,7 @@ docker-compose logs oif-aggregator
 **Want to connect a real solver?**
 ```bash
 # Update config.json with real solver endpoint
-# Example: "endpoint": "http://your-solver:3000/api"
+# Example: "endpoint": "http://your-solver:3000/api/v1"
 
 # Then restart the service
 docker-compose restart
