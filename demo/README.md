@@ -99,7 +99,9 @@ Before using the UI, you need to have the OIF Aggregator and at least one solver
 2. **Configure and start the OIF Aggregator** with your solver(s)
    - Configure the aggregator to connect to your solver instances
    - Start the aggregator on port 4000 (or your preferred port)
-   - Verify solvers are registered: `GET http://localhost:4000/v1/solvers`
+   - Verify solvers are registered: `GET http://localhost:4000/api/v1/solvers`
+
+   Note: The OIF Aggregator API uses `/api/v1` prefix for all API endpoints.
 
 3. **Start the UI** (this project)
    - Install dependencies and run the development server (see below)
@@ -360,9 +362,9 @@ ui/
 
 The UI integrates with the following OIF Aggregator endpoints:
 
-- `POST /v1/quotes` - Request quotes from solvers
-- `POST /v1/orders` - Submit an order for execution
-- `GET /v1/orders/{id}` - Get order status by ID
+- `POST /api/v1/quotes` - Request quotes from solvers
+- `POST /api/v1/orders` - Submit an order for execution
+- `GET /api/v1/orders/{id}` - Get order status by ID
 - `GET /health` - Health check
 
 ## Development
@@ -459,7 +461,7 @@ If you see "No solvers currently support this route" or empty solver lists:
 
 1. **Check solver status**: Navigate to the **🔍 Solvers** tab to see registered solvers
 2. **Verify solver is running**: Ensure your solver process is active (see [OIF Solver Quick Start](https://github.com/openintentsframework/oif-solver))
-3. **Check solver registration**: The solver should appear in `GET /v1/solvers` endpoint
+3. **Check solver registration**: The solver should appear in `GET /api/v1/solvers` endpoint
 4. **Review solver configuration**: Ensure the solver's supported assets/routes match your quote request
 5. **Check aggregator logs**: Look for solver registration and health check messages
 6. **Restart solver**: Sometimes re-registering helps: stop and restart the solver process

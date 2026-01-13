@@ -77,7 +77,7 @@ async fn test_quotes_endpoint_empty() {
 
 	let client = Client::new();
 	let response = client
-		.post(format!("{}/v1/quotes", base_url))
+		.post(format!("{}/api/v1/quotes", base_url))
 		.json(&request_body)
 		.send()
 		.await
@@ -100,7 +100,7 @@ async fn test_orders_endpoint_invalid() {
 
 	let client = Client::new();
 	let response = client
-        .post(format!("{}/v1/orders", base_url))
+        .post(format!("{}/api/v1/orders", base_url))
         .json(&ApiFixtures::invalid_order_request_missing_user())  // Use mock invalid request
         .send()
         .await
@@ -115,7 +115,7 @@ async fn test_orders_endpoint_invalid() {
 async fn test_solvers_endpoint() {
 	let (base_url, handle) = spawn_server().await.expect("Failed to start server");
 
-	let response = reqwest::get(&format!("{}/v1/solvers", base_url))
+	let response = reqwest::get(&format!("{}/api/v1/solvers", base_url))
 		.await
 		.expect("Failed to get solvers endpoint");
 
@@ -138,7 +138,7 @@ async fn test_orders_endpoint_with_mock_data() {
 	// Get a real quote from the server first
 	let quote_request = ApiFixtures::valid_quote_request();
 	let quote_response = client
-		.post(format!("{}/v1/quotes", server.base_url))
+		.post(format!("{}/api/v1/quotes", server.base_url))
 		.json(&quote_request)
 		.send()
 		.await
@@ -172,7 +172,7 @@ async fn test_orders_endpoint_with_mock_data() {
 
 	// Submit the order
 	let order_response = client
-		.post(format!("{}/v1/orders", server.base_url))
+		.post(format!("{}/api/v1/orders", server.base_url))
 		.json(&order_request)
 		.send()
 		.await
@@ -200,7 +200,7 @@ async fn test_orders_endpoint_with_mock_data() {
 async fn test_get_order_not_found() {
 	let (base_url, handle) = spawn_server().await.expect("Failed to start server");
 
-	let response = reqwest::get(&format!("{}/v1/orders/non-existent-order", base_url))
+	let response = reqwest::get(&format!("{}/api/v1/orders/non-existent-order", base_url))
 		.await
 		.expect("Failed to get order endpoint");
 

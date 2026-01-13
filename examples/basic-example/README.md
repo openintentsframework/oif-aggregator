@@ -29,7 +29,7 @@ This example includes:
   "server": { "host": "0.0.0.0", "port": 4000 },
   "solvers": {
     "demo-solver": {
-      "endpoint": "http://127.0.0.1:3000/api",
+      "endpoint": "http://127.0.0.1:3000/api/v1",
       "enabled": true
     }
   }
@@ -75,7 +75,7 @@ The aggregator is now running and ready to receive requests:
 curl http://localhost:4000/health
 
 # Get available solvers (will show demo-solver as configured but unhealthy)
-curl http://localhost:4000/v1/solvers
+curl http://localhost:4000/api/v1/solvers
 ```
 
 **Expected responses:**
@@ -93,10 +93,10 @@ At this point, you have:
 The aggregator exposes these endpoints:
 ```bash
 GET  /health                 # Service health
-GET  /v1/solvers            # Available solvers
-POST /v1/quotes             # Request quotes
-POST /v1/orders/{id}        # Get order details
-POST /v1/orders             # Create orders
+GET  /api/v1/solvers            # Available solvers
+POST /api/v1/quotes             # Request quotes
+GET /api/v1/orders/{id}        # Get order details
+POST /api/v1/orders             # Create orders
 ```
 
 **Note**: Quote and order requests will fail since no solver is running, but the aggregator is ready to forward requests when you connect real solvers.
@@ -157,7 +157,7 @@ docker-compose logs oif-aggregator
 **Want to connect a real solver?**
 ```bash
 # Update config.json with real solver endpoint
-# Example: "endpoint": "http://your-solver:3000/api"
+# Example: "endpoint": "http://your-solver:3000/api/v1"
 
 # Then restart the service
 docker-compose restart

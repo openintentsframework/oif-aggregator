@@ -7,7 +7,7 @@
     "demo-solver": {
       "solver_id": "demo-solver",
       "adapter_id": "oif-v1",
-      "endpoint": "http://127.0.0.1:3000/api",
+      "endpoint": "http://127.0.0.1:3000/api/v1",
       "timeout_ms": 2000,
       "enabled": true,
       "max_retries": 2,

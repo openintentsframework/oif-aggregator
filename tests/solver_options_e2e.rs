@@ -28,7 +28,7 @@ mod solver_options_e2e {
 		request.as_object_mut().unwrap().remove("solverOptions");
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -68,7 +68,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -106,7 +106,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -142,7 +142,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -178,7 +178,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -216,7 +216,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -264,7 +264,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -301,7 +301,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -338,7 +338,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -385,7 +385,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -436,7 +436,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -494,7 +494,7 @@ mod solver_options_e2e {
 		let start_time = std::time::Instant::now();
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -568,7 +568,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -621,7 +621,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -650,7 +650,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -686,7 +686,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -727,7 +727,7 @@ mod solver_options_e2e {
 		let start_time = std::time::Instant::now();
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -783,7 +783,7 @@ mod solver_options_e2e {
   }"#;
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.body(malformed_request)
 			.header("content-type", "application/json")
 			.send()
@@ -814,7 +814,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -852,7 +852,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -887,7 +887,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -921,7 +921,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -976,7 +976,7 @@ mod solver_options_e2e {
 		let start_time = std::time::Instant::now();
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -1057,7 +1057,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -1191,7 +1191,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -1322,7 +1322,7 @@ mod solver_options_e2e {
 
 		let start_time = Instant::now();
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -1436,7 +1436,7 @@ mod solver_options_e2e {
 
 		let start_time = Instant::now();
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -1548,7 +1548,7 @@ mod solver_options_e2e {
 
 		let start_time = Instant::now();
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -1657,7 +1657,7 @@ mod solver_options_e2e {
 
 		let start_time = Instant::now();
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -1741,7 +1741,7 @@ mod solver_options_e2e {
 		});
 
 		let resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&request)
 			.send()
 			.await
@@ -1815,7 +1815,7 @@ mod solver_options_e2e {
 
 		let start = Instant::now();
 		let fast_resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&fast_request)
 			.send()
 			.await
@@ -1833,7 +1833,7 @@ mod solver_options_e2e {
 
 		let start = Instant::now();
 		let mixed_resp = client
-			.post(format!("{}/v1/quotes", server.base_url))
+			.post(format!("{}/api/v1/quotes", server.base_url))
 			.json(&mixed_request)
 			.send()
 			.await

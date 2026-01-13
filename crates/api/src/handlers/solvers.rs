@@ -12,10 +12,10 @@ use crate::pagination::PaginationQuery;
 use crate::state::AppState;
 use oif_types::solvers::response::{SolverResponse, SolversResponse};
 
-/// GET /v1/solvers - List all solvers
+/// GET /api/v1/solvers - List all solvers
 #[cfg_attr(feature = "openapi", utoipa::path(
     get,
-    path = "/v1/solvers",
+    path = "/api/v1/solvers",
     params(
         ("page" = Option<u32>, Query, description = "Page number (1-based)", example = 1),
         ("page_size" = Option<u32>, Query, description = "Items per page (1-100)", example = 25)
@@ -63,10 +63,10 @@ pub async fn get_solvers(
 	Ok(Json(response))
 }
 
-/// GET /v1/solvers/{id} - Get solver by id
+/// GET /api/v1/solvers/{id} - Get solver by id
 #[cfg_attr(feature = "openapi", utoipa::path(
     get,
-    path = "/v1/solvers/{id}",
+    path = "/api/v1/solvers/{id}",
     params(("id" = String, Path, description = "Solver ID")),
     responses((status = 200, description = "Solver details", body = SolverResponse), (status = 404, description = "Not found", body = ErrorResponse)),
     tag = "solvers"
