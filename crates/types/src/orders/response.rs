@@ -29,10 +29,12 @@ pub struct OrderResponse {
 	/// Quote ID
 	pub quote_id: Option<String>,
 
-	/// When the response was created
+	/// When the response was created (Unix timestamp in seconds)
+	#[serde(with = "chrono::serde::ts_seconds")]
 	pub created_at: DateTime<Utc>,
 
-	/// When the response was last updated
+	/// When the response was last updated (Unix timestamp in seconds)
+	#[serde(with = "chrono::serde::ts_seconds")]
 	pub updated_at: DateTime<Utc>,
 
 	/// Input amount
