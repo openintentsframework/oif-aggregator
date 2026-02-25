@@ -33,9 +33,9 @@ use crate::client_cache::ClientCache;
 /// This prevents race conditions where tokens expire between validation and actual use
 pub const JWT_TOKEN_EXPIRY_BUFFER_MINUTES: i64 = 5;
 
-/// OIF tokens response models
+/// OIF assets response models
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct OifTokensResponse {
+struct OifAssetsResponse {
 	networks: HashMap<String, OifNetwork>,
 }
 
@@ -44,11 +44,11 @@ struct OifNetwork {
 	chain_id: u64,
 	input_settler: String,
 	output_settler: String,
-	tokens: Vec<OifToken>,
+	assets: Vec<OifAsset>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct OifToken {
+struct OifAsset {
 	address: String,
 	symbol: String,
 	decimals: u8,
@@ -633,16 +633,16 @@ impl OifAdapter {
 		config: &SolverRuntimeConfig,
 	) -> AdapterResult<Vec<Asset>> {
 		let client = self.get_configured_client(config).await?;
-		let tokens_url = self.build_url(&config.endpoint, "tokens")?;
+		let assets_url = self.build_url(&config.endpoint, "assets")?;
 
 		debug!(
 			"Fetching supported assets from OIF adapter at {} (solver: {})",
-			tokens_url, config.solver_id
+			assets_url, config.solver_id
 		);
 
-		// Make the tokens request
+		// Make the assets request
 		let response = client
-			.get(&tokens_url)
+			.get(&assets_url)
 			.send()
 			.await
 			.map_err(AdapterError::HttpError)?;
@@ -651,18 +651,18 @@ impl OifAdapter {
 			let status_code = response.status().as_u16();
 			return Err(AdapterError::http_failure(
 				status_code,
-				format!("OIF tokens endpoint returned status {}", status_code),
+				format!("OIF assets endpoint returned status {}", status_code),
 			));
 		}
 
 		// Get response body as text first so we can print it
 		let body = response.text().await.unwrap_or_default();
-		debug!("OIF tokens endpoint response body: {}", body);
+		debug!("OIF assets endpoint response body: {}", body);
 
-		// Parse the OIF tokens response
-		let oif_response: OifTokensResponse =
+		// Parse the OIF assets response
+		let oif_response: OifAssetsResponse =
 			serde_json::from_str(&body).map_err(|e| AdapterError::InvalidResponse {
-				reason: format!("Failed to parse OIF tokens response: {}", e),
+				reason: format!("Failed to parse OIF assets response: {}", e),
 			})?;
 
 		// Transform OIF response to internal asset format
@@ -672,13 +672,13 @@ impl OifAdapter {
 		for (chain_id_str, network_data) in oif_response.networks {
 			let chain_id = chain_id_str.parse::<u64>().unwrap_or(network_data.chain_id);
 
-			for token in network_data.tokens {
+			for asset_info in network_data.assets {
 				let asset = Asset::from_chain_and_address(
 					chain_id,
-					token.address,
-					token.symbol,
-					"".to_string(), // OIF doesn't provide token names
-					token.decimals,
+					asset_info.address,
+					asset_info.symbol,
+					"".to_string(), // OIF doesn't provide asset names
+					asset_info.decimals,
 				)
 				.map_err(|e| AdapterError::InvalidResponse {
 					reason: format!("Invalid asset from OIF API: {}", e),
@@ -859,15 +859,15 @@ impl SolverAdapter for OifAdapter {
 	}
 
 	async fn health_check(&self, config: &SolverRuntimeConfig) -> AdapterResult<bool> {
-		let tokens_url = self.build_url(&config.endpoint, "tokens")?;
+		let assets_url = self.build_url(&config.endpoint, "assets")?;
 		let client = self.get_configured_client(config).await?;
 
 		debug!(
-			"Health checking OIF adapter at {} (solver: {}) via /tokens endpoint",
-			tokens_url, config.solver_id
+			"Health checking OIF adapter at {} (solver: {}) via /assets endpoint",
+			assets_url, config.solver_id
 		);
 
-		match client.get(&tokens_url).send().await {
+		match client.get(&assets_url).send().await {
 			Ok(response) => {
 				let is_healthy = response.status().is_success();
 				if is_healthy {
@@ -878,14 +878,14 @@ impl SolverAdapter for OifAdapter {
 						body.len()
 					);
 
-					match serde_json::from_str::<OifTokensResponse>(&body) {
+					match serde_json::from_str::<OifAssetsResponse>(&body) {
 						Ok(_) => {
-							debug!("OIF adapter {} is healthy - /tokens endpoint responded with valid JSON", self.config.adapter_id);
+							debug!("OIF adapter {} is healthy - /assets endpoint responded with valid JSON", self.config.adapter_id);
 							Ok(true)
 						},
 						Err(e) => {
 							warn!(
-								"OIF adapter {} /tokens endpoint returned success but invalid JSON: {}",
+								"OIF adapter {} /assets endpoint returned success but invalid JSON: {}",
 								self.config.adapter_id, e
 							);
 							// Still consider it healthy if HTTP status was success,
@@ -895,7 +895,7 @@ impl SolverAdapter for OifAdapter {
 					}
 				} else {
 					warn!(
-						"OIF adapter {} health check failed - /tokens endpoint returned status {}",
+						"OIF adapter {} health check failed - /assets endpoint returned status {}",
 						self.config.adapter_id,
 						response.status()
 					);
@@ -904,7 +904,7 @@ impl SolverAdapter for OifAdapter {
 			},
 			Err(e) => {
 				warn!(
-					"OIF adapter {} health check failed - /tokens endpoint error: {}",
+					"OIF adapter {} health check failed - /assets endpoint error: {}",
 					self.config.adapter_id, e
 				);
 				Ok(false)
@@ -1024,14 +1024,14 @@ mod tests {
 	}
 
 	#[test]
-	fn test_oif_tokens_response_parsing() {
+	fn test_oif_assets_response_parsing() {
 		let json_response = r#"{
 			"networks": {
 				"31338": {
 					"chain_id": 31338,
 					"input_settler": "0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0",
 					"output_settler": "0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9",
-					"tokens": [
+					"assets": [
 						{
 							"address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
 							"symbol": "TOKA",
@@ -1048,7 +1048,7 @@ mod tests {
 					"chain_id": 31337,
 					"input_settler": "0x9fe46736679d2d9a65f0992f2272de9f3c7fa6e0",
 					"output_settler": "0xcf7ed3acca5a467e9e704c703e8d87f634fb0fc9",
-					"tokens": [
+					"assets": [
 						{
 							"address": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
 							"symbol": "TOKA",
@@ -1060,7 +1060,7 @@ mod tests {
 		}"#;
 
 		// Test parsing
-		let response: OifTokensResponse = serde_json::from_str(json_response).unwrap();
+		let response: OifAssetsResponse = serde_json::from_str(json_response).unwrap();
 
 		assert_eq!(response.networks.len(), 2);
 		assert!(response.networks.contains_key("31338"));
@@ -1068,18 +1068,18 @@ mod tests {
 
 		let network_31338 = &response.networks["31338"];
 		assert_eq!(network_31338.chain_id, 31338);
-		assert_eq!(network_31338.tokens.len(), 2);
-		assert_eq!(network_31338.tokens[0].symbol, "TOKA");
-		assert_eq!(network_31338.tokens[0].decimals, 18);
+		assert_eq!(network_31338.assets.len(), 2);
+		assert_eq!(network_31338.assets[0].symbol, "TOKA");
+		assert_eq!(network_31338.assets[0].decimals, 18);
 
 		let network_31337 = &response.networks["31337"];
 		assert_eq!(network_31337.chain_id, 31337);
-		assert_eq!(network_31337.tokens.len(), 1);
+		assert_eq!(network_31337.assets.len(), 1);
 	}
 
 	#[test]
-	fn test_oif_tokens_to_assets_conversion() -> Result<(), Box<dyn std::error::Error>> {
-		let oif_response = OifTokensResponse {
+	fn test_oif_assets_to_internal_assets_conversion() -> Result<(), Box<dyn std::error::Error>> {
+		let oif_response = OifAssetsResponse {
 			networks: {
 				let mut networks = HashMap::new();
 				networks.insert(
@@ -1088,13 +1088,13 @@ mod tests {
 						chain_id: 1,
 						input_settler: "0x123".to_string(),
 						output_settler: "0x456".to_string(),
-						tokens: vec![
-							OifToken {
+						assets: vec![
+							OifAsset {
 								address: "0xA0b86a33E6441E7C81F7C93451777f5F4dE78e86".to_string(),
 								symbol: "USDC".to_string(),
 								decimals: 6,
 							},
-							OifToken {
+							OifAsset {
 								address: "0x0000000000000000000000000000000000000000".to_string(),
 								symbol: "ETH".to_string(),
 								decimals: 18,
@@ -1108,7 +1108,7 @@ mod tests {
 						chain_id: 137,
 						input_settler: "0x789".to_string(),
 						output_settler: "0xabc".to_string(),
-						tokens: vec![OifToken {
+						assets: vec![OifAsset {
 							address: "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174".to_string(),
 							symbol: "USDC".to_string(),
 							decimals: 6,
@@ -1124,13 +1124,13 @@ mod tests {
 		for (chain_id_str, network) in oif_response.networks {
 			let chain_id = chain_id_str.parse::<u64>().unwrap_or(network.chain_id);
 
-			for token in network.tokens {
+			for asset_info in network.assets {
 				let asset = Asset::from_chain_and_address(
 					chain_id,
-					token.address,
-					token.symbol.clone(),
-					token.symbol,
-					token.decimals,
+					asset_info.address,
+					asset_info.symbol.clone(),
+					asset_info.symbol,
+					asset_info.decimals,
 				)?;
 				assets.push(asset);
 			}
@@ -1219,21 +1219,21 @@ mod tests {
 
 		// Test basic URL construction
 		let base_url = "https://api.example.com";
-		let result = adapter.build_url(base_url, "tokens").unwrap();
-		assert_eq!(result, "https://api.example.com/tokens");
+		let result = adapter.build_url(base_url, "assets").unwrap();
+		assert_eq!(result, "https://api.example.com/assets");
 
 		// Test with trailing slash - should handle gracefully
 		let base_with_slash = "https://api.example.com/";
-		let result = adapter.build_url(base_with_slash, "tokens").unwrap();
-		assert_eq!(result, "https://api.example.com/tokens");
+		let result = adapter.build_url(base_with_slash, "assets").unwrap();
+		assert_eq!(result, "https://api.example.com/assets");
 
 		// Test with leading slash in path - should handle gracefully
-		let result = adapter.build_url(base_url, "/tokens").unwrap();
-		assert_eq!(result, "https://api.example.com/tokens");
+		let result = adapter.build_url(base_url, "/assets").unwrap();
+		assert_eq!(result, "https://api.example.com/assets");
 
 		// Test with both trailing and leading slashes
-		let result = adapter.build_url(base_with_slash, "/tokens").unwrap();
-		assert_eq!(result, "https://api.example.com/tokens");
+		let result = adapter.build_url(base_with_slash, "/assets").unwrap();
+		assert_eq!(result, "https://api.example.com/assets");
 
 		// Test with complex path
 		let result = adapter.build_url(base_url, "orders/123").unwrap();
@@ -1241,16 +1241,16 @@ mod tests {
 
 		// Test with path in base URL (the problematic case)
 		let base_with_path = "http://127.0.0.1:3000/api/v1";
-		let result = adapter.build_url(base_with_path, "tokens").unwrap();
-		assert_eq!(result, "http://127.0.0.1:3000/api/v1/tokens");
+		let result = adapter.build_url(base_with_path, "assets").unwrap();
+		assert_eq!(result, "http://127.0.0.1:3000/api/v1/assets");
 
 		// Test with path in base URL and trailing slash
 		let base_with_path_slash = "http://127.0.0.1:3000/api/v1/";
-		let result = adapter.build_url(base_with_path_slash, "tokens").unwrap();
-		assert_eq!(result, "http://127.0.0.1:3000/api/v1/tokens");
+		let result = adapter.build_url(base_with_path_slash, "assets").unwrap();
+		assert_eq!(result, "http://127.0.0.1:3000/api/v1/assets");
 
 		// Test invalid URL
-		let result = adapter.build_url("invalid://::url", "tokens");
+		let result = adapter.build_url("invalid://::url", "assets");
 		assert!(result.is_err());
 	}
 
