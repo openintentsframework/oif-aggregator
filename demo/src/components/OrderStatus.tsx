@@ -249,8 +249,8 @@ export default function OrderStatus({ order, onStartOver, onOrderUpdate }: Order
     return () => clearInterval(intervalId);
   }, [order.orderId, order.status, isPolling, onOrderUpdate]);
 
-  const formatTimestamp = (timestamp: string) => {
-    return new Date(timestamp).toLocaleString();
+  const formatTimestamp = (timestamp: number) => {
+    return new Date(timestamp * 1000).toLocaleString();
   };
 
   const formatAmount = (amount?: string) => {

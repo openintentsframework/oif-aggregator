@@ -128,8 +128,8 @@ export interface OrderRequest {
 export interface OrderResponse {
   orderId: string;
   status: OrderStatus;
-  createdAt: string;
-  updatedAt: string;
+  createdAt: number;
+  updatedAt: number;
   inputAmounts: AssetAmount[];
   outputAmounts: AssetAmount[];
   orderType: string;

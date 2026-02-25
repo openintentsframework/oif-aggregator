@@ -1,6 +1,6 @@
 //! Order response models for API layer
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "openapi")]
 #[allow(unused_imports)]
@@ -29,11 +29,11 @@ pub struct OrderResponse {
 	/// Quote ID
 	pub quote_id: Option<String>,
 
-	/// When the response was created
-	pub created_at: DateTime<Utc>,
+	/// When the response was created (Unix timestamp in seconds)
+	pub created_at: u64,
 
-	/// When the response was last updated
-	pub updated_at: DateTime<Utc>,
+	/// When the response was last updated (Unix timestamp in seconds)
+	pub updated_at: u64,
 
 	/// Input amount
 	pub input_amounts: Vec<AssetAmount>,
@@ -144,8 +144,8 @@ impl TryFrom<&Order> for OrderResponse {
 			order_id: order.order_id.clone(),
 			status: OrderStatus::from(order.status()),
 			quote_id: order.oif_quote_id().cloned(),
-			created_at: order.created_at(),
-			updated_at: order.updated_at(),
+			created_at: order.oif_created_at(),
+			updated_at: order.oif_updated_at(),
 			input_amounts: order.input_amounts().to_vec(),
 			output_amounts: order.output_amounts().to_vec(),
 			order_type: order.order_type().to_string(),
