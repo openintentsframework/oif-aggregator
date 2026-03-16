@@ -116,6 +116,7 @@ const PERMIT2_TYPES = {
     { name: 'context', type: 'bytes' },
   ],
   Permit2Witness: [
+    { name: 'user', type: 'address' },
     { name: 'expires', type: 'uint32' },
     { name: 'inputOracle', type: 'address' },
     { name: 'outputs', type: 'MandateOutput[]' },
@@ -191,6 +192,18 @@ function normalizeTypedDataMessage(message: Record<string, any>): Record<string,
   return normalizeTypedDataValue(message);
 }
 
+function filterTypedDataTypes(
+  payloadTypes: Record<string, Array<{ name: string; type: string }>>
+): Record<string, Array<{ name: string; type: string }>> {
+  const filteredTypes: Record<string, Array<{ name: string; type: string }>> = {};
+  for (const [typeName, typeFields] of Object.entries(payloadTypes)) {
+    if (typeName !== 'EIP712Domain') {
+      filteredTypes[typeName] = typeFields;
+    }
+  }
+  return filteredTypes;
+}
+
 /**
  * Extract and normalize domain from payload for viem signing
  * Only includes fields that are defined to avoid viem encoding issues
@@ -242,10 +255,12 @@ async function fetchDomainSeparator(
  * Get or build EIP-712 types from payload
  */
 function getTypesForPayload(payload: OrderPayload): Record<string, Array<{ name: string; type: string }>> {
-  // Always use canonical type definitions based on primaryType to ensure consistent ordering
   switch (payload.primaryType) {
     case 'PermitBatchWitnessTransferFrom':
     case 'PermitWitnessTransferFrom':
+      if (payload.types?.[payload.primaryType]) {
+        return filterTypedDataTypes(payload.types);
+      }
       return PERMIT2_TYPES;
 
     case 'TransferWithAuthorization':
@@ -258,14 +273,7 @@ function getTypesForPayload(payload: OrderPayload): Record<string, Array<{ name:
     default:
       // For unknown types, fall back to payload types if provided
       if (payload.types) {
-        // Filter out EIP712Domain - wallets add this automatically
-        const filteredTypes: Record<string, Array<{ name: string; type: string }>> = {};
-        for (const [typeName, typeFields] of Object.entries(payload.types)) {
-          if (typeName !== 'EIP712Domain') {
-            filteredTypes[typeName] = typeFields;
-          }
-        }
-        return filteredTypes;
+        return filterTypedDataTypes(payload.types);
       }
       
       throw new Error(`Unknown primary type: ${payload.primaryType}. Please provide types in payload.`);
@@ -421,7 +429,7 @@ function reconstructPermit2Digest(payload: OrderPayload): Hex {
   const domainHash = keccak256(domainEncoded);
 
   // 2. Build type hash for PermitBatchWitnessTransferFrom
-  const permitType = 'PermitBatchWitnessTransferFrom(TokenPermissions[] permitted,address spender,uint256 nonce,uint256 deadline,Permit2Witness witness)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)Permit2Witness(uint32 expires,address inputOracle,MandateOutput[] outputs)TokenPermissions(address token,uint256 amount)';
+  const permitType = 'PermitBatchWitnessTransferFrom(TokenPermissions[] permitted,address spender,uint256 nonce,uint256 deadline,Permit2Witness witness)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)Permit2Witness(address user,uint32 expires,address inputOracle,MandateOutput[] outputs)TokenPermissions(address token,uint256 amount)';
   const typeHash = keccak256(toBytes(permitType));
 
   // 3. Extract message fields
@@ -450,6 +458,7 @@ function reconstructPermit2Digest(payload: OrderPayload): Hex {
 
   // 5. Build witness hash
   const witness = message.witness as any;
+  const user = witness.user as Address;
   const expires = witness.expires as number;
   const inputOracle = witness.inputOracle as Address;
   const outputs = witness.outputs as Array<any>;
@@ -491,9 +500,10 @@ function reconstructPermit2Digest(payload: OrderPayload): Hex {
   const outputsHash = keccak256(concatBytes(...outputHashes));
 
   // Build witness struct hash
-  const witnessTypeHash = keccak256(toBytes('Permit2Witness(uint32 expires,address inputOracle,MandateOutput[] outputs)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)'));
+  const witnessTypeHash = keccak256(toBytes('Permit2Witness(address user,uint32 expires,address inputOracle,MandateOutput[] outputs)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)'));
   const witnessEncoded = concatBytes(
     encodeBytes32(witnessTypeHash),
+    encodeAddress(user),
     encodeUint32(expires),
     encodeAddress(inputOracle),
     encodeBytes32(outputsHash)
