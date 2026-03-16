@@ -1,5 +1,5 @@
 # Production Dockerfile for OIF Aggregator using Chainguard secure images
-FROM --platform=${BUILDPLATFORM} cgr.dev/chainguard/rust:latest@sha256:faf49718aaa95c798ed1dfdf3e4edee2cdbc3790c8994705ca6ef35972128459 AS base
+FROM --platform=${BUILDPLATFORM} cgr.dev/chainguard/rust:latest-dev@sha256:99328709974cc55f9c1bef7ea2089ee0c31636d8a792c2b3549dadfd31faf001 AS base
 
 USER root
 
@@ -13,9 +13,9 @@ RUN apk update && apk add --no-cache \
 # Set PKG_CONFIG_PATH for proper linking
 ENV PKG_CONFIG_PATH=/usr/lib/pkgconfig
 
-# Install cargo-chef with build cache mount for faster installs
+# Install cargo-chef reproducibly so CI does not resolve crates that require a newer rustc
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    cargo install cargo-chef
+    cargo install --locked cargo-chef
 
 WORKDIR /app
 
