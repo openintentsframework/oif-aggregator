@@ -12,11 +12,14 @@ export default function Permit2ApprovalSection({
   permitApprovalTxHash,
   handleApprove,
   approvalError,
+  approvalOwner,
+  signerAddress,
+  signerMismatch,
   privateKey,
   walletClient,
 }: Permit2ApprovalSectionProps) {
   // Only show for Permit2 orders when using wallet (not private key override)
-  if (!needsPermitApproval && !isCheckingPermitApproval && !permitApprovalTxHash) {
+  if (!needsPermitApproval && !isCheckingPermitApproval && !permitApprovalTxHash && !approvalError) {
     return null;
   }
 
@@ -56,6 +59,11 @@ export default function Permit2ApprovalSection({
                 This order requires approval for the Permit2 contract to spend your tokens.
                 You'll need to complete the approval transaction before signing the quote.
               </p>
+              {approvalOwner && (
+                <p className="text-xs text-yellow-700 dark:text-yellow-300 mb-3">
+                  Approval owner: {approvalOwner}
+                </p>
+              )}
               <button
                 onClick={handleApprove}
                 disabled={isPermitApproving || !walletClient}
@@ -73,6 +81,14 @@ export default function Permit2ApprovalSection({
         </div>
       )}
 
+      {needsPermitApproval && !!privateKey.trim() && (
+        <div className="mb-4 p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded">
+          <p className="text-sm text-yellow-700 dark:text-yellow-300">
+            Permit2 approval is still required for {approvalOwner || 'the quote user'}. Private-key signing does not submit the on-chain approval transaction.
+          </p>
+        </div>
+      )}
+
       {isCheckingPermitApproval && !privateKey.trim() && (
         <div className="mb-4 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded">
           <p className="text-sm text-blue-700 dark:text-blue-300">
@@ -86,9 +102,13 @@ export default function Permit2ApprovalSection({
           <p className="text-sm text-red-700 dark:text-red-400">
             ✗ Approval Error: {approvalError}
           </p>
+          {signerMismatch && approvalOwner && signerAddress && (
+            <p className="text-xs text-red-700 dark:text-red-400 mt-2">
+              Quote user: {approvalOwner} | Current signer: {signerAddress}
+            </p>
+          )}
         </div>
       )}
     </>
   );
 }
-
