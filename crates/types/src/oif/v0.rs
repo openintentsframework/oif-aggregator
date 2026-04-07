@@ -259,7 +259,7 @@ pub struct OrderPayload {
 
 /// Quote response model
 #[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(rename_all = "camelCase")]
 #[cfg_attr(feature = "openapi", derive(ToSchema))]
 pub struct Quote {
 	/// Unique identifier for the quote

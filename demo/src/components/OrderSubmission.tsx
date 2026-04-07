@@ -227,6 +227,7 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
     isLoading ||
     isQuoteExpired ||
     (!privateKey.trim() && !isConnected) ||
+    permit2State.signerMismatch ||
     (isPermitOrder && permit2State.needsPermitApproval && !privateKey.trim()) ||
     !compactState.compactDepositSatisfied ||
     (compactState.compactActionsRequired && !compactState.compactApprovalSatisfied);
@@ -234,6 +235,7 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
   const signButtonLabel = (() => {
     if (isSigning || walletIsSigning) return 'Signing...';
     if (isQuoteExpired) return 'Quote Expired';
+    if (permit2State.signerMismatch) return 'Signer Must Match Quote User';
     if (!privateKey.trim() && isPermitOrder && permit2State.needsPermitApproval) return '🔒 Approve Permit2 First';
     if (!compactState.compactDepositSatisfied) return '🔒 Deposit into TheCompact';
     if (compactState.compactActionsRequired && !compactState.compactApprovalSatisfied) return '🔒 Approve TheCompact First';
@@ -534,4 +536,3 @@ export default function OrderSubmission({ selectedQuote, onSubmit, onBack, isLoa
     </form>
   );
 }
-
