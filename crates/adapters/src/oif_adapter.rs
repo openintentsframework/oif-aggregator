@@ -4,7 +4,7 @@
 
 use reqwest::{
 	header::{HeaderMap, HeaderValue},
-	Client,
+	Client, Method, Response, StatusCode,
 };
 use std::{str::FromStr, sync::Arc};
 
@@ -76,6 +76,9 @@ struct JwtRegisterRequest {
 	pub client_name: Option<String>,
 	/// Requested scopes (if not provided, defaults to basic read permissions)
 	pub scopes: Option<Vec<String>>,
+	/// Requested access token lifetime in hours
+	#[serde(skip_serializing_if = "Option::is_none")]
+	pub expiry_hours: Option<u32>,
 }
 
 /// Register response from OIF auth endpoint
@@ -207,6 +210,18 @@ impl OifAdapter {
 		})
 	}
 
+	/// Check whether JWT authentication is enabled for a solver.
+	fn is_auth_enabled(&self, config: &SolverRuntimeConfig) -> bool {
+		self.parse_auth_config(config)
+			.and_then(|auth| auth.auth_enabled)
+			.unwrap_or(false)
+	}
+
+	/// Remove any cached JWT tokens for the solver.
+	fn clear_jwt_token(&self, solver_id: &str) {
+		self.jwt_tokens.remove(solver_id);
+	}
+
 	/// Properly construct URL by joining base endpoint with path
 	fn build_url(&self, base_url: &str, path: &str) -> AdapterResult<String> {
 		let mut base = Url::parse(base_url).map_err(|e| AdapterError::InvalidResponse {
@@ -259,6 +274,7 @@ impl OifAdapter {
 					.and_then(|c| c.scopes.clone())
 					.unwrap_or(default_scopes),
 			),
+			expiry_hours: auth_config.as_ref().and_then(|c| c.expiry_hours),
 		};
 
 		let response = client
@@ -270,9 +286,19 @@ impl OifAdapter {
 
 		if !response.status().is_success() {
 			let status_code = response.status().as_u16();
+			let error_body = response.text().await.unwrap_or_default();
+			let hint = match status_code {
+				401 | 403 | 404 | 503 => {
+					" Ensure the solver has auth enabled, a stable JWT secret, and public registration enabled (AUTH_PUBLIC_REGISTER_ENABLED=true)."
+				},
+				_ => "",
+			};
 			return Err(AdapterError::http_failure(
 				status_code,
-				format!("OIF auth register endpoint returned status {}", status_code),
+				format!(
+					"OIF auth register endpoint returned status {}: {}{}",
+					status_code, error_body, hint
+				),
 			));
 		}
 
@@ -583,6 +609,48 @@ impl OifAdapter {
 		}
 	}
 
+	/// Send a request once using the current auth state.
+	async fn send_request_once(
+		&self,
+		config: &SolverRuntimeConfig,
+		method: Method,
+		url: &str,
+		payload: Option<serde_json::Value>,
+	) -> AdapterResult<Response> {
+		let client = self.get_configured_client(config).await?;
+		let mut request = client.request(method, url.to_string());
+
+		if let Some(payload) = payload {
+			request = request.json(&payload);
+		}
+
+		request.send().await.map_err(AdapterError::HttpError)
+	}
+
+	/// Send a request and retry once after a solver-side 401 by re-registering JWT state.
+	async fn send_request_with_auth_retry(
+		&self,
+		config: &SolverRuntimeConfig,
+		method: Method,
+		url: &str,
+		payload: Option<serde_json::Value>,
+	) -> AdapterResult<Response> {
+		let mut response = self
+			.send_request_once(config, method.clone(), url, payload.clone())
+			.await?;
+
+		if self.is_auth_enabled(config) && response.status() == StatusCode::UNAUTHORIZED {
+			warn!(
+				"Solver {} returned 401; clearing cached JWT state and retrying once",
+				config.solver_id
+			);
+			self.clear_jwt_token(&config.solver_id);
+			response = self.send_request_once(config, method, url, payload).await?;
+		}
+
+		Ok(response)
+	}
+
 	/// Create a basic HTTP client with optional auth headers (for OnDemand strategy)
 	async fn create_basic_client_with_auth(
 		&self,
@@ -632,7 +700,6 @@ impl OifAdapter {
 		&self,
 		config: &SolverRuntimeConfig,
 	) -> AdapterResult<Vec<Asset>> {
-		let client = self.get_configured_client(config).await?;
 		let assets_url = self.build_url(&config.endpoint, "assets")?;
 
 		debug!(
@@ -641,11 +708,9 @@ impl OifAdapter {
 		);
 
 		// Make the assets request
-		let response = client
-			.get(&assets_url)
-			.send()
-			.await
-			.map_err(AdapterError::HttpError)?;
+		let response = self
+			.send_request_with_auth_retry(config, Method::GET, &assets_url, None)
+			.await?;
 
 		if !response.status().is_success() {
 			let status_code = response.status().as_u16();
@@ -733,7 +798,6 @@ impl SolverAdapter for OifAdapter {
 		);
 
 		let quote_url = self.build_url(&config.endpoint, "quotes")?;
-		let client = self.get_configured_client(config).await?;
 
 		let v0_request = request
 			.as_v0()
@@ -748,12 +812,14 @@ impl SolverAdapter for OifAdapter {
 			config.solver_id, quote_url, request_json
 		);
 
-		let response = client
-			.post(quote_url)
-			.json(v0_request)
-			.send()
-			.await
-			.map_err(AdapterError::HttpError)?;
+		let response = self
+			.send_request_with_auth_retry(
+				config,
+				Method::POST,
+				&quote_url,
+				Some(serde_json::to_value(v0_request)?),
+			)
+			.await?;
 
 		if !response.status().is_success() {
 			let status_code = response.status().as_u16();
@@ -792,7 +858,6 @@ impl SolverAdapter for OifAdapter {
 		);
 
 		let orders_url = self.build_url(&config.endpoint, "orders")?;
-		let client = self.get_configured_client(config).await?;
 
 		debug!(
 			"Submitting order to OIF adapter {} via solver {}",
@@ -813,12 +878,14 @@ impl SolverAdapter for OifAdapter {
 			config.solver_id, orders_url, request_json
 		);
 
-		let response = client
-			.post(orders_url)
-			.json(v0_request)
-			.send()
-			.await
-			.map_err(AdapterError::HttpError)?;
+		let response = self
+			.send_request_with_auth_retry(
+				config,
+				Method::POST,
+				&orders_url,
+				Some(serde_json::to_value(v0_request)?),
+			)
+			.await?;
 
 		if !response.status().is_success() {
 			let status_code = response.status().as_u16();
@@ -860,14 +927,16 @@ impl SolverAdapter for OifAdapter {
 
 	async fn health_check(&self, config: &SolverRuntimeConfig) -> AdapterResult<bool> {
 		let assets_url = self.build_url(&config.endpoint, "assets")?;
-		let client = self.get_configured_client(config).await?;
 
 		debug!(
 			"Health checking OIF adapter at {} (solver: {}) via /assets endpoint",
 			assets_url, config.solver_id
 		);
 
-		match client.get(&assets_url).send().await {
+		match self
+			.send_request_with_auth_retry(config, Method::GET, &assets_url, None)
+			.await
+		{
 			Ok(response) => {
 				let is_healthy = response.status().is_success();
 				if is_healthy {
@@ -924,13 +993,10 @@ impl SolverAdapter for OifAdapter {
 
 		let order_path = format!("orders/{}", order_id);
 		let order_url = self.build_url(&config.endpoint, &order_path)?;
-		let client = self.get_configured_client(config).await?;
 
-		let response = client
-			.get(order_url)
-			.send()
-			.await
-			.map_err(AdapterError::HttpError)?;
+		let response = self
+			.send_request_with_auth_retry(config, Method::GET, &order_url, None)
+			.await?;
 
 		if !response.status().is_success() {
 			let status_code = response.status().as_u16();
@@ -981,7 +1047,252 @@ impl SolverAdapter for OifAdapter {
 #[cfg(test)]
 mod tests {
 	use super::*;
-	use std::time::Duration;
+	use axum::{
+		extract::State,
+		http::{header::AUTHORIZATION, HeaderMap, StatusCode},
+		routing::post,
+		Json, Router,
+	};
+	use serde_json::{json, Value};
+	use std::{
+		collections::HashMap,
+		sync::{
+			atomic::{AtomicUsize, Ordering},
+			Arc,
+		},
+		time::Duration,
+	};
+	use tokio::{sync::Mutex, task::JoinHandle};
+
+	#[derive(Clone, Copy)]
+	enum JwtTestScenario {
+		RegisterOnDemand,
+		RefreshExpiredToken,
+		RetryAfterUnauthorized,
+	}
+
+	#[derive(Clone)]
+	struct JwtTestServerState {
+		scenario: JwtTestScenario,
+		register_calls: Arc<AtomicUsize>,
+		refresh_calls: Arc<AtomicUsize>,
+		order_calls: Arc<AtomicUsize>,
+		register_payloads: Arc<Mutex<Vec<Value>>>,
+		refresh_payloads: Arc<Mutex<Vec<Value>>>,
+		order_auth_headers: Arc<Mutex<Vec<Option<String>>>>,
+	}
+
+	impl JwtTestServerState {
+		fn new(scenario: JwtTestScenario) -> Self {
+			Self {
+				scenario,
+				register_calls: Arc::new(AtomicUsize::new(0)),
+				refresh_calls: Arc::new(AtomicUsize::new(0)),
+				order_calls: Arc::new(AtomicUsize::new(0)),
+				register_payloads: Arc::new(Mutex::new(Vec::new())),
+				refresh_payloads: Arc::new(Mutex::new(Vec::new())),
+				order_auth_headers: Arc::new(Mutex::new(Vec::new())),
+			}
+		}
+	}
+
+	struct JwtTestServer {
+		base_url: String,
+		state: JwtTestServerState,
+		handle: JoinHandle<()>,
+	}
+
+	impl JwtTestServer {
+		async fn spawn(scenario: JwtTestScenario) -> Self {
+			let state = JwtTestServerState::new(scenario);
+			let app = Router::new()
+				.route("/api/v1/auth/register", post(jwt_test_register))
+				.route("/api/v1/auth/refresh", post(jwt_test_refresh))
+				.route("/api/v1/orders", post(jwt_test_orders))
+				.with_state(state.clone());
+
+			let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+				.await
+				.expect("bind test port");
+			let addr = listener.local_addr().expect("local addr");
+			let base_url = format!("http://{}:{}", addr.ip(), addr.port());
+
+			let handle = tokio::spawn(async move {
+				let _ = axum::serve(listener, app).await;
+			});
+
+			tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+			Self {
+				base_url,
+				state,
+				handle,
+			}
+		}
+	}
+
+	impl Drop for JwtTestServer {
+		fn drop(&mut self) {
+			self.handle.abort();
+		}
+	}
+
+	async fn jwt_test_register(
+		State(state): State<JwtTestServerState>,
+		Json(payload): Json<Value>,
+	) -> (StatusCode, Json<Value>) {
+		state.register_calls.fetch_add(1, Ordering::SeqCst);
+		state.register_payloads.lock().await.push(payload);
+
+		let access_token = match state.scenario {
+			JwtTestScenario::RegisterOnDemand => "registered-access-token",
+			JwtTestScenario::RefreshExpiredToken => "registered-access-token",
+			JwtTestScenario::RetryAfterUnauthorized => "fresh-access-token",
+		};
+
+		(
+			StatusCode::OK,
+			Json(json!({
+				"access_token": access_token,
+				"refresh_token": "fresh-refresh-token",
+				"client_id": "test-solver",
+				"access_token_expires_at": Utc::now().timestamp() + 3600,
+				"refresh_token_expires_at": Utc::now().timestamp() + 86400,
+				"scopes": ["read-orders", "create-orders"],
+				"token_type": "Bearer"
+			})),
+		)
+	}
+
+	async fn jwt_test_refresh(
+		State(state): State<JwtTestServerState>,
+		Json(payload): Json<Value>,
+	) -> (StatusCode, Json<Value>) {
+		state.refresh_calls.fetch_add(1, Ordering::SeqCst);
+		state.refresh_payloads.lock().await.push(payload);
+
+		(
+			StatusCode::OK,
+			Json(json!({
+				"access_token": "refreshed-access-token",
+				"refresh_token": "refreshed-refresh-token",
+				"access_token_expires_at": Utc::now().timestamp() + 3600,
+				"refresh_token_expires_at": Utc::now().timestamp() + 86400,
+				"scopes": ["read-orders", "create-orders"],
+				"token_type": "Bearer"
+			})),
+		)
+	}
+
+	async fn jwt_test_orders(
+		State(state): State<JwtTestServerState>,
+		headers: HeaderMap,
+		Json(_payload): Json<Value>,
+	) -> (StatusCode, Json<Value>) {
+		let auth_header = headers
+			.get(AUTHORIZATION)
+			.and_then(|value| value.to_str().ok())
+			.map(|value| value.to_string());
+		state
+			.order_auth_headers
+			.lock()
+			.await
+			.push(auth_header.clone());
+
+		let call_number = state.order_calls.fetch_add(1, Ordering::SeqCst) + 1;
+
+		match state.scenario {
+			JwtTestScenario::RegisterOnDemand => {
+				if auth_header.as_deref() == Some("Bearer registered-access-token") {
+					(
+						StatusCode::OK,
+						Json(json!({
+							"orderId": "order-1",
+							"status": "received"
+						})),
+					)
+				} else {
+					(
+						StatusCode::UNAUTHORIZED,
+						Json(json!({"error": "missing_token"})),
+					)
+				}
+			},
+			JwtTestScenario::RefreshExpiredToken => {
+				if auth_header.as_deref() == Some("Bearer refreshed-access-token") {
+					(
+						StatusCode::OK,
+						Json(json!({
+							"orderId": "order-2",
+							"status": "received"
+						})),
+					)
+				} else {
+					(
+						StatusCode::UNAUTHORIZED,
+						Json(json!({"error": "stale_token"})),
+					)
+				}
+			},
+			JwtTestScenario::RetryAfterUnauthorized => {
+				if call_number == 1 {
+					(
+						StatusCode::UNAUTHORIZED,
+						Json(json!({"error": "invalid_token"})),
+					)
+				} else if auth_header.as_deref() == Some("Bearer fresh-access-token") {
+					(
+						StatusCode::OK,
+						Json(json!({
+							"orderId": "order-3",
+							"status": "received"
+						})),
+					)
+				} else {
+					(
+						StatusCode::UNAUTHORIZED,
+						Json(json!({"error": "invalid_token"})),
+					)
+				}
+			},
+		}
+	}
+
+	fn create_auth_enabled_runtime_config(base_url: &str) -> SolverRuntimeConfig {
+		SolverRuntimeConfig::new("test-solver".to_string(), format!("{base_url}/api/v1"))
+			.with_adapter_metadata(json!({
+				"auth": {
+					"auth_enabled": true,
+					"client_name": "Test Aggregator",
+					"scopes": ["read-orders", "create-orders"],
+					"expiry_hours": 12
+				}
+			}))
+	}
+
+	fn create_test_order_request() -> OifPostOrderRequest {
+		OifPostOrderRequest::new_v0(oif_types::oif::v0::PostOrderRequest {
+			order: oif_types::oif::v0::Order::OifEscrowV0 {
+				payload: oif_types::oif::v0::OrderPayload {
+					signature_type: oif_types::oif::common::SignatureType::Eip712,
+					domain: json!({
+						"name": "TestDomain",
+						"version": "1",
+						"chainId": 1
+					}),
+					primary_type: "Order".to_string(),
+					message: json!({
+						"nonce": "42"
+					}),
+					types: HashMap::new(),
+				},
+			},
+			signature: "0xdeadbeef".to_string(),
+			quote_id: Some("quote-123".to_string()),
+			origin_submission: None,
+			metadata: None,
+		})
+	}
 
 	#[test]
 	fn test_oif_adapter_construction_patterns() {
@@ -1416,5 +1727,127 @@ mod tests {
 			.jwt_tokens
 			.insert("no-expiry-solver".to_string(), no_expiry_token_info);
 		assert!(adapter.is_token_valid("no-expiry-solver"));
+	}
+
+	#[tokio::test]
+	async fn test_submit_order_registers_and_uses_bearer_token() {
+		let server = JwtTestServer::spawn(JwtTestScenario::RegisterOnDemand).await;
+		let adapter = OifAdapter::with_default_config().unwrap();
+		let config = create_auth_enabled_runtime_config(&server.base_url);
+		let request = create_test_order_request();
+
+		let response = adapter.submit_order(&request, &config).await.unwrap();
+
+		assert_eq!(response.order_id(), Some(&"order-1".to_string()));
+		assert_eq!(
+			server.state.register_calls.load(Ordering::SeqCst),
+			1,
+			"register should be called once"
+		);
+		assert_eq!(
+			server.state.order_calls.load(Ordering::SeqCst),
+			1,
+			"order should be called once"
+		);
+
+		let register_payloads = server.state.register_payloads.lock().await;
+		assert_eq!(register_payloads.len(), 1);
+		assert_eq!(register_payloads[0]["client_id"], "test-solver");
+		assert_eq!(register_payloads[0]["client_name"], "Test Aggregator");
+		assert_eq!(register_payloads[0]["expiry_hours"], 12);
+		assert_eq!(
+			register_payloads[0]["scopes"],
+			json!(["read-orders", "create-orders"])
+		);
+		drop(register_payloads);
+
+		let auth_headers = server.state.order_auth_headers.lock().await;
+		assert_eq!(
+			auth_headers.as_slice(),
+			[Some("Bearer registered-access-token".to_string())]
+		);
+	}
+
+	#[tokio::test]
+	async fn test_submit_order_refreshes_expired_access_token() {
+		let server = JwtTestServer::spawn(JwtTestScenario::RefreshExpiredToken).await;
+		let adapter = OifAdapter::with_default_config().unwrap();
+		let config = create_auth_enabled_runtime_config(&server.base_url);
+		let request = create_test_order_request();
+
+		adapter.jwt_tokens.insert(
+			config.solver_id.clone(),
+			JwtTokenInfo {
+				access_token: SecretString::from("expired-access-token"),
+				refresh_token: SecretString::from("refresh-token"),
+				access_token_expires_at: Some(Utc::now() - chrono::Duration::minutes(10)),
+				refresh_token_expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
+			},
+		);
+
+		let response = adapter.submit_order(&request, &config).await.unwrap();
+
+		assert_eq!(response.order_id(), Some(&"order-2".to_string()));
+		assert_eq!(
+			server.state.refresh_calls.load(Ordering::SeqCst),
+			1,
+			"refresh should be called once"
+		);
+		assert_eq!(
+			server.state.register_calls.load(Ordering::SeqCst),
+			0,
+			"register should not be needed when refresh succeeds"
+		);
+		let refresh_payloads = server.state.refresh_payloads.lock().await;
+		assert_eq!(refresh_payloads.len(), 1);
+		assert_eq!(refresh_payloads[0]["refresh_token"], "refresh-token");
+		drop(refresh_payloads);
+
+		let auth_headers = server.state.order_auth_headers.lock().await;
+		assert_eq!(
+			auth_headers.as_slice(),
+			[Some("Bearer refreshed-access-token".to_string())]
+		);
+	}
+
+	#[tokio::test]
+	async fn test_submit_order_retries_after_solver_401() {
+		let server = JwtTestServer::spawn(JwtTestScenario::RetryAfterUnauthorized).await;
+		let adapter = OifAdapter::with_default_config().unwrap();
+		let config = create_auth_enabled_runtime_config(&server.base_url);
+		let request = create_test_order_request();
+
+		adapter.jwt_tokens.insert(
+			config.solver_id.clone(),
+			JwtTokenInfo {
+				access_token: SecretString::from("stale-access-token"),
+				refresh_token: SecretString::from("stale-refresh-token"),
+				access_token_expires_at: Some(Utc::now() + chrono::Duration::hours(1)),
+				refresh_token_expires_at: Some(Utc::now() + chrono::Duration::hours(2)),
+			},
+		);
+
+		let response = adapter.submit_order(&request, &config).await.unwrap();
+
+		assert_eq!(response.order_id(), Some(&"order-3".to_string()));
+		assert_eq!(
+			server.state.order_calls.load(Ordering::SeqCst),
+			2,
+			"order request should be retried once after 401"
+		);
+		assert_eq!(
+			server.state.register_calls.load(Ordering::SeqCst),
+			1,
+			"stale token should trigger one re-registration"
+		);
+
+		let auth_headers = server.state.order_auth_headers.lock().await;
+		assert_eq!(
+			auth_headers.as_slice(),
+			[
+				Some("Bearer stale-access-token".to_string()),
+				Some("Bearer fresh-access-token".to_string())
+			]
+		);
 	}
 }

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import type { Address, WalletClient } from 'viem';
+import type { Address, Hex, WalletClient } from 'viem';
 import type { QuoteResponse } from '../types/api';
 import { fromInteropAddress } from '../utils/interopAddress';
 import { getRpcUrlForChain } from '../utils/chainUtils';
+import { getSignerAddress } from '../utils/quoteSigner';
 import {
   checkPermit2Approval,
   requestPermit2Approval,
@@ -24,6 +25,23 @@ export interface UsePermit2ApprovalReturn {
   permitApprovalTxHash: string;
   handleApprove: () => Promise<void>;
   approvalError: string;
+  approvalOwner?: Address;
+  signerAddress?: Address;
+  signerMismatch: boolean;
+}
+
+function normalizeAddress(value?: string): string | undefined {
+  return value?.toLowerCase();
+}
+
+function getActiveSignerAddress(address?: string, privateKey?: string): Address | undefined {
+  const trimmedKey = privateKey?.trim();
+  if (trimmedKey) {
+    const formattedKey = (trimmedKey.startsWith('0x') ? trimmedKey : `0x${trimmedKey}`) as Hex;
+    return getSignerAddress(formattedKey);
+  }
+
+  return address as Address | undefined;
 }
 
 export function usePermit2Approval({
@@ -38,28 +56,64 @@ export function usePermit2Approval({
   const [isPermitApproving, setIsPermitApproving] = useState(false);
   const [permitApprovalTxHash, setPermitApprovalTxHash] = useState<string>('');
   const [approvalError, setApprovalError] = useState('');
+  const [approvalOwner, setApprovalOwner] = useState<Address | undefined>();
+  const [signerAddress, setSignerAddress] = useState<Address | undefined>();
+  const [signerMismatch, setSignerMismatch] = useState(false);
 
   // Check Permit2 approval for wallet signing
   useEffect(() => {
     const checkApproval = async () => {
-      // Only check for Permit2 orders when using wallet (not private key override)
-      if (selectedQuote.order.type !== 'oif-escrow-v0' || !isConnected || !address || privateKey.trim()) {
+      if (selectedQuote.order.type !== 'oif-escrow-v0') {
         setNeedsPermitApproval(false);
-        // Don't clear tx hash here - let it persist to show successful approval
+        setApprovalError('');
+        setApprovalOwner(undefined);
+        setSignerAddress(undefined);
+        setSignerMismatch(false);
+        return;
+      }
+
+      const firstInput = selectedQuote.preview.inputs[0];
+      if (!firstInput) {
+        setNeedsPermitApproval(false);
+        setApprovalError('');
+        setApprovalOwner(undefined);
+        setSignerAddress(undefined);
+        setSignerMismatch(false);
+        return;
+      }
+
+      const quoteUser = fromInteropAddress(firstInput.user).address as Address;
+      const activeSigner = getActiveSignerAddress(address, privateKey);
+
+      setApprovalOwner(quoteUser);
+      setSignerAddress(activeSigner);
+
+      if (!activeSigner) {
+        setNeedsPermitApproval(false);
+        setApprovalError('');
+        setSignerMismatch(false);
+        return;
+      }
+
+      const mismatch = normalizeAddress(activeSigner) !== normalizeAddress(quoteUser);
+      setSignerMismatch(mismatch);
+      if (mismatch) {
+        setNeedsPermitApproval(false);
+        setApprovalError(
+          `Quote user ${quoteUser} does not match current signer ${activeSigner}. Connect or sign with the same address that requested the quote.`
+        );
         return;
       }
 
       setIsCheckingPermitApproval(true);
+      setApprovalError('');
 
       try {
-        const firstInput = selectedQuote.preview.inputs[0];
-        if (!firstInput) return;
-
         const inputInterop = fromInteropAddress(firstInput.asset);
         const rpcUrl = getRpcUrlForChain(inputInterop.chainId);
 
         const result = await checkPermit2Approval(
-          address as Address,
+          quoteUser,
           inputInterop.address as Address,
           inputInterop.chainId,
           rpcUrl
@@ -82,6 +136,18 @@ export function usePermit2Approval({
   const handleApprove = async () => {
     if (!walletClient || !address) {
       setApprovalError('Wallet not connected');
+      return;
+    }
+
+    if (!approvalOwner) {
+      setApprovalError('Quote owner not found');
+      return;
+    }
+
+    if (normalizeAddress(address) !== normalizeAddress(approvalOwner)) {
+      setApprovalError(
+        `Connected wallet ${address} does not match quote user ${approvalOwner}. Connect the quote user's wallet to approve Permit2.`
+      );
       return;
     }
 
@@ -122,7 +188,7 @@ export function usePermit2Approval({
         }
         
         approvalStatus = await checkPermit2Approval(
-          address as Address,
+          approvalOwner,
           inputInterop.address as Address,
           inputInterop.chainId,
           rpcUrl
@@ -156,6 +222,8 @@ export function usePermit2Approval({
     permitApprovalTxHash,
     handleApprove,
     approvalError,
+    approvalOwner,
+    signerAddress,
+    signerMismatch,
   };
 }
-

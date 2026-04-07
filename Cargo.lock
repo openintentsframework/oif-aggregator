@@ -1348,6 +1348,7 @@ name = "oif-adapters"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "axum",
  "chrono",
  "dashmap",
  "lazy_static",

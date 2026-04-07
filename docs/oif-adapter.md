@@ -100,6 +100,50 @@ The OIF Adapter supports automatic JWT authentication through the `adapter_metad
 }
 ```
 
+### Local Solver Setup
+
+For local development against [`oif-solver`](https://github.com/openintentsframework/oif-solver)-style auth, the aggregator-side config above is only one half of the setup.
+
+Your solver must also:
+
+```bash
+export JWT_SECRET=replace_with_a_stable_random_value
+export AUTH_PUBLIC_REGISTER_ENABLED=true
+```
+
+And the solver runtime config must keep:
+
+```json
+{
+  "auth_enabled": true
+}
+```
+
+Without `AUTH_PUBLIC_REGISTER_ENABLED=true`, the solver can require JWTs for `/orders` while still refusing public self-registration at `/api/v1/auth/register`, which prevents the aggregator from bootstrapping its token.
+
+### Local Aggregator Example
+
+```json
+{
+  "solvers": {
+    "example-authenticated-solver": {
+      "solver_id": "example-authenticated-solver",
+      "adapter_id": "oif-v1",
+      "endpoint": "http://127.0.0.1:3000/api/v1",
+      "enabled": true,
+      "adapter_metadata": {
+        "auth": {
+          "auth_enabled": true,
+          "client_name": "OIF Aggregator - local",
+          "scopes": ["read-orders", "create-orders"],
+          "expiry_hours": 12
+        }
+      }
+    }
+  }
+}
+```
+
 ### JWT Configuration Options
 
 | Field | Type | Default | Description |
@@ -108,6 +152,15 @@ The OIF Adapter supports automatic JWT authentication through the `adapter_metad
 | `client_name` | `string` | `"OIF Aggregator - {solver_id}"` | Client name for registration |
 | `scopes` | `string[]` | `["read-orders", "create-orders"]` | Requested token scopes |
 | `expiry_hours` | `number` | `24` | Token expiry time in hours |
+
+### Runtime Behavior
+
+When `adapter_metadata.auth.auth_enabled` is `true`, the adapter will:
+
+1. Call `POST /api/v1/auth/register` when no cached token exists
+2. Call `POST /api/v1/auth/refresh` when the access token expires and the refresh token is still valid
+3. Send `Authorization: Bearer <token>` on solver requests
+4. Retry once after a solver `401` by clearing the cached token and re-registering
 
 ### HTTP Client Caching
 
