@@ -13,8 +13,7 @@
 //!
 //! ```rust,no_run
 //! use oif_adapters::{ClientCache, SolverAdapter, AdapterResult};
-//! use oif_types::{Adapter, SolverRuntimeConfig, GetQuoteRequest, OifGetQuoteResponse, SupportedAssetsData};
-//! use oif_types::adapters::{models::{SubmitOrderRequest, SubmitOrderResponse}, GetOrderResponse};
+//! use oif_types::{Adapter, OifGetQuoteRequest, OifGetQuoteResponse, SolverRuntimeConfig, SupportedAssetsData};
 //! use async_trait::async_trait;
 //! use std::sync::Arc;
 //!
@@ -45,7 +44,7 @@
 //! impl SolverAdapter for MyCustomAdapter {
 //!     fn adapter_info(&self) -> &Adapter { &self.config }
 //!
-//!     async fn get_quotes(&self, _request: &GetQuoteRequest, config: &SolverRuntimeConfig) -> AdapterResult<OifGetQuoteResponse> {
+//!     async fn get_quotes(&self, _request: &OifGetQuoteRequest, config: &SolverRuntimeConfig) -> AdapterResult<OifGetQuoteResponse> {
 //!         let _client = self.get_client(config)?; // ← Optimized cached client
 //!         // Your implementation here
 //!         todo!()

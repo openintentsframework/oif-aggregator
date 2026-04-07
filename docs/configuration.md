@@ -214,6 +214,37 @@ Solvers can define their asset support in two modes:
 
 **Auto-Discovery**: If `supported_assets` is omitted or empty, the aggregator will auto-discover assets/routes from the solver's API.
 
+#### JWT Self-Register for OIF Solvers
+
+For JWT-protected OIF solvers, enable auth explicitly on the aggregator-side solver entry:
+
+```json
+{
+  "solvers": {
+    "example-authenticated-solver": {
+      "solver_id": "example-authenticated-solver",
+      "adapter_id": "oif-v1",
+      "endpoint": "http://127.0.0.1:3000/api/v1",
+      "enabled": true,
+      "adapter_metadata": {
+        "auth": {
+          "auth_enabled": true,
+          "client_name": "OIF Aggregator - local",
+          "scopes": ["read-orders", "create-orders"],
+          "expiry_hours": 12
+        }
+      }
+    }
+  }
+}
+```
+
+Notes:
+- This config is owned by the aggregator, not by the solver.
+- The solver still decides whether `/orders` requires auth.
+- For local `oif-solver` self-registration, the solver also needs `JWT_SECRET` set and `AUTH_PUBLIC_REGISTER_ENABLED=true` in its environment.
+- If the solver restarts and invalidates cached tokens, the adapter will clear its stale token and retry once after a `401`.
+
 ### Aggregation Configuration
 
 ```json
