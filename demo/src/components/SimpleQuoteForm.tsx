@@ -62,11 +62,30 @@ export default function SimpleQuoteForm({ onSubmit, isLoading }: SimpleQuoteForm
     ? solverDataService.getCompatibleDestinations(formData.fromChain, formData.fromAsset.address)
     : { chains: [], assetsByChain: new Map<number, AssetInfo[]>() };
   
-  const toChains = compatibleDest.chains.length > 0
+  const toChains = formData.fromAsset && compatibleDest.chains.length > 0
     ? chains.filter((c) => compatibleDest.chains.includes(c.chainId))
     : chains;
   
-  const toAssets: AssetInfo[] = compatibleDest.assetsByChain.get(formData.toChain) || [];
+  const toAssets: AssetInfo[] = formData.fromAsset
+    ? compatibleDest.assetsByChain.get(formData.toChain) || []
+    : solverDataService.getAssetsByChain(formData.toChain);
+
+  useEffect(() => {
+    if (!formData.fromAsset || toChains.length === 0) {
+      return;
+    }
+
+    const currentToChainIsValid = toChains.some((chain) => chain.chainId === formData.toChain);
+    if (currentToChainIsValid) {
+      return;
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      toChain: toChains[0].chainId,
+      toAsset: null,
+    }));
+  }, [formData.fromAsset, formData.toChain, toChains]);
 
   // Update form field
   const updateField = <K extends keyof SimpleQuoteFormData>(
@@ -311,8 +330,12 @@ export default function SimpleQuoteForm({ onSubmit, isLoading }: SimpleQuoteForm
                 value={formData.toChain}
                 onChange={handleToChainChange}
                 placeholder="Select to network"
-                disabled={!formData.fromAsset}
               />
+              {!formData.fromAsset && (
+                <p className="text-slate-500 text-xs mt-1">
+                  Choose a source asset to narrow compatible destination networks.
+                </p>
+              )}
               {formData.fromAsset && toChains.length === 0 && (
                 <p className="text-yellow-400 text-xs mt-1">
                   No compatible destination networks found for this asset
@@ -326,7 +349,7 @@ export default function SimpleQuoteForm({ onSubmit, isLoading }: SimpleQuoteForm
                 value={formData.toAsset}
                 onChange={(asset) => updateField('toAsset', asset)}
                 placeholder="Select to asset"
-                disabled={!formData.fromAsset || toAssets.length === 0}
+                disabled={toAssets.length === 0}
               />
               {formData.fromAsset && formData.toChain && toAssets.length === 0 && (
                 <p className="text-yellow-400 text-xs mt-1">
@@ -428,4 +451,3 @@ export default function SimpleQuoteForm({ onSubmit, isLoading }: SimpleQuoteForm
     </form>
   );
 }
-
