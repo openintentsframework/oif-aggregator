@@ -116,6 +116,7 @@ const PERMIT2_TYPES = {
     { name: 'context', type: 'bytes' },
   ],
   Permit2Witness: [
+    { name: 'user', type: 'address' },
     { name: 'expires', type: 'uint32' },
     { name: 'inputOracle', type: 'address' },
     { name: 'outputs', type: 'MandateOutput[]' },
@@ -421,7 +422,7 @@ function reconstructPermit2Digest(payload: OrderPayload): Hex {
   const domainHash = keccak256(domainEncoded);
 
   // 2. Build type hash for PermitBatchWitnessTransferFrom
-  const permitType = 'PermitBatchWitnessTransferFrom(TokenPermissions[] permitted,address spender,uint256 nonce,uint256 deadline,Permit2Witness witness)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)Permit2Witness(uint32 expires,address inputOracle,MandateOutput[] outputs)TokenPermissions(address token,uint256 amount)';
+  const permitType = 'PermitBatchWitnessTransferFrom(TokenPermissions[] permitted,address spender,uint256 nonce,uint256 deadline,Permit2Witness witness)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)Permit2Witness(address user,uint32 expires,address inputOracle,MandateOutput[] outputs)TokenPermissions(address token,uint256 amount)';
   const typeHash = keccak256(toBytes(permitType));
 
   // 3. Extract message fields
@@ -491,9 +492,11 @@ function reconstructPermit2Digest(payload: OrderPayload): Hex {
   const outputsHash = keccak256(concatBytes(...outputHashes));
 
   // Build witness struct hash
-  const witnessTypeHash = keccak256(toBytes('Permit2Witness(uint32 expires,address inputOracle,MandateOutput[] outputs)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)'));
+  const witnessTypeHash = keccak256(toBytes('Permit2Witness(address user,uint32 expires,address inputOracle,MandateOutput[] outputs)MandateOutput(bytes32 oracle,bytes32 settler,uint256 chainId,bytes32 token,uint256 amount,bytes32 recipient,bytes callbackData,bytes context)'));
+  const witnessUser = (witness.user || message.witness?.user || '0x0000000000000000000000000000000000000000') as Address;
   const witnessEncoded = concatBytes(
     encodeBytes32(witnessTypeHash),
+    encodeAddress(witnessUser),
     encodeUint32(expires),
     encodeAddress(inputOracle),
     encodeBytes32(outputsHash)
