@@ -10,6 +10,11 @@ export const getRpcUrlForChain = (chainId: number): string => {
     return import.meta.env.VITE_MAINNET_RPC_URL;
   }
 
+  const chainSpecificRpcUrl = import.meta.env[`VITE_RPC_URL_${chainId}`];
+  if (chainSpecificRpcUrl) {
+    return chainSpecificRpcUrl;
+  }
+
   const publicRpcs: Record<number, string> = {
     [MAINNET_CHAIN_ID]: 'https://ethereum-rpc.publicnode.com',
     10: 'https://mainnet.optimism.io',
@@ -20,12 +25,16 @@ export const getRpcUrlForChain = (chainId: number): string => {
     43114: 'https://api.avax.network/ext/bc/C/rpc',
     11155111: 'https://ethereum-sepolia-rpc.publicnode.com',
     11155420: 'https://sepolia.optimism.io',
-    420: 'https://optimism-sepolia-rpc.publicnode.com',
     84532: 'https://sepolia.base.org',
     421614: 'https://sepolia-rollup.arbitrum.io/rpc',
+    // Legacy Polygon Mumbai; retained while polygonMumbai remains in wallet config.
     80001: 'https://polygon-mumbai-bor-rpc.publicnode.com',
   };
 
-  // Return chain-specific RPC or fallback to env var or default
-  return publicRpcs[chainId] || import.meta.env.VITE_RPC_URL || `https://rpc.ankr.com/eth`;
+  const rpcUrl = publicRpcs[chainId] || import.meta.env.VITE_DEFAULT_RPC;
+  if (!rpcUrl) {
+    throw new Error(`No RPC URL configured for chain ${chainId}`);
+  }
+
+  return rpcUrl;
 };
