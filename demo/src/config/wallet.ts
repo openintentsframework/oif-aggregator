@@ -1,47 +1,22 @@
 import { getDefaultConfig, lightTheme, darkTheme } from '@rainbow-me/rainbowkit';
 import { mainnet, optimism, arbitrum, base, polygon, bsc, avalanche, sepolia, optimismSepolia, arbitrumSepolia, baseSepolia, polygonMumbai } from 'wagmi/chains';
 import { http } from 'viem';
-
-// Get RPC URL from environment or use public endpoints
-const getRpcUrl = (chainId: number): string => {
-  const viteRpcUrl = import.meta.env.VITE_RPC_URL;
-  if (viteRpcUrl) {
-    return viteRpcUrl;
-  }
-  
-  // Fallback to public RPCs
-  const publicRpcs: Record<number, string> = {
-    1: 'https://eth.llamarpc.com',
-    10: 'https://mainnet.optimism.io',
-    42161: 'https://arbitrum.llamarpc.com',
-    8453: 'https://mainnet.base.org',
-    137: 'https://polygon.llamarpc.com',
-    56: 'https://bsc.llamarpc.com',
-    43114: 'https://avalanche.llamarpc.com',
-    11155111: 'https://sepolia.llamarpc.com',
-    420: 'https://optimism-sepolia.llamarpc.com',
-    421614: 'https://arbitrum-sepolia.llamarpc.com',
-    84532: 'https://base-sepolia.llamarpc.com',
-    80001: 'https://polygon-mumbai.llamarpc.com',
-  };
-  
-  return publicRpcs[chainId] || `https://${chainId}.rpc.thirdweb.com`;
-};
+import { getRpcUrlForChain } from '../utils/chainUtils';
 
 // Configure transports for each chain
 const transports = {
-  [mainnet.id]: http(getRpcUrl(mainnet.id)),
-  [optimism.id]: http(getRpcUrl(optimism.id)),
-  [arbitrum.id]: http(getRpcUrl(arbitrum.id)),
-  [base.id]: http(getRpcUrl(base.id)),
-  [polygon.id]: http(getRpcUrl(polygon.id)),
-  [bsc.id]: http(getRpcUrl(bsc.id)),
-  [avalanche.id]: http(getRpcUrl(avalanche.id)),
-  [sepolia.id]: http(getRpcUrl(sepolia.id)),
-  [optimismSepolia.id]: http(getRpcUrl(optimismSepolia.id)),
-  [arbitrumSepolia.id]: http(getRpcUrl(arbitrumSepolia.id)),
-  [baseSepolia.id]: http(getRpcUrl(baseSepolia.id)),
-  [polygonMumbai.id]: http(getRpcUrl(polygonMumbai.id)),
+  [mainnet.id]: http(getRpcUrlForChain(mainnet.id)),
+  [optimism.id]: http(getRpcUrlForChain(optimism.id)),
+  [arbitrum.id]: http(getRpcUrlForChain(arbitrum.id)),
+  [base.id]: http(getRpcUrlForChain(base.id)),
+  [polygon.id]: http(getRpcUrlForChain(polygon.id)),
+  [bsc.id]: http(getRpcUrlForChain(bsc.id)),
+  [avalanche.id]: http(getRpcUrlForChain(avalanche.id)),
+  [sepolia.id]: http(getRpcUrlForChain(sepolia.id)),
+  [optimismSepolia.id]: http(getRpcUrlForChain(optimismSepolia.id)),
+  [arbitrumSepolia.id]: http(getRpcUrlForChain(arbitrumSepolia.id)),
+  [baseSepolia.id]: http(getRpcUrlForChain(baseSepolia.id)),
+  [polygonMumbai.id]: http(getRpcUrlForChain(polygonMumbai.id)),
 };
 
 // Get project ID from environment or use a fallback
