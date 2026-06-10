@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "test": "vitest",
     "preview": "vite preview",
     "generate-types": "openapi-typescript ../docs/api/openapi.json -o ./src/types/api.ts",
     "format": "prettier --write ."
@@ -23,15 +24,20 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.19",
+    "happy-dom": "^20.8.9",
     "openapi-typescript": "^7.0.0",
     "postcss": "^8.4.38",
+    "prettier": "^3.6.2",
     "tailwindcss": "^3.4.4",
     "typescript": "^5.5.3",
     "vite": "^5.3.1",
-    "prettier": "^3.6.2"
+    "vitest": "^2.1.9"
   }
 }
